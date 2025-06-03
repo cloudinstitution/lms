@@ -1,16 +1,38 @@
-// lib/firebase.ts
+                // lib/firebase.ts
 
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 // Setup Firebase configuration with safeguards
-function getFirebaseConfig() {  if (typeof window !== 'undefined') {  // Only check on client-side
-    if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
-      console.error('Firebase configuration is missing. Please check your .env.local file and ensure it contains all required NEXT_PUBLIC_FIREBASE_* variables.');
-      throw new Error('Firebase configuration is missing. Please check your environment variables.');
-    }
+function getFirebaseConfig() {
+  const config = {
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+    measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+  };
+
+  // Check if any required config is missing
+  const missingKeys = Object.entries(config)
+    .filter(([_, value]) => !value)
+    .map(([key]) => key);
+
+  if (missingKeys.length > 0) {
+    console.error('Firebase config error:', {
+      message: 'Missing configuration',
+      missingKeys,
+      config: {
+        ...config,
+        apiKey: config.apiKey ? '***' : undefined // Hide API key in logs
+      }
+    });
+    throw new Error(`Firebase configuration is incomplete. Missing: ${missingKeys.join(', ')}`);
   }
+
   return {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
