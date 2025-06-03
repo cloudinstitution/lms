@@ -76,9 +76,10 @@ export default function LoginPage() {
         }
       }
 
-      setError("User not found. Please check your email.")
+      setError("User not found. Please check your email.")    
     } catch (err) {
-      setError("An error occurred. Please try again later.")
+      console.error("Login error:", err);
+      setError(err instanceof Error ? err.message : "An error occurred. Please try again later.")
     } finally {
       setIsLoading(false)
     }
