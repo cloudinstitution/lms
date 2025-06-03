@@ -1,13 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import {
-  collection,
-  onSnapshot,
-  query,
-  orderBy,
-} from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import StudentLayout from "@/components/student-layout"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -22,16 +15,25 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
+import { db } from "@/lib/firebase"
+import {
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  updateDoc,
+  writeBatch,
+} from "firebase/firestore"
 import {
   Bell,
   BookOpen,
   Calendar,
   CheckCircle,
   FileText,
-  Info,
-  MessageSquare,
+  Info
 } from "lucide-react"
-import StudentLayout from "@/components/student-layout"
+import { useEffect, useState } from "react"
 
 interface Notification {
   id: string
@@ -44,31 +46,50 @@ interface Notification {
 
 export default function StudentNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([])
-
   useEffect(() => {
+    // Query to get all notifications, explicitly fetch unread ones first
     const q = query(
       collection(db, "notifications"),
+      orderBy("read", "asc"),  // This will put unread (false) before read (true)
       orderBy("timestamp", "desc")
-    )
-
+    )    
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const updated = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Notification[]
+      const updated = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        // Make sure read property is always a boolean
+        const isRead = data.read === true;
+        return {
+          id: doc.id,
+          ...data,
+          read: isRead
+        }
+      }) as Notification[]
       setNotifications(updated)
     })
 
     return () => unsubscribe()
   }, [])
-
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
+    const batch = writeBatch(db);
+    notifications.forEach((n) => {
+      if (!n.read) {
+        const notifRef = doc(db, "notifications", n.id);
+        batch.update(notifRef, { read: true });
+      }
+    });
+    await batch.commit();
+    
     setNotifications((prev) =>
       prev.map((n) => ({ ...n, read: true }))
     )
   }
 
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
+    const notifRef = doc(db, "notifications", id);
+    await updateDoc(notifRef, {
+      read: true
+    });
+    
     setNotifications((prev) =>
       prev.map((n) =>
         n.id === id ? { ...n, read: true } : n
@@ -91,9 +112,8 @@ export default function StudentNotifications() {
       default:
         return <Bell className="h-5 w-5 text-muted-foreground" />
     }
-  }
-
-  const unread = notifications.filter((n) => !n.read)
+  }  // Filter notifications where read is explicitly false
+  const unread = notifications.filter((n) => n.read === false)
   const unreadCount = unread.length
 
   const renderList = (list: Notification[]) =>
@@ -101,7 +121,7 @@ export default function StudentNotifications() {
       list.map((n) => (
         <div
           key={n.id}
-          onClick={() => markAsRead(n.id)}
+          onClick={async () => await markAsRead(n.id)}
           className={`flex gap-4 p-4 rounded-lg border cursor-pointer ${
             !n.read ? "bg-muted/50 border-primary/20" : ""
           }`}
@@ -152,7 +172,7 @@ export default function StudentNotifications() {
             </p>
           </div>
           {unreadCount > 0 && (
-            <Button variant="outline" onClick={markAllAsRead}>
+            <Button variant="outline" onClick={async () => await markAllAsRead()}>
               Mark all as read
             </Button>
           )}

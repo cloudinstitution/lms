@@ -164,9 +164,6 @@ const AdminNotifications = () => {
                     <span className="bg-slate-50 px-2 py-1 rounded-full">
                       {notification.timestamp?.toDate ? notification.timestamp.toDate().toLocaleString() : "Just now"}
                     </span>
-                    <span className="bg-slate-50 px-2 py-1 rounded-full">
-                      {notification.read || 0}/{notification.recipients || 0} read
-                    </span>
                   </div>
                   <div className="mt-3 flex justify-end">
                     <Button
