@@ -1,29 +1,41 @@
 "use client"
 
-import type React from "react"
-import { useState, useEffect } from "react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { useTheme } from "next-themes"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { db } from "@/lib/firebase"
+import { clearSession, getStudentName } from "@/lib/session-storage"
+import { collection, DocumentData, onSnapshot, query } from "firebase/firestore"
 import {
+  Bell,
+  BookOpen,
+  Briefcase,
+  Code,
+  FileText,
   GraduationCap,
   LayoutDashboard,
-  BookOpen,
-  FileText,
-  Code,
-  User,
-  Bell,
-  QrCode,
-  Menu,
   LogOut,
-  Sun,
+  Menu,
   Moon,
-  Briefcase,
+  QrCode,
+  Sun,
+  User,
 } from "lucide-react"
-import { getStudentName, clearSession } from "@/lib/session-storage"
+import { useTheme } from "next-themes"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import type React from "react"
+import { useEffect, useState } from "react"
+
+interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  timestamp: any;
+  read?: boolean;
+  studentId?: string;
+}
 
 interface StudentLayoutProps {
   children: React.ReactNode
@@ -32,15 +44,41 @@ interface StudentLayoutProps {
 export default function StudentLayout({ children }: StudentLayoutProps) {
   const pathname = usePathname()
   const [isMounted, setIsMounted] = useState(false)
-  const [notificationCount, setNotificationCount] = useState(3)
+  const [notificationCount, setNotificationCount] = useState<number>(0)
   const [studentName, setStudentName] = useState<string | null>(null)
   const { theme, setTheme } = useTheme()
 
   useEffect(() => {
-    setIsMounted(true)
+    setIsMounted(true);
     // Get student name from localStorage
-    const name = getStudentName()
-    setStudentName(name || 'Student')
+    const name = getStudentName();
+    setStudentName(name || 'Student');
+
+    // Subscribe to unread notifications count
+    const notificationsCollection = collection(db, "notifications");
+    const q = query(notificationsCollection);
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const notifications = snapshot.docs.map(doc => {
+        const data = doc.data() as DocumentData;
+        return {
+          id: doc.id,
+          title: data.title || '',
+          message: data.message || '',
+          type: data.type || '',
+          timestamp: data.timestamp,
+          read: data.read === true
+        } as Notification;
+      });
+      
+      // Consider a notification unread unless it's explicitly marked as read=true
+      const unreadCount = notifications.filter(n => !n.read).length;
+      console.log('Notifications:', notifications);
+      console.log('Unread count:', unreadCount);
+      setNotificationCount(unreadCount);
+    });
+
+    return () => unsubscribe();
   }, [])
 
   if (!isMounted) {
