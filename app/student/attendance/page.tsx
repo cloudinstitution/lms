@@ -3,6 +3,7 @@
 import StudentLayout from "@/components/student-layout"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { attendanceService, type AttendanceSummary } from "@/lib/attendance-service"
 import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import { getStudentSession } from "@/lib/session-storage"
@@ -10,7 +11,6 @@ import { collection, onSnapshot, query, where } from "firebase/firestore"
 import { Calendar, CheckCircle, Clock, XCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { attendanceService, type AttendanceSummary } from "@/lib/attendance-service"
 
 interface BatchInfo {
   batchId: string
@@ -170,31 +170,30 @@ export default function StudentAttendance() {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900">Attendance</h1>
-            <p className="text-gray-600">Track your attendance status and history</p>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Attendance</h1>
+            <p className="text-muted-foreground">Track your attendance status and history</p>
           </div>
         </div>
 
         <div className="grid gap-6 md:grid-cols-3">
           <Card className="border-none shadow-md overflow-hidden">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-400 to-teal-500"></div>
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/80 to-primary"></div>
             <CardHeader>
-              <CardTitle className="text-gray-900">Attendance Summary</CardTitle>
-              <CardDescription>Your attendance for {attendanceData.currentMonth || "this month"}</CardDescription>
+              <CardTitle className="text-foreground font-semibold">Attendance Summary</CardTitle>
+              <CardDescription className="text-muted-foreground">Your attendance for {attendanceData.currentMonth || "this month"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {loading ? (
                 <div className="text-center py-4">
-                  <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-emerald-400 border-r-transparent"></div>
-                  <p className="mt-2 text-gray-600">Loading attendance data...</p>
+                  <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+                  <p className="mt-2 text-muted-foreground">Loading attendance data...</p>
                 </div>
               ) : (
                 <>
                   <div className="flex justify-center">
                     <div className="relative w-32 h-32">
                       <svg className="w-full h-full" viewBox="0 0 100 100">
-                        <circle
-                          className="text-gray-200 stroke-current"
+                        <circle                          className="text-muted stroke-current dark:text-muted/30"
                           strokeWidth="10"
                           cx="50"
                           cy="50"
@@ -202,7 +201,7 @@ export default function StudentAttendance() {
                           fill="transparent"
                         />
                         <circle
-                          className="text-emerald-500 stroke-current"
+                          className="text-emerald-500 dark:text-emerald-400 stroke-current"
                           strokeWidth="10"
                           strokeLinecap="round"
                           cx="50"
@@ -217,8 +216,7 @@ export default function StudentAttendance() {
                           x="50"
                           y="50"
                           dominantBaseline="middle"
-                          textAnchor="middle"
-                          className="text-2xl font-bold fill-gray-900"
+                          textAnchor="middle"                          className="text-2xl font-bold fill-foreground"
                         >
                           {attendanceData.percentage}%
                         </text>
@@ -226,29 +224,28 @@ export default function StudentAttendance() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 pt-2">
-                    <div className="text-center">
-                      <p className="text-xs text-gray-500">Total Days</p>
-                      <p className="text-lg font-bold text-gray-900">{attendanceData.totalDays}</p>
+                  <div className="grid grid-cols-3 gap-4 pt-2">                <div className="text-center">
+                      <p className="text-xs text-muted-foreground">Total Days</p>
+                      <p className="text-lg font-bold text-foreground">{attendanceData.totalDays}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-xs text-gray-500">Present</p>
-                      <p className="text-lg font-bold text-emerald-600">{attendanceData.presentDays}</p>
+                      <p className="text-xs text-muted-foreground">Present</p>
+                      <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{attendanceData.presentDays}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-xs text-gray-500">Absent</p>
-                      <p className="text-lg font-bold text-red-600">{attendanceData.absentDays}</p>
+                      <p className="text-xs text-muted-foreground">Absent</p>
+                      <p className="text-lg font-bold text-red-600 dark:text-red-400">{attendanceData.absentDays}</p>
                     </div>
                   </div>
 
                   <div className="mt-4 space-y-3 border-t pt-4">
                     <div className="flex justify-between items-center">
-                      <p className="text-sm text-gray-500">Total Hours</p>
-                      <p className="font-medium text-gray-900">{attendanceData.totalHours.toFixed(1)}h</p>
+                      <p className="text-sm text-muted-foreground">Total Hours</p>
+                      <p className="font-medium text-foreground">{attendanceData.totalHours.toFixed(1)}h</p>
                     </div>
                     <div className="flex justify-between items-center">
-                      <p className="text-sm text-gray-500">Average Hours/Day</p>
-                      <p className="font-medium text-gray-900">{attendanceData.averageHoursPerDay.toFixed(1)}h</p>
+                      <p className="text-sm text-muted-foreground">Average Hours/Day</p>
+                      <p className="font-medium text-foreground">{attendanceData.averageHoursPerDay.toFixed(1)}h</p>
                     </div>
                   </div>
                 </>
@@ -257,23 +254,23 @@ export default function StudentAttendance() {
           </Card>
 
           <Card className="md:col-span-2 border-none shadow-md overflow-hidden">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-400 to-teal-500"></div>
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/80 to-primary"></div>
             <CardHeader>
-              <CardTitle className="text-gray-900">Attendance Records</CardTitle>
-              <CardDescription>Daily attendance history</CardDescription>
+              <CardTitle className="text-foreground font-semibold">Attendance Records</CardTitle>
+              <CardDescription className="text-muted-foreground">Daily attendance history</CardDescription>
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="list">
-                <TabsList className="mb-4 bg-gray-100">
+                <TabsList className="mb-4 bg-muted/50">
                   <TabsTrigger
                     value="list"
-                    className="data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm"
+                    className="data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm"
                   >
                     List View
                   </TabsTrigger>
                   <TabsTrigger
                     value="calendar"
-                    className="data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm"
+                    className="data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm"
                   >
                     Calendar View
                   </TabsTrigger>
@@ -281,8 +278,8 @@ export default function StudentAttendance() {
                 <TabsContent value="list" className="space-y-4">
                   {loading ? (
                     <div className="text-center py-4">
-                      <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-emerald-400 border-r-transparent"></div>
-                      <p className="mt-2 text-gray-600">Loading attendance records...</p>
+                      <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+                      <p className="mt-2 text-muted-foreground">Loading attendance records...</p>
                     </div>
                   ) : (
                     <div className="max-h-[400px] overflow-y-auto pr-2">
@@ -296,8 +293,8 @@ export default function StudentAttendance() {
                               <div
                                 className={`w-10 h-10 rounded-full flex items-center justify-center ${
                                   record.status === "present"
-                                    ? "bg-emerald-100 text-emerald-600"
-                                    : "bg-red-100 text-red-600"
+                                    ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400"
+                                    : "bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400"
                                 }`}
                               >
                                 {record.status === "present" ? (
@@ -307,7 +304,7 @@ export default function StudentAttendance() {
                                 )}
                               </div>
                               <div>
-                                <p className="font-medium text-gray-900">
+                                <p className="font-medium text-foreground">
                                   {new Date(record.date).toLocaleDateString("en-US", {
                                     weekday: "short",
                                     month: "short",
@@ -315,28 +312,19 @@ export default function StudentAttendance() {
                                   })}
                                 </p>
                                 {record.status === "present" && (
-                                  <p className="text-xs text-gray-500">
+                                  <p className="text-xs text-muted-foreground">
                                     {record.time && `Marked at ${record.time}`}
                                     {record.hoursSpent > 0 && ` • ${record.hoursSpent}h spent`}
                                   </p>
                                 )}
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p
-                                className={`text-sm font-medium ${
-                                  record.status === "present" ? "text-emerald-600" : "text-red-600"
-                                }`}
-                              >
-                                {record.status === "present" ? "Present" : "Absent"}
-                              </p>
-                            </div>
                           </div>
                         ))
                       ) : (
-                        <div className="text-center py-8 bg-gray-50 rounded-lg">
-                          <Calendar className="h-10 w-10 text-gray-400 mx-auto mb-2" />
-                          <p className="text-gray-600">No attendance records found for this month</p>
+                        <div className="text-center py-8 bg-muted/30 rounded-lg">
+                          <Calendar className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-muted-foreground">No attendance records found for this month</p>
                         </div>
                       )}
                     </div>
@@ -346,7 +334,7 @@ export default function StudentAttendance() {
                   <div className="border rounded-md p-4">
                     <div className="grid grid-cols-7 gap-1 text-center mb-2">
                       {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                        <div key={day} className="text-xs font-medium text-gray-500 py-1">
+                        <div key={day} className="text-xs font-medium text-muted-foreground py-1">
                           {day}
                         </div>
                       ))}
@@ -357,28 +345,22 @@ export default function StudentAttendance() {
                         const year = today.getFullYear()
                         const month = today.getMonth()
 
-                        // Get first day of month and how many days to show before it
                         const firstDayOfMonth = new Date(year, month, 1)
                         const dayOffset = firstDayOfMonth.getDay()
 
-                        // Get last day of month
                         const lastDayOfMonth = new Date(year, month + 1, 0)
                         const daysInMonth = lastDayOfMonth.getDate()
 
-                        // Calculate total days to display (including padding)
                         const totalDays = dayOffset + daysInMonth
                         const totalCells = Math.ceil(totalDays / 7) * 7
 
                         return Array.from({ length: totalCells }).map((_, index) => {
-                          // Calculate the day number
                           const day = index - dayOffset + 1
                           const isCurrentMonth = day > 0 && day <= daysInMonth
 
-                          // Create date string for comparison with records
                           const currentDate = new Date(year, month, day)
                           const dateString = isCurrentMonth ? formatDateToString(currentDate) : ""
 
-                          // Find if we have a record for this day
                           const record = attendanceData.dailyRecords.find((r) => r.date === dateString)
                           const isToday = isCurrentMonth && day === today.getDate()
 
@@ -388,20 +370,20 @@ export default function StudentAttendance() {
                               className={`aspect-square flex flex-col items-center justify-center rounded-md text-sm ${
                                 isCurrentMonth
                                   ? isToday
-                                    ? "border-2 border-emerald-500 font-bold"
+                                    ? "border-2 border-primary text-primary font-bold"
                                     : record
                                       ? record.status === "present"
-                                        ? "bg-emerald-100 text-emerald-700"
-                                        : "bg-red-100 text-red-700"
-                                      : "bg-white hover:bg-gray-50"
-                                  : "text-gray-400 bg-gray-50"
+                                        ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                                        : "bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300"
+                                      : "bg-background hover:bg-muted/50"
+                                  : "text-muted-foreground bg-muted/30"
                               }`}
                             >
                               {isCurrentMonth && day}
                               {record && (
                                 <div
                                   className={`w-2 h-2 rounded-full mt-1 ${
-                                    record.status === "present" ? "bg-emerald-600" : "bg-red-600"
+                                    record.status === "present" ? "bg-emerald-600 dark:bg-emerald-400" : "bg-red-600 dark:bg-red-400"
                                   }`}
                                 ></div>
                               )}
@@ -418,26 +400,25 @@ export default function StudentAttendance() {
         </div>
 
         <Card className="border-none shadow-md overflow-hidden">
-          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-400 to-teal-500"></div>
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/80 to-primary"></div>
           <CardHeader>
-            <CardTitle className="text-gray-900">Batch Information</CardTitle>
-            <CardDescription>Your current batch details</CardDescription>
+            <CardTitle className="text-foreground font-semibold">Batch Information</CardTitle>
+            <CardDescription className="text-muted-foreground">Your current batch details</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-500">Start Date</p>
-                    <p className="font-medium text-gray-900">{batchInfo.startDate}</p>
+                <div className="grid grid-cols-2 gap-4">                <div>
+                    <p className="text-sm text-muted-foreground">Start Date</p>
+                    <p className="font-medium text-foreground">{batchInfo.startDate}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">End Date</p>
-                    <p className="font-medium text-gray-900">{batchInfo.endDate}</p>
+                    <p className="text-sm text-muted-foreground">End Date</p>
+                    <p className="font-medium text-foreground">{batchInfo.endDate}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Duration</p>
-                    <p className="font-medium text-gray-900">{batchInfo.duration}</p>
+                    <p className="text-sm text-muted-foreground">Duration</p>
+                    <p className="font-medium text-foreground">{batchInfo.duration}</p>
                   </div>
                 </div>
                 <div>
@@ -445,28 +426,26 @@ export default function StudentAttendance() {
                   <p className="font-medium text-gray-900">{batchInfo.instructors.join(", ") || "N/A"}</p>
                 </div>
               </div>
-              <div>
-                <p className="text-sm text-gray-500 mb-2">Class Schedule</p>
-                <div className="space-y-2 bg-gray-50 rounded-lg p-4">
-                  <div className="flex justify-between py-2 border-b border-gray-200">
-                    <p className="font-medium text-gray-900">Monday - Friday</p>
-                    <p className="text-gray-700">{batchInfo.schedule.weekdays}</p>
+              <div>                  <p className="text-sm text-muted-foreground mb-2">Class Schedule</p>
+                <div className="space-y-2 bg-muted/50 rounded-lg p-4">
+                  <div className="flex justify-between py-2 border-b border-border">
+                    <p className="font-medium text-foreground">Monday - Friday</p>
+                    <p className="text-muted-foreground">{batchInfo.schedule.weekdays}</p>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-gray-200">
-                    <p className="font-medium text-gray-900">Lab Sessions</p>
-                    <p className="text-gray-700">{batchInfo.schedule.labSessions}</p>
+                  <div className="flex justify-between py-2 border-b border-border">
+                    <p className="font-medium text-foreground">Lab Sessions</p>
+                    <p className="text-muted-foreground">{batchInfo.schedule.labSessions}</p>
                   </div>
                   <div className="flex justify-between py-2">
-                    <p className="font-medium text-gray-900">Weekend Sessions</p>
-                    <p className="text-gray-700">{batchInfo.schedule.weekend}</p>
+                    <p className="font-medium text-foreground">Weekend Sessions</p>
+                    <p className="text-muted-foreground">{batchInfo.schedule.weekend}</p>
                   </div>
                 </div>
               </div>
             </div>
-          </CardContent>
-          <CardFooter className="bg-gray-50">
-            <p className="text-sm text-gray-600 flex items-center">
-              <Clock className="h-4 w-4 mr-2 text-emerald-600" />
+          </CardContent>          <CardFooter className="bg-muted/50">
+            <p className="text-sm text-muted-foreground flex items-center">
+              <Clock className="h-4 w-4 mr-2 text-emerald-600 dark:text-emerald-400" />
               Attendance is marked daily at 10:00 AM by your instructor.
             </p>
           </CardFooter>

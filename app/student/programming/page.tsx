@@ -1,18 +1,18 @@
 "use client"
 
 import StudentLayout from "@/components/student-layout"
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { AlertCircle, Clock, FileCode } from "lucide-react"
-import { collection, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { getTaskStatus } from "@/lib/task-status-service"
 import { getStudentSession } from "@/lib/session-storage"
+import { getTaskStatus } from "@/lib/task-status-service"
+import { collection, getDocs } from "firebase/firestore"
+import { AlertCircle, Clock, FileCode } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 // Define types
 interface Submission {
@@ -231,9 +231,16 @@ export default function StudentProgrammingPage() {
                           "No deadline"
                         )}
                       </TableCell>
-                      <TableCell>{getStatusBadge(task.id)}</TableCell>
-                      <TableCell>
-                        <Button variant="default" size="sm" onClick={() => startTask(task.id)}>
+                      <TableCell>{getStatusBadge(task.id)}</TableCell>                      <TableCell>
+                        <Button 
+                          variant="default" 
+                          size="sm" 
+                          onClick={() => startTask(task.id)}
+                          className={taskStatuses[task.id]?.passed 
+                            ? "bg-teal-500 hover:bg-teal-600 text-white dark:bg-teal-600 dark:hover:bg-teal-700"
+                            : "bg-amber-500 hover:bg-amber-600 text-white dark:bg-amber-600 dark:hover:bg-amber-700"
+                          }
+                        >
                           {getTaskButtonText(task.id)}
                         </Button>
                       </TableCell>

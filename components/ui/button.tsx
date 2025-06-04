@@ -1,6 +1,6 @@
-import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
+import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -18,6 +18,12 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        // Add semantic color variants
+        success: "bg-success text-success-foreground hover:bg-success/90",
+        info: "bg-info text-info-foreground hover:bg-info/90",
+        warning: "bg-warning text-warning-foreground hover:bg-warning/90",
+        danger: "bg-danger text-danger-foreground hover:bg-danger/90",
+        purple: "bg-purple text-purple-foreground hover:bg-purple/90",
       },
       size: {
         default: "h-10 px-4 py-2",

@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { BrowserQRCodeReader } from "@zxing/browser"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Loader2, CheckCircle, XCircle } from "lucide-react"
 import { processAttendanceQRCode } from "@/lib/attendance-utils"
+import { BrowserQRCodeReader } from "@zxing/browser"
+import { CheckCircle, Loader2, XCircle } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 interface AttendanceScannerProps {
   onAttendanceMarked?: () => void // Callback for successful scan
@@ -134,14 +134,14 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       <div className="w-full max-w-md relative">
         <video
           ref={videoRef}
-          className={`w-full aspect-video border-2 rounded-lg ${scanning ? "border-primary" : "border-muted"}`}
+          className={`w-full aspect-video border-2 rounded-lg bg-muted dark:bg-muted/20 ${scanning ? "border-primary" : "border-muted"}`}
         />
 
         {status === "scanning" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg">
+          <div className="absolute inset-0 flex items-center justify-center bg-background/10 dark:bg-background/20 backdrop-blur-sm rounded-lg">
             <div className="flex flex-col items-center">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="mt-2 text-sm font-medium">Scanning...</p>
+              <p className="mt-2 text-sm font-medium text-foreground">Scanning...</p>
             </div>
           </div>
         )}
@@ -150,23 +150,23 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       {cameraError && (
         <Alert variant="destructive" className="max-w-md">
           <XCircle className="h-4 w-4" />
-          <AlertTitle>Camera Error</AlertTitle>
-          <AlertDescription>{cameraError}</AlertDescription>
+          <AlertTitle className="text-foreground">Camera Error</AlertTitle>
+          <AlertDescription className="text-muted-foreground">{cameraError}</AlertDescription>
         </Alert>
       )}
 
-      {status !== "idle" && !cameraError && (
-        <Alert
-          variant={status === "success" ? "default" : status === "error" ? "destructive" : "default"}
-          className="max-w-md"
-        >
-          {status === "success" && <CheckCircle className="h-4 w-4" />}
-          {status === "error" && <XCircle className="h-4 w-4" />}
-          <AlertTitle>{status === "success" ? "Success" : status === "error" ? "Error" : "Scanning"}</AlertTitle>
-          <AlertDescription>
+      {(status === "success" || status === "error" || scanning) && (
+        <Alert className="bg-card border-muted-foreground/20">
+          {scanning && <Loader2 className="h-4 w-4 animate-spin" />}
+          {status === "success" && <CheckCircle className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />}
+          {status === "error" && <XCircle className="h-4 w-4 text-red-500 dark:text-red-400" />}
+          <AlertTitle className="text-foreground">
+            {status === "success" ? "Success" : status === "error" ? "Error" : "Scanning"}
+          </AlertTitle>
+          <AlertDescription className="text-muted-foreground">
             {message}
             {studentName && (status === "success" || status === "error") && (
-              <p className="font-medium mt-1">Student: {studentName}</p>
+              <p className="font-medium mt-1 text-foreground">Student: {studentName}</p>
             )}
           </AlertDescription>
         </Alert>

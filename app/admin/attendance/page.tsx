@@ -115,20 +115,24 @@ export default function AdminAttendancePage() {
 
   return (
     <div className="container mx-auto py-10">
-      <h1 className="text-3xl font-bold mb-6">Attendance Management</h1>
+      <h1 className="text-3xl font-bold mb-6 text-foreground">Attendance Management</h1>
 
       <Tabs defaultValue="manual">
-        <TabsList className="mb-6">
-          <TabsTrigger value="manual">Manual Attendance</TabsTrigger>
-          <TabsTrigger value="scanner">Attendance Scanner</TabsTrigger>
+        <TabsList className="mb-6 bg-muted/50">
+          <TabsTrigger value="manual" className="data-[state=active]:bg-background data-[state=active]:text-primary">
+            Manual Attendance
+          </TabsTrigger>
+          <TabsTrigger value="scanner" className="data-[state=active]:bg-background data-[state=active]:text-primary">
+            Attendance Scanner
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="manual">
           <div className="grid gap-6 md:grid-cols-[300px_1fr]">
             <Card>
               <CardHeader>
-                <CardTitle>Select Date</CardTitle>
-                <CardDescription>Choose a date to view or mark attendance</CardDescription>
+                <CardTitle className="text-foreground">Select Date</CardTitle>
+                <CardDescription className="text-muted-foreground">Choose a date to view or mark attendance</CardDescription>
               </CardHeader>
               <CardContent>
                 <Calendar mode="single" selected={date} onSelect={setDate} className="rounded-md border" />
@@ -147,8 +151,8 @@ export default function AdminAttendancePage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Student Attendance</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-foreground">Student Attendance</CardTitle>
+                <CardDescription className="text-muted-foreground">
                   {date ? `Attendance for ${date.toLocaleDateString()}` : "Select a date to view attendance"}
                 </CardDescription>
               </CardHeader>
@@ -156,14 +160,14 @@ export default function AdminAttendancePage() {
                 {loading ? (
                   <div className="flex justify-center items-center py-10">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <span className="ml-2">Loading students...</span>
+                    <span className="ml-2 text-muted-foreground">Loading students...</span>
                   </div>
                 ) : students.length > 0 ? (
                   <div className="space-y-4">
                     {students.map((student) => (
-                      <div key={student.id} className="flex items-center justify-between p-3 border rounded-md">
+                      <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:bg-muted/50 transition-colors">
                         <div>
-                          <p className="font-medium">{student.name}</p>
+                          <p className="font-medium text-foreground">{student.name}</p>
                           <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
                         </div>
                         <div className="flex gap-2">
@@ -171,6 +175,7 @@ export default function AdminAttendancePage() {
                             size="sm"
                             variant={student.present ? "default" : "outline"}
                             onClick={() => markAttendance(student.id, student.customId, student.name, true)}
+                            className="bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white"
                           >
                             Present
                           </Button>
@@ -186,8 +191,9 @@ export default function AdminAttendancePage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-10">
-                    <p className="text-muted-foreground">No students found</p>
+                  <div className="text-center py-10 bg-muted/30 rounded-lg">
+                    <p className="text-muted-foreground">No students found for this date</p>
+                    <p className="text-sm text-muted-foreground mt-1">Try selecting a different date</p>
                   </div>
                 )}
               </CardContent>
@@ -198,8 +204,8 @@ export default function AdminAttendancePage() {
         <TabsContent value="scanner">
           <Card>
             <CardHeader>
-              <CardTitle>QR Code Scanner</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-foreground">QR Code Scanner</CardTitle>
+              <CardDescription className="text-muted-foreground">
                 Scan student QR codes to mark attendance for {date?.toLocaleDateString() || "today"}
               </CardDescription>
             </CardHeader>
