@@ -103,11 +103,16 @@ export default function AssessmentsPage() {
     <StudentLayout>
       <div className="p-4 max-w-4xl mx-auto">
         <h2 className="text-2xl font-semibold mb-6">Available Assessments</h2>        <div className="flex justify-between mb-4">
-          <div className="text-lg font-semibold text-slate-800">
+          <div className="text-lg font-semibold text-foreground">
             Course: {student.courseName}
           </div>
           <Link href="/student/assessments/results">
-            <Button variant="outline">View Results</Button>
+            <Button 
+              variant="outline"
+              className="border-violet-200 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-800 dark:hover:bg-violet-950 dark:hover:text-violet-300"
+            >
+              View Results
+            </Button>
           </Link>
         </div>
 
@@ -135,23 +140,23 @@ export default function AssessmentsPage() {
                         return (
                           <Card
                             key={quiz.id}
-                            className={`overflow-hidden border-gray-200 ${
-                              hasCompleted ? "bg-gray-50" : ""
+                            className={`overflow-hidden border-border dark:border-border ${
+                              hasCompleted ? "bg-muted/50" : ""
                             }`}
                           >
                             <CardContent className="p-4">
                               <div className="flex justify-between items-start mb-1">
-                                <h4 className="font-medium text-lg">
+                                <h4 className="font-medium text-lg text-foreground">
                                   Topic: {quiz.topic}
                                 </h4>
                                 {hasCompleted && (
-                                  <div className="flex items-center text-green-600 text-sm">
+                                  <div className="flex items-center text-emerald-600 dark:text-emerald-400 text-sm">
                                     <CheckCircle className="h-4 w-4 mr-1" />
                                     <span>Completed</span>
                                   </div>
                                 )}
                               </div>
-                              <p className="text-sm mb-4">
+                              <p className="text-sm mb-4 text-muted-foreground">
                                 {quiz.questions?.length || 0} questions
                               </p>
 
@@ -163,19 +168,25 @@ export default function AssessmentsPage() {
                                     className="w-full opacity-70"
                                   >
                                     Already Completed
-                                  </Button>
-                                  <Link
+                                  </Button>                                  <Link
                                     href={`/student/assessments/results/${quiz.id}`}
                                     className="ml-2"
                                   >
-                                    <Button variant="secondary" className="w-full">
+                                    <Button 
+                                      variant="secondary"
+                                      className="w-full bg-teal-500 text-white hover:bg-teal-600 dark:bg-teal-600 dark:hover:bg-teal-700"
+                                    >
                                       View Results
                                     </Button>
                                   </Link>
                                 </div>
                               ) : (
                                 <Link href={`/student/assessments/${quiz.id}`}>
-                                  <Button className="w-full">Attempt Quiz</Button>
+                                  <Button 
+                                    className="w-full bg-violet-500 text-white hover:bg-violet-600 dark:bg-violet-600 dark:hover:bg-violet-700"
+                                  >
+                                    Attempt Quiz
+                                  </Button>
                                 </Link>
                               )}
                             </CardContent>

@@ -1,16 +1,17 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 interface MonacoEditorProps {
   value: string
   onChange: (value: string) => void
   language: string
   height?: string
+  theme?: "vs-dark" | "light"
 }
 
-export default function MonacoEditor({ value, onChange, language, height = "400px" }: MonacoEditorProps) {
+export default function MonacoEditor({ value, onChange, language, height = "400px", theme = "vs-dark" }: MonacoEditorProps) {
   const editorRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(true)
@@ -61,13 +62,11 @@ export default function MonacoEditor({ value, onChange, language, height = "400p
               }
               return "/monaco-editor-workers/editor.worker.js"
             },
-          }
-
-          // Create editor
+          }          // Create editor
           const newEditor = monacoModule.editor.create(containerRef.current, {
             value,
             language: getMonacoLanguage(language),
-            theme: "vs-dark",
+            theme: theme,
             automaticLayout: true,
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
@@ -124,6 +123,13 @@ export default function MonacoEditor({ value, onChange, language, height = "400p
       }
     }
   }, [language, editor, monaco])
+
+  // Update theme when it changes
+  useEffect(() => {
+    if (editor && monaco) {
+      monaco.editor.setTheme(theme)
+    }
+  }, [theme, editor, monaco])
 
   return (
     <div style={{ width: "100%", height, position: "relative" }}>
