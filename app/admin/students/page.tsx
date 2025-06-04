@@ -23,7 +23,6 @@ import { Label } from "@/components/ui/label"
 import { Plus, Search, MoreVertical, Edit, Trash2, Eye, Mail } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import AdminLayout from "@/components/admin-layout"
 
 // EmailJS Config
 const SERVICE_ID = "service_0wpennn"
@@ -322,15 +321,13 @@ export default function AdminStudents() {
       return dateString
     }
   }
-
   return (
-    <AdminLayout>
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Students</h1>
-            <p className="text-muted-foreground">Manage your student enrollments</p>
-          </div>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Students</h1>
+          <p className="text-muted-foreground">Manage your student enrollments</p>
+        </div>
           <Button className="gap-1" onClick={handleAddStudentRedirect}>
             <Plus className="h-4 w-4" /> Add Student
           </Button>
@@ -630,9 +627,7 @@ export default function AdminStudents() {
                 Send Email
               </Button>
             </DialogFooter>
-          </DialogContent>
-        </Dialog>
+          </DialogContent>        </Dialog>
       </div>
-    </AdminLayout>
   )
 }

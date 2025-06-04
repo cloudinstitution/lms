@@ -62,12 +62,19 @@ export default function LoginPage() {
         }
       }      // Check admin collection
       const adminQuery = query(collection(db, "admin"), where("username", "==", formData.email))
-      const adminSnapshot = await getDocs(adminQuery)
-      
+      const adminSnapshot = await getDocs(adminQuery)      
       if (!adminSnapshot.empty) {
         const userDoc = adminSnapshot.docs[0].data()
-        if (userDoc.password === userDoc.password && userDoc.roleId === 1) {
+        if (userDoc.password === formData.password && userDoc.roleId === 1) {
+          // Store admin data
+          const adminData = {
+            id: adminSnapshot.docs[0].id,
+            username: userDoc.username,
+            roleId: userDoc.roleId,
+            name: userDoc.name || undefined
+          }
           setAdminSession(true)
+          localStorage.setItem('adminData', JSON.stringify(adminData))
           router.push("/admin/dashboard")
           return
         } else {
