@@ -10,7 +10,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import AdminLayout from "@/components/admin-layout"
 
 // ✅ EmailJS Config
 const SERVICE_ID = "service_0wpennn"
@@ -134,185 +133,183 @@ export default function AdminDashboard() {
   }
 
   return (
-    <AdminLayout>
-      <div className="space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-            Admin Dashboard
-          </h1>
-          <p className="text-muted-foreground">Add new students and send them login credentials</p>
-        </div>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+          Admin Dashboard
+        </h1>
+        <p className="text-muted-foreground">Add new students and send them login credentials</p>
+      </div>
 
-        <Card className="border-primary/20 shadow-lg overflow-hidden">
-          <CardHeader className="bg-muted/30 border-b border-primary/10">
-            <CardTitle className="text-primary">Create New Student</CardTitle>
-            <CardDescription>Student will receive login credentials via email</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <form onSubmit={handleCreateStudent} className="space-y-5">
-              {error && (
-                <div className="p-3 text-sm bg-destructive/10 border border-destructive/20 text-destructive rounded-md animate-in fade-in-50 slide-in-from-bottom-5">
-                  {error}
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-2">
-                  <Label htmlFor="student-name" className="text-sm font-medium">
-                    Full Name
-                  </Label>
-                  <Input
-                    id="student-name"
-                    type="text"
-                    value={newStudent.name}
-                    onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
-                    placeholder="John Doe"
-                    required
-                    className="border-primary/20 focus-visible:ring-primary/30"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="student-username" className="text-sm font-medium">
-                    Student Email
-                  </Label>
-                  <Input
-                    id="student-username"
-                    type="email"
-                    value={newStudent.username}
-                    onChange={(e) => setNewStudent({ ...newStudent, username: e.target.value })}
-                    placeholder="student@example.com"
-                    required
-                    className="border-primary/20 focus-visible:ring-primary/30"
-                  />
-                </div>
+      <Card className="border-primary/20 shadow-lg overflow-hidden">
+        <CardHeader className="bg-muted/30 border-b border-primary/10">
+          <CardTitle className="text-primary">Create New Student</CardTitle>
+          <CardDescription>Student will receive login credentials via email</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <form onSubmit={handleCreateStudent} className="space-y-5">
+            {error && (
+              <div className="p-3 text-sm bg-destructive/10 border border-destructive/20 text-destructive rounded-md animate-in fade-in-50 slide-in-from-bottom-5">
+                {error}
               </div>
+            )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-2">
-                  <Label htmlFor="student-password" className="text-sm font-medium">
-                    Password
-                  </Label>
-                  <Input
-                    id="student-password"
-                    type="password"
-                    value={newStudent.password}
-                    onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
-                    required
-                    className="border-primary/20 focus-visible:ring-primary/30"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="student-phone" className="text-sm font-medium">
-                    Phone Number
-                  </Label>
-                  <Input
-                    id="student-phone"
-                    type="text"
-                    value={newStudent.phoneNumber}
-                    onChange={(e) => setNewStudent({ ...newStudent, phoneNumber: e.target.value })}
-                    placeholder="123-456-7890"
-                    required
-                    className="border-primary/20 focus-visible:ring-primary/30"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-2">
-                  <Label htmlFor="student-courses-enrolled" className="text-sm font-medium">
-                    Courses Enrolled
-                  </Label>
-                  <Input
-                    id="student-courses-enrolled"
-                    type="number"
-                    value={newStudent.coursesEnrolled}
-                    onChange={(e) => setNewStudent({ ...newStudent, coursesEnrolled: Number(e.target.value) })}
-                    required
-                    className="border-primary/20 focus-visible:ring-primary/30"
-                    min="0"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="student-id" className="text-sm font-medium">
-                    Student ID
-                  </Label>
-                  <Input
-                    id="student-id"
-                    type="text"
-                    value={newStudent.studentId}
-                    readOnly
-                    placeholder="CI2025001"
-                    required
-                    className="border-primary/20 focus-visible:ring-primary/30 bg-muted/20"
-                  />
-                  <p className="text-xs text-muted-foreground">Auto-generated ID</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div className="space-y-2">
-                  <Label htmlFor="student-joined-date" className="text-sm font-medium">
-                    Joined Date
-                  </Label>
-                  <Input
-                    id="student-joined-date"
-                    type="date"
-                    value={newStudent.joinedDate.slice(0, 10)}
-                    onChange={(e) => setNewStudent({ ...newStudent, joinedDate: e.target.value })}
-                    required
-                    className="border-primary/20 focus-visible:ring-primary/30"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="student-course-name" className="text-sm font-medium">
-                    Course Name
-                  </Label>
-                  <Input
-                    id="student-course-name"
-                    type="text"
-                    value={newStudent.courseName}
-                    onChange={(e) => setNewStudent({ ...newStudent, courseName: e.target.value })}
-                    placeholder="Course Name"
-                    required
-                    className="border-primary/20 focus-visible:ring-primary/30"
-                  />
-                </div>
-              </div>
-
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-2">
-                <Label htmlFor="student-course-id" className="text-sm font-medium">
-                  Course ID
+                <Label htmlFor="student-name" className="text-sm font-medium">
+                  Full Name
                 </Label>
                 <Input
-                  id="student-course-id"
+                  id="student-name"
+                  type="text"
+                  value={newStudent.name}
+                  onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
+                  placeholder="John Doe"
+                  required
+                  className="border-primary/20 focus-visible:ring-primary/30"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="student-username" className="text-sm font-medium">
+                  Student Email
+                </Label>
+                <Input
+                  id="student-username"
+                  type="email"
+                  value={newStudent.username}
+                  onChange={(e) => setNewStudent({ ...newStudent, username: e.target.value })}
+                  placeholder="student@example.com"
+                  required
+                  className="border-primary/20 focus-visible:ring-primary/30"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <Label htmlFor="student-password" className="text-sm font-medium">
+                  Password
+                </Label>
+                <Input
+                  id="student-password"
+                  type="password"
+                  value={newStudent.password}
+                  onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
+                  required
+                  className="border-primary/20 focus-visible:ring-primary/30"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="student-phone" className="text-sm font-medium">
+                  Phone Number
+                </Label>
+                <Input
+                  id="student-phone"
+                  type="text"
+                  value={newStudent.phoneNumber}
+                  onChange={(e) => setNewStudent({ ...newStudent, phoneNumber: e.target.value })}
+                  placeholder="123-456-7890"
+                  required
+                  className="border-primary/20 focus-visible:ring-primary/30"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <Label htmlFor="student-courses-enrolled" className="text-sm font-medium">
+                  Courses Enrolled
+                </Label>
+                <Input
+                  id="student-courses-enrolled"
                   type="number"
-                  value={newStudent.courseID}
-                  onChange={(e) => setNewStudent({ ...newStudent, courseID: e.target.value })}
-                  placeholder="Enter course ID"
+                  value={newStudent.coursesEnrolled}
+                  onChange={(e) => setNewStudent({ ...newStudent, coursesEnrolled: Number(e.target.value) })}
                   required
                   className="border-primary/20 focus-visible:ring-primary/30"
                   min="0"
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="student-id" className="text-sm font-medium">
+                  Student ID
+                </Label>
+                <Input
+                  id="student-id"
+                  type="text"
+                  value={newStudent.studentId}
+                  readOnly
+                  placeholder="CI2025001"
+                  required
+                  className="border-primary/20 focus-visible:ring-primary/30 bg-muted/20"
+                />
+                <p className="text-xs text-muted-foreground">Auto-generated ID</p>
+              </div>
+            </div>
 
-              <Button
-                type="submit"
-                disabled={isCreatingStudent}
-                className="w-full md:w-auto bg-gradient-to-r from-primary to-primary/80 hover:opacity-90 transition-all shadow-md"
-              >
-                {isCreatingStudent ? (
-                  <div className="flex items-center">
-                    <span className="animate-spin h-4 w-4 mr-2 border-2 border-background border-t-transparent rounded-full"></span>
-                    Creating...
-                  </div>
-                ) : (
-                  "Create Student & Send Email"
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </AdminLayout>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <Label htmlFor="student-joined-date" className="text-sm font-medium">
+                  Joined Date
+                </Label>
+                <Input
+                  id="student-joined-date"
+                  type="date"
+                  value={newStudent.joinedDate.slice(0, 10)}
+                  onChange={(e) => setNewStudent({ ...newStudent, joinedDate: e.target.value })}
+                  required
+                  className="border-primary/20 focus-visible:ring-primary/30"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="student-course-name" className="text-sm font-medium">
+                  Course Name
+                </Label>
+                <Input
+                  id="student-course-name"
+                  type="text"
+                  value={newStudent.courseName}
+                  onChange={(e) => setNewStudent({ ...newStudent, courseName: e.target.value })}
+                  placeholder="Course Name"
+                  required
+                  className="border-primary/20 focus-visible:ring-primary/30"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="student-course-id" className="text-sm font-medium">
+                Course ID
+              </Label>
+              <Input
+                id="student-course-id"
+                type="number"
+                value={newStudent.courseID}
+                onChange={(e) => setNewStudent({ ...newStudent, courseID: e.target.value })}
+                placeholder="Enter course ID"
+                required
+                className="border-primary/20 focus-visible:ring-primary/30"
+                min="0"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={isCreatingStudent}
+              className="w-full md:w-auto bg-gradient-to-r from-primary to-primary/80 hover:opacity-90 transition-all shadow-md"
+            >
+              {isCreatingStudent ? (
+                <div className="flex items-center">
+                  <span className="animate-spin h-4 w-4 mr-2 border-2 border-background border-t-transparent rounded-full"></span>
+                  Creating...
+                </div>
+              ) : (
+                "Create Student & Send Email"
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   )
 }

@@ -6,6 +6,7 @@ export const SESSION_KEYS = {
   STUDENT_NAME: 'studentName',
   STUDENT_DATA: 'studentData',
   IS_ADMIN: 'isAdmin',
+  ADMIN_DATA: 'adminData',
   SESSION_EXPIRY: 'sessionExpiry',
 }
 
@@ -168,4 +169,20 @@ export function setAdminSession(isAdmin: boolean): void {
  */
 export function isAdminSession(): boolean {
   return getSessionItem<boolean>(SESSION_KEYS.IS_ADMIN) || false
+}
+
+export interface AdminData {
+  id: string;
+  username: string;
+  roleId: number;
+  name?: string;
+}
+
+export function storeAdminSession(adminData: AdminData): void {
+  setSessionItem(SESSION_KEYS.ADMIN_DATA, adminData);
+  setSessionItem(SESSION_KEYS.IS_ADMIN, true);
+}
+
+export function getAdminSession(): AdminData | null {
+  return getSessionItem<AdminData>(SESSION_KEYS.ADMIN_DATA);
 }
