@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Trash2, Plus, Edit, Save, X, Building, MessageSquare, Search } from "lucide-react"
 import { db } from "@/lib/firebase"
-import { collection, addDoc, deleteDoc, getDocs, doc, updateDoc, query, orderBy, where } from "firebase/firestore"
+import { addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, updateDoc, where } from "firebase/firestore"
+import { Building, Edit, MessageSquare, Plus, Save, Search, Trash2, X } from "lucide-react"
+import { useEffect, useState } from "react"
 import { toast } from "react-toastify"
 
 type QuestionAnswer = {
@@ -268,16 +268,14 @@ const AdminDashboard = () => {
     company.companyName.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  return (
-    <div className="container mx-auto p-6 bg-gradient-to-b from-white to-slate-50 min-h-screen">
-      <h1 className="text-3xl font-bold mb-8 text-primary">Company Questions Dashboard</h1>
+  return (    <div className="container mx-auto p-6 bg-gradient-to-b from-slate-950 to-slate-900 min-h-screen">
+      <h1 className="text-3xl font-bold mb-8 text-blue-400">Company Questions Dashboard</h1>
 
       {/* Add Company Section */}
-      <Card className="mb-8 border-slate-200 shadow-lg overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Building className="h-5 w-5 text-primary" />
-            <CardTitle className="text-xl text-primary">Add New Company</CardTitle>
+      <Card className="mb-8 border-slate-800 shadow-lg overflow-hidden bg-slate-900/50 backdrop-blur-sm">
+        <CardHeader className="bg-gradient-to-r from-slate-900 to-slate-800 border-b border-slate-800">
+          <div className="flex items-center gap-2">            <Building className="h-5 w-5 text-blue-400" />
+            <CardTitle className="text-xl text-blue-400">Add New Company</CardTitle>
           </div>
         </CardHeader>
         <CardContent className="pt-6">
@@ -286,7 +284,7 @@ const AdminDashboard = () => {
               placeholder="Enter company name"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
-              className="flex-1 border-slate-200 focus-visible:ring-primary/30"
+              className="flex-1 bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus-visible:ring-blue-400/30"
             />
             <Button
               onClick={handleAddCompany}
@@ -300,20 +298,18 @@ const AdminDashboard = () => {
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Companies List */}
-        <Card className="md:col-span-1 border-slate-200 shadow-lg h-fit">
-          <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+        {/* Companies List */}        <Card className="md:col-span-1 border-slate-800 shadow-lg h-fit bg-slate-900/50 backdrop-blur-sm">
+          <CardHeader className="bg-gradient-to-r from-slate-900 to-slate-800 border-b border-slate-800">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Building className="h-5 w-5 text-primary" />
-                <CardTitle className="text-xl text-primary">Companies</CardTitle>
-              </div>
-              <div className="relative">
+                <Building className="h-5 w-5 text-purple-400" />
+                <CardTitle className="text-xl text-purple-400">Companies</CardTitle>
+              </div>              <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                 <Input
                   type="search"
                   placeholder="Search..."
-                  className="pl-8 w-full border-slate-200 focus-visible:ring-primary/30"
+                  className="pl-8 w-full bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus-visible:ring-purple-400/30"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -328,16 +324,14 @@ const AdminDashboard = () => {
                 </div>
               ) : (
                 filteredCompanies.map((company) => (
-                  <div
-                    key={company.id}
+                  <div                    key={company.id}
                     className={`flex justify-between items-center p-3 rounded-md cursor-pointer transition-all ${
                       selectedCompany === company.id
-                        ? "bg-primary/15 border-l-4 border-primary shadow-sm"
-                        : "hover:bg-slate-100 border-l-4 border-transparent"
+                        ? "bg-purple-500/10 border-l-4 border-purple-400 shadow-sm"
+                        : "hover:bg-slate-800/50 border-l-4 border-transparent"
                     }`}
                     onClick={() => setSelectedCompany(company.id)}
-                  >
-                    <span className="font-medium truncate">{company.companyName}</span>
+                  >                    <span className="font-medium truncate text-slate-300">{company.companyName}</span>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -345,23 +339,21 @@ const AdminDashboard = () => {
                         e.stopPropagation()
                         handleDeleteCompany(company.id)
                       }}
-                      className="opacity-60 hover:opacity-100 hover:bg-red-50 hover:text-red-500 transition-all"
+                      className="opacity-60 hover:opacity-100 hover:bg-red-950/30 hover:text-red-400 transition-all"
                     >
-                      <Trash2 className="h-4 w-4 text-red-500" />
+                      <Trash2 className="h-4 w-4 text-red-400" />
                     </Button>
                   </div>
                 ))
               )}
             </div>
           </CardContent>
-        </Card>
-
-        {/* Questions & Answers Section */}
-        <Card className="md:col-span-2 border-slate-200 shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+        </Card>        {/* Questions & Answers Section */}
+        <Card className="md:col-span-2 border-slate-800 shadow-lg bg-slate-900/50 backdrop-blur-sm">
+          <CardHeader className="bg-gradient-to-r from-slate-900 to-slate-800 border-b border-slate-800">
             <div className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-primary" />
-              <CardTitle className="text-xl text-primary">
+              <MessageSquare className="h-5 w-5 text-blue-400" />
+              <CardTitle className="text-xl text-blue-400">
                 {selectedCompany
                   ? `Questions for ${companies.find((c) => c.id === selectedCompany)?.companyName}`
                   : "Select a company to manage questions"}
@@ -371,21 +363,20 @@ const AdminDashboard = () => {
           <CardContent className="pt-6">
             {selectedCompany ? (
               <>
-                {/* Add Question Form */}
-                <div className="mb-6 space-y-4 p-5 bg-slate-50 rounded-lg border border-slate-100 shadow-sm">
-                  <h3 className="font-medium text-primary">Add New Question</h3>
+                {/* Add Question Form */}                <div className="mb-6 space-y-4 p-5 bg-slate-800/50 rounded-lg border border-slate-700 shadow-sm">
+                  <h3 className="font-medium text-purple-400">Add New Question</h3>
                   <Input
                     placeholder="Enter question"
                     value={newQuestion}
                     onChange={(e) => setNewQuestion(e.target.value)}
-                    className="border-slate-200 focus-visible:ring-primary/30"
+                    className="bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus-visible:ring-purple-400/30"
                   />
                   <Textarea
                     placeholder="Enter answer"
                     value={newAnswer}
                     onChange={(e) => setNewAnswer(e.target.value)}
                     rows={3}
-                    className="border-slate-200 focus-visible:ring-primary/30 min-h-[100px]"
+                    className="bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus-visible:ring-purple-400/30 min-h-[100px]"
                   />
                   <Button
                     onClick={handleAddQuestion}
@@ -398,34 +389,31 @@ const AdminDashboard = () => {
 
                 {/* Questions List */}
                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                  {questions.length === 0 ? (
-                    <div className="text-center py-8 border border-dashed border-slate-300 rounded-lg bg-slate-50">
-                      <p className="text-slate-500">No questions added yet</p>
+                  {questions.length === 0 ? (                    <div className="text-center py-8 border border-dashed border-slate-700 rounded-lg bg-slate-900/50">
+                      <p className="text-slate-400">No questions added yet</p>
                     </div>
                   ) : (
-                    questions.map((qa) => (
-                      <Card key={qa.id} className="p-4 border-slate-200 hover:shadow-md transition-all">
+                    questions.map((qa) => (                      <Card key={qa.id} className="p-4 border-slate-700 bg-slate-800/50 hover:shadow-md transition-all">
                         {editingId === qa.id ? (
                           <div className="space-y-3">
                             <Input
                               value={editQuestion}
                               onChange={(e) => setEditQuestion(e.target.value)}
                               placeholder="Question"
-                              className="border-slate-200 focus-visible:ring-primary/30"
+                              className="bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus-visible:ring-purple-400/30"
                             />
                             <Textarea
                               value={editAnswer}
                               onChange={(e) => setEditAnswer(e.target.value)}
                               placeholder="Answer"
                               rows={3}
-                              className="border-slate-200 focus-visible:ring-primary/30 min-h-[100px]"
+                              className="bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus-visible:ring-purple-400/30 min-h-[100px]"
                             />
-                            <div className="flex justify-end gap-2">
-                              <Button
+                            <div className="flex justify-end gap-2">                              <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={cancelEditing}
-                                className="border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600"
+                                className="border-red-800 text-red-400 hover:bg-red-950/30 hover:text-red-400"
                               >
                                 <X className="h-4 w-4 mr-1" /> Cancel
                               </Button>
@@ -433,16 +421,15 @@ const AdminDashboard = () => {
                                 size="sm"
                                 onClick={() => qa.id && saveEdit(qa.id)}
                                 disabled={loading}
-                                className="bg-primary hover:bg-primary/90"
+                                className="bg-blue-600 hover:bg-blue-700 text-white"
                               >
                                 <Save className="h-4 w-4 mr-1" /> Save
                               </Button>
                             </div>
                           </div>
-                        ) : (
-                          <div>
-                            <div className="font-semibold mb-2 text-primary">Q: {qa.question}</div>
-                            <div className="text-slate-700 mb-3 bg-slate-50 p-3 rounded-md border border-slate-100">
+                        ) : (                          <div>
+                            <div className="font-semibold mb-2 text-blue-400">Q: {qa.question}</div>
+                            <div className="text-slate-300 mb-3 bg-slate-800/50 p-3 rounded-md border border-slate-700">
                               A: {qa.answer}
                             </div>
                             <div className="flex justify-end gap-2">
@@ -450,14 +437,14 @@ const AdminDashboard = () => {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => startEditing(qa)}
-                                className="border-primary/20 text-primary hover:bg-primary/10"
+                                className="border-purple-500/20 text-purple-400 hover:bg-purple-950/30 hover:border-purple-400"
                               >
                                 <Edit className="h-4 w-4 mr-1" /> Edit
                               </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600"
+                                className="border-red-800 text-red-400 hover:bg-red-950/30 hover:text-red-400"
                                 onClick={() => qa.id && handleDeleteQuestion(qa.id)}
                               >
                                 <Trash2 className="h-4 w-4 mr-1" /> Delete
@@ -470,10 +457,9 @@ const AdminDashboard = () => {
                   )}
                 </div>
               </>
-            ) : (
-              <div className="text-center py-16 border border-dashed border-slate-300 rounded-lg bg-slate-50">
-                <MessageSquare className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-500">Select a company from the list to manage its questions</p>
+            ) : (              <div className="text-center py-16 border border-dashed border-slate-700 rounded-lg bg-slate-800/50">
+                <MessageSquare className="h-12 w-12 text-slate-600 mx-auto mb-3" />
+                <p className="text-slate-400">Select a company from the list to manage its questions</p>
               </div>
             )}
           </CardContent>

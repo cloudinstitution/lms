@@ -1,14 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
-import { addDoc, collection, deleteDoc, doc, serverTimestamp, onSnapshot, query, orderBy } from "firebase/firestore"
 import { db } from "@/lib/firebase"
-import { Bell, Send, Trash2, CheckCircle } from "lucide-react"
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore"
+import { Bell, CheckCircle, Send, Trash2 } from "lucide-react"
+import { useEffect, useState } from "react"
 
 const AdminNotifications = () => {
   const [notificationTitle, setNotificationTitle] = useState("")
@@ -75,44 +75,41 @@ const AdminNotifications = () => {
         return "bg-gray-100 text-gray-800 hover:bg-gray-200"
     }
   }
-
   return (
-    <div className="p-6 space-y-8 bg-gradient-to-b from-white to-slate-50">
-      <Card className="border border-slate-200 shadow-lg overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+    <div className="p-6 space-y-8 bg-gradient-to-b from-slate-950 to-slate-900">
+      <Card className="border border-slate-800 shadow-lg overflow-hidden bg-slate-900/50 backdrop-blur-sm">
+        <CardHeader className="bg-gradient-to-r from-slate-900 to-slate-800 border-b border-slate-800">
           <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-primary" />
+            <Bell className="h-5 w-5 text-blue-400" />
             <div>
-              <CardTitle className="text-xl text-primary">Send Notification</CardTitle>
-              <CardDescription>Send important updates to all students.</CardDescription>
+              <CardTitle className="text-xl text-blue-400">Send Notification</CardTitle>
+              <CardDescription className="text-slate-400">Send important updates to all students.</CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-5 pt-6">
-          <div className="grid md:grid-cols-2 gap-4">
+        <CardContent className="space-y-5 pt-6">          <div className="grid md:grid-cols-2 gap-4">
             <Input
               placeholder="Notification Title"
               value={notificationTitle}
               onChange={(e) => setNotificationTitle(e.target.value)}
-              className="border-slate-200 focus-visible:ring-primary/30"
+              className="bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus-visible:ring-blue-400/30"
             />
             <select
               value={notificationType}
               onChange={(e) => setNotificationType(e.target.value)}
-              className="border border-slate-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-primary/30 focus:outline-none transition-colors"
+              className="bg-slate-900/50 border-slate-700 text-slate-100 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-400/30 focus:outline-none transition-colors"
             >
               <option value="assignment">Assignment</option>
               <option value="announcement">Announcement</option>
               <option value="event">Event</option>
             </select>
-          </div>
-          <Textarea
-            placeholder="Write your notification message here..."
-            rows={4}
-            value={notificationMessage}
-            onChange={(e) => setNotificationMessage(e.target.value)}
-            className="border-slate-200 focus-visible:ring-primary/30 min-h-[120px] resize-none"
-          />
+          </div>            <Textarea
+              placeholder="Write your notification message here..."
+              rows={4}
+              value={notificationMessage}
+              onChange={(e) => setNotificationMessage(e.target.value)}
+              className="bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus-visible:ring-blue-400/30 min-h-[120px] resize-none"
+            />
           <div className="flex flex-col sm:flex-row gap-3 items-center">
             <Button
               onClick={handleSendNotification}
@@ -139,29 +136,26 @@ const AdminNotifications = () => {
             )}
           </div>
         </CardContent>
-      </Card>
-
-      <div>
-        <h2 className="text-2xl font-bold mb-6 text-primary">Sent Notifications</h2>
+      </Card>      <div>
+        <h2 className="text-2xl font-bold mb-6 text-purple-400">Sent Notifications</h2>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
           {sentNotifications.length > 0 ? (
             sentNotifications.map((notification) => (
               <Card
                 key={notification.id}
-                className="border border-slate-200 hover:shadow-md transition-all overflow-hidden group"
+                className="border border-slate-800 hover:shadow-md transition-all overflow-hidden group bg-slate-900/50 backdrop-blur-sm"
               >
-                <CardHeader className="pb-2 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+                <CardHeader className="pb-2 bg-gradient-to-r from-slate-900 to-slate-800 border-b border-slate-800">
                   <div className="flex justify-between items-center">
-                    <CardTitle className="text-lg text-primary truncate">{notification.title}</CardTitle>
+                    <CardTitle className="text-lg text-purple-400 truncate">{notification.title}</CardTitle>
                     <Badge className={`capitalize ${getNotificationTypeStyles(notification.type)}`}>
                       {notification.type}
                     </Badge>
                   </div>
-                </CardHeader>
-                <CardContent className="pt-4">
-                  <p className="text-sm text-slate-600 line-clamp-3 mb-3">{notification.message}</p>
-                  <div className="flex justify-between items-center text-xs text-slate-500">
-                    <span className="bg-slate-50 px-2 py-1 rounded-full">
+                </CardHeader>                <CardContent className="pt-4">
+                  <p className="text-sm text-slate-300 line-clamp-3 mb-3">{notification.message}</p>
+                  <div className="flex justify-between items-center text-xs text-slate-400">
+                    <span className="bg-slate-800/50 px-2 py-1 rounded-full">
                       {notification.timestamp?.toDate ? notification.timestamp.toDate().toLocaleString() : "Just now"}
                     </span>
                   </div>
@@ -178,9 +172,8 @@ const AdminNotifications = () => {
                 </CardContent>
               </Card>
             ))
-          ) : (
-            <div className="col-span-full text-center py-10 border border-dashed border-slate-300 rounded-lg bg-slate-50">
-              <p className="text-slate-500">No notifications sent yet</p>
+          ) : (            <div className="col-span-full text-center py-10 border border-dashed border-slate-700 rounded-lg bg-slate-900/50">
+              <p className="text-slate-400">No notifications sent yet</p>
             </div>
           )}
         </div>
