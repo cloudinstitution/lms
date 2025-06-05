@@ -1,22 +1,18 @@
 "use client"
 
-import { Suspense } from "react"
 import StudentLayout from "@/components/student-layout"
 import { StudentQRCode } from "@/components/student-qr-code"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { generateAttendanceQRCode } from "@/lib/attendance-utils"
 import { useAuth } from "@/lib/auth-context"
-import { getStudentSession } from "@/lib/session-storage"
 import { db } from "@/lib/firebase"
-import type { Quiz } from "@/lib/quiz-service"
-import { QuizService } from "@/lib/quiz-service"
+import { getStudentSession } from "@/lib/session-storage"
 import { collection, getDocs, onSnapshot, query, Timestamp, where } from "firebase/firestore"
 import { Book, CheckCircle, Clock, FileText, QrCode, Trophy } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 
 interface Video {
   id: string
@@ -361,10 +357,9 @@ function DashboardContent() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
-
+        </div>        
         <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
-          <CardHeader className="pb-3 bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-900 dark:to-slate-800 rounded-t-lg">
+          <CardHeader className="pb-3 rounded-t-lg">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <CardTitle className="flex items-center">
@@ -375,7 +370,7 @@ function DashboardContent() {
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">No top performers data available</p>
+            <p >No top performers data available</p>
           </CardContent>
         </Card>
 

@@ -1,22 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { db } from "@/lib/firebase"
-import {
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  orderBy,
-  doc,
-  updateDoc,
-} from "firebase/firestore"
-import { toast } from "@/components/ui/use-toast"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -26,21 +11,42 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { toast } from "@/components/ui/use-toast"
+import { db } from "@/lib/firebase"
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  orderBy,
+  query,
+  updateDoc,
+} from "firebase/firestore"
 import { Edit2 } from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 interface Video {
   id: string
   title: string
   link: string
   serialNo: number
+  sourceType: 'youtube' | 'gdrive'
 }
 
 export default function CourseDetails() {
   const { courseTitle } = useParams()
   const router = useRouter()
   const [videos, setVideos] = useState<Video[]>([])
-  const [newVideo, setNewVideo] = useState({ title: "", link: "", serialNo: 1 })
+  const [newVideo, setNewVideo] = useState({ 
+    title: "", 
+    link: "", 
+    serialNo: 1,
+    sourceType: 'youtube' as 'youtube' | 'gdrive'
+  })
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null)
   const [editVideo, setEditVideo] = useState<Video | null>(null)
   const [error, setError] = useState("")
@@ -71,8 +77,19 @@ export default function CourseDetails() {
 
   const handleUploadVideo = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newVideo.title || !newVideo.link || !newVideo.serialNo) {
+    if (!newVideo.title || !newVideo.link || !newVideo.serialNo || !newVideo.sourceType) {
       setError("Please fill in all fields.")
+      return
+    }
+
+    // Validate link based on source type
+    if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
+      setError("Please enter a valid YouTube link.")
+      return
+    }
+    
+    if (newVideo.sourceType === 'gdrive' && !newVideo.link.match(/^https:\/\/drive\.google\.com\/(file\/d\/|open\?id=).+/)) {
+      setError("Please enter a valid Google Drive link.")
       return
     }
 
@@ -82,8 +99,9 @@ export default function CourseDetails() {
         title: newVideo.title,
         link: newVideo.link,
         serialNo: Number(newVideo.serialNo),
+        sourceType: newVideo.sourceType
       })
-      setNewVideo({ title: "", link: "", serialNo: videos.length + 1 })
+      setNewVideo({ title: "", link: "", serialNo: videos.length + 1, sourceType: 'youtube' })
       setError("")
       fetchVideos()
       toast({
@@ -104,12 +122,32 @@ export default function CourseDetails() {
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editVideo && editVideo.id) {
+      // Validate link based on source type
+      if (editVideo.sourceType === 'youtube' && !editVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
+        toast({
+          title: "Error",
+          description: "Please enter a valid YouTube link.",
+          variant: "destructive",
+        })
+        return
+      }
+      
+      if (editVideo.sourceType === 'gdrive' && !editVideo.link.match(/^https:\/\/drive\.google\.com\/(file\/d\/|open\?id=).+/)) {
+        toast({
+          title: "Error",
+          description: "Please enter a valid Google Drive link.",
+          variant: "destructive",
+        })
+        return
+      }
+
       try {
         const videoDocRef = doc(db, "courses", courseTitle as string, "videos", editVideo.id)
         await updateDoc(videoDocRef, {
           title: editVideo.title,
           link: editVideo.link,
           serialNo: Number(editVideo.serialNo),
+          sourceType: editVideo.sourceType
         })
         setEditingVideoId(null)
         fetchVideos()
@@ -133,7 +171,7 @@ export default function CourseDetails() {
     try {
       const parsedUrl = new URL(url);
       if (parsedUrl.hostname === "youtu.be") {
-        return parsedUrl.pathname.slice(1); // returns the part after youtu.be/
+        return parsedUrl.pathname.slice(1);
       }
       if (parsedUrl.hostname.includes("youtube.com")) {
         return parsedUrl.searchParams.get("v") || "";
@@ -142,6 +180,19 @@ export default function CourseDetails() {
     } catch (error) {
       return "";
     }
+  }
+
+  const getVideoEmbedUrl = (video: Video) => {
+    if (video.sourceType === 'youtube') {
+      const videoId = extractVideoId(video.link);
+      return `https://www.youtube.com/embed/${videoId}`;
+    } else if (video.sourceType === 'gdrive') {
+      // Convert Google Drive viewing URL to embedding URL
+      const gdriveUrl = video.link;
+      const fileId = gdriveUrl.match(/\/d\/(.*?)(\/|$)/)?.[1] || "";
+      return `https://drive.google.com/file/d/${fileId}/preview`;
+    }
+    return '';
   }
 
   return (
@@ -175,10 +226,22 @@ export default function CourseDetails() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Video Link (YouTube)</Label>
+                <Label>Video Source</Label>                <select 
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-50"
+                  value={newVideo.sourceType}
+                  onChange={(e) => setNewVideo({ ...newVideo, sourceType: e.target.value as 'youtube' | 'gdrive' })}
+                  required
+                >
+                  <option value="youtube" className="bg-white dark:bg-slate-950">YouTube</option>
+                  <option value="gdrive" className="bg-white dark:bg-slate-950">Google Drive</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>{newVideo.sourceType === 'youtube' ? 'YouTube Link' : 'Google Drive Link'}</Label>
                 <Input
                   value={newVideo.link}
                   onChange={(e) => setNewVideo({ ...newVideo, link: e.target.value })}
+                  placeholder={newVideo.sourceType === 'youtube' ? 'https://youtube.com/watch?v=...' : 'https://drive.google.com/file/d/...'}
                   required
                 />
               </div>
@@ -217,7 +280,7 @@ export default function CourseDetails() {
                       <iframe
                         width="200"
                         height="113"
-                        src={`https://www.youtube.com/embed/${extractVideoId(video.link)}`}
+                        src={getVideoEmbedUrl(video)}
                         title={video.title}
                         frameBorder="0"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -249,10 +312,20 @@ export default function CourseDetails() {
                               value={editVideo?.title || ""}
                               onChange={(e) => setEditVideo({ ...editVideo!, title: e.target.value })}
                             />
-                            <Label>Link</Label>
+                            <Label>Video Source</Label>                            <select 
+                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-50"
+                              value={editVideo?.sourceType || 'youtube'}
+                              onChange={(e) => setEditVideo({ ...editVideo!, sourceType: e.target.value as 'youtube' | 'gdrive' })}
+                              required
+                            >
+                              <option value="youtube" className="bg-white dark:bg-slate-950">YouTube</option>
+                              <option value="gdrive" className="bg-white dark:bg-slate-950">Google Drive</option>
+                            </select>
+                            <Label>{editVideo?.sourceType === 'gdrive' ? 'Google Drive Link' : 'YouTube Link'}</Label>
                             <Input
                               value={editVideo?.link || ""}
                               onChange={(e) => setEditVideo({ ...editVideo!, link: e.target.value })}
+                              placeholder={editVideo?.sourceType === 'youtube' ? 'https://youtube.com/watch?v=...' : 'https://drive.google.com/file/d...'}
                             />
                             <Label>Serial No</Label>
                             <Input
