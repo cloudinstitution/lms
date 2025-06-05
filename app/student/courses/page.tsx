@@ -3,11 +3,11 @@
 import StudentLayout from "@/components/student-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { db } from "@/lib/firebase"
+import { getStudentSession } from "@/lib/session-storage"
 import { arrayUnion, collection, doc, getDoc, getDocs, orderBy, query, updateDoc } from "firebase/firestore"
 import { Book, Play, Video, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
-import { getStudentSession } from "@/lib/session-storage"
 
 declare global {
   interface Window {
@@ -35,6 +35,7 @@ interface VideoType {
   serialNo: number
   title: string
   completedBy: string[] // Array of student IDs who completed this video
+  sourceType: 'youtube' | 'gdrive' // Add support for both video types
 }
 
 export default function CoursesPage() {
@@ -99,7 +100,8 @@ export default function CoursesPage() {
         link: doc.data().link,
         serialNo: doc.data().serialNo,
         title: doc.data().title,
-        completedBy: doc.data().completedBy || []
+        completedBy: doc.data().completedBy || [],
+        sourceType: doc.data().sourceType // Get sourceType from Firestore
       }))
       setVideos(videoList)
 
@@ -118,6 +120,32 @@ export default function CoursesPage() {
       setVideos([])
       return []
     }
+  }
+
+  const extractVideoId = (url: string) => {
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.hostname === "youtu.be") {
+        return parsedUrl.pathname.slice(1);
+      }
+      if (parsedUrl.hostname.includes("youtube.com")) {
+        return parsedUrl.searchParams.get("v") || "";
+      }
+      return "";
+    } catch (error) {
+      return "";
+    }
+  }
+  const getVideoEmbedUrl = (video: VideoType) => {
+    if (video.sourceType === 'youtube') {
+      const videoId = extractVideoId(video.link);
+      return `https://www.youtube.com/embed/${videoId}`;
+    } else if (video.sourceType === 'gdrive') {
+      const gdriveUrl = video.link;
+      const fileId = gdriveUrl.match(/\/d\/(.*?)(\/|$)/)?.[1] || "";
+      return `https://drive.google.com/file/d/${fileId}/preview`;
+    }
+    return '';
   }
 
   const loadYouTubePlayer = (url: string) => {
@@ -250,8 +278,18 @@ export default function CoursesPage() {
     }
   }
 
+  // Add progress tracking for Google Drive videos
+  const handleVideoProgress = (video: VideoType) => {
+    if (!video || completedVideoIds.includes(video.id)) return;
+    
+    // Mark as complete after 10 seconds
+    setTimeout(() => {
+      markVideoAsCompleted();
+    }, 10000);
+  }
+
   useEffect(() => {
-    if (selectedVideo) {
+    if (selectedVideo && selectedVideo.sourceType === 'youtube') {
       const interval = setInterval(() => {
         if (window.YT && window.YT.Player) {
           loadYouTubePlayer(selectedVideo.link)
@@ -349,9 +387,7 @@ export default function CoursesPage() {
               </div>
             )}
           </CardContent>
-        </Card>
-
-        {selectedVideo && (
+        </Card>        {selectedVideo && (
           <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
             <div className="bg-white dark:bg-slate-900 p-4 rounded-lg max-w-3xl w-full relative">
               <button
@@ -362,7 +398,18 @@ export default function CoursesPage() {
               </button>
               <h2 className="text-xl font-semibold mb-4 text-slate-800 dark:text-slate-100">{selectedVideo.title}</h2>
               <div className="aspect-w-16 aspect-h-9">
-                <div id="yt-player" className="w-full h-[400px] rounded overflow-hidden" />
+                {selectedVideo.sourceType === 'youtube' ? (
+                  <div id="yt-player" className="w-full h-[400px] rounded overflow-hidden" />
+                ) : (
+                  <iframe
+                    src={getVideoEmbedUrl(selectedVideo)}
+                    className="w-full h-[400px] rounded overflow-hidden"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    onLoad={() => handleVideoProgress(selectedVideo)}
+                  />
+                )}
               </div>
             </div>
           </div>

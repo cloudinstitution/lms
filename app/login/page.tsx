@@ -1,17 +1,17 @@
 "use client"
 
-import type React from "react"
-import { useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { GraduationCap, ArrowLeft, Mail, Lock } from "lucide-react"
 import { db } from "@/lib/firebase"
+import { setAdminSession, storeStudentSession } from "@/lib/session-storage"
 import { collection, getDocs, query, where } from "firebase/firestore"
-import { storeStudentSession, setAdminSession } from "@/lib/session-storage"
+import { ArrowLeft, GraduationCap, Lock, Mail } from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import type React from "react"
+import { useState } from "react"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -92,44 +92,37 @@ export default function LoginPage() {
     }
   }
 
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-r from-emerald-50 to-teal-50 p-4 relative overflow-hidden">
+  return (    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-r from-slate-950 to-slate-900 p-4 relative overflow-hidden">
       {/* Background pattern */}
-      <div className="absolute inset-0 bg-grid-pattern opacity-10 pointer-events-none"></div>
+      <div className="absolute inset-0 bg-grid-pattern opacity-5 pointer-events-none"></div>
 
       <Link
         href="/"
-        className="absolute top-8 left-8 flex items-center gap-2 text-gray-600 hover:text-emerald-600 transition-colors"
+        className="absolute top-8 left-8 flex items-center gap-2 text-slate-400 hover:text-emerald-400 transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Home
-      </Link>
-
-      <Link href="/" className="flex items-center gap-2 mb-8">
-        <GraduationCap className="h-12 w-12 text-emerald-600" />
-        <span className="font-bold text-2xl text-emerald-800">Cloud Institution</span>
-      </Link>
-
-      <Card className="w-full max-w-md border-none shadow-lg relative z-10 overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-400 to-teal-500"></div>
+      </Link>      <Link href="/" className="flex items-center gap-2 mb-8">
+        <GraduationCap className="h-12 w-12 text-emerald-400" />
+        <span className="font-bold text-2xl text-emerald-400">Cloud Institution</span>
+      </Link><Card className="w-full max-w-md border-none shadow-lg relative z-10 overflow-hidden bg-slate-800/50 backdrop-blur-sm">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 to-emerald-400"></div>
         <CardHeader className="space-y-1 pb-6">
-          <CardTitle className="text-2xl font-bold text-center text-gray-900">Welcome Back</CardTitle>
-          <CardDescription className="text-center text-gray-600">
+          <CardTitle className="text-2xl font-bold text-center text-slate-100">Welcome Back</CardTitle>
+          <CardDescription className="text-center text-slate-400">
             Enter your credentials to access your account
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="p-3 text-sm bg-red-50 border border-red-200 text-red-600 rounded-md">{error}</div>
+          <form onSubmit={handleSubmit} className="space-y-4">            {error && (
+              <div className="p-3 text-sm bg-red-950/50 border border-red-800 text-red-400 rounded-md">{error}</div>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-gray-700">
+            <div className="space-y-2">              <Label htmlFor="email" className="text-slate-200">
                 Email
               </Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
                   id="email"
                   name="email"
@@ -138,25 +131,24 @@ export default function LoginPage() {
                   required
                   value={formData.email}
                   onChange={handleChange}
-                  className="pl-10 border-gray-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  className="pl-10 bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:ring-emerald-500"
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-gray-700">
+            <div className="space-y-2">              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-slate-200">
                   Password
                 </Label>
                 <Link
                   href="/forgot-password"
-                  className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline"
+                  className="text-sm text-emerald-400 hover:text-emerald-300 hover:underline"
                 >
                   Forgot password?
                 </Link>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
                   id="password"
                   name="password"
@@ -164,26 +156,23 @@ export default function LoginPage() {
                   required
                   value={formData.password}
                   onChange={handleChange}
-                  className="pl-10 border-gray-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  className="pl-10 bg-slate-900/50 border-slate-700 text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:ring-emerald-500"
                 />
               </div>
-            </div>
-
-            <Button
+            </div>            <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-medium py-2 rounded-md transition-all duration-200 shadow-md hover:shadow-lg"
+              className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white font-medium py-2 rounded-md transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={isLoading}
             >
               {isLoading ? "Logging in..." : "Sign In"}
             </Button>
           </form>
-        </CardContent>
-        <CardFooter className="flex flex-col border-t border-gray-100 bg-gray-50 rounded-b-lg py-4">
-          <div className="text-center text-sm text-gray-600">Secure login for students and administrators</div>
+        </CardContent>        <CardFooter className="flex flex-col border-t border-slate-700 bg-slate-900/50 rounded-b-lg py-4">
+          <div className="text-center text-sm text-slate-400">Secure login for students and administrators</div>
         </CardFooter>
       </Card>
 
-      <div className="mt-8 text-center text-sm text-gray-500">
+      <div className="mt-8 text-center text-sm text-slate-500">
         <p>© {new Date().getFullYear()} Cloud Institution. All rights reserved.</p>
       </div>
     </div>
