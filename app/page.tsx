@@ -1,57 +1,70 @@
-import Link from "next/link"
+"use client"
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { BookOpen, Code, GraduationCap, Users, ArrowRight, CheckCircle, Mail, Phone, MapPin } from "lucide-react"
+import { ArrowRight, BookOpen, CheckCircle, Code, GraduationCap, Mail, MapPin, Moon, Phone, Sun, Users } from "lucide-react"
+import { useTheme } from "next-themes"
+import Link from "next/link"
 
 export default function Home() {
+  const { theme, setTheme } = useTheme()
+
   return (
     <div className="flex flex-col min-h-screen">
-      <header className="bg-white border-b sticky top-0 z-10 shadow-sm">
+      <header className="bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10 shadow-sm">
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
           <Link href="/" className="flex items-center gap-2">
-            <GraduationCap className="h-8 w-8 text-emerald-600" />
-            <span className="font-bold text-xl text-emerald-800">Cloud Institution</span>
+            <GraduationCap className="h-8 w-8 text-emerald-600 dark:text-emerald-500" />
+            <span className="font-bold text-xl text-emerald-800 dark:text-emerald-400">Cloud Institution</span>
           </Link>
           <nav className="hidden md:flex items-center gap-6">
-            <Link href="/courses" className="text-sm font-medium hover:text-emerald-600 transition-colors">
+            <Link href="/courses" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
               Courses
             </Link>
-            <Link href="/about" className="text-sm font-medium hover:text-emerald-600 transition-colors">
+            <Link href="/about" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
               About Us
             </Link>
-            <Link href="/contact" className="text-sm font-medium hover:text-emerald-600 transition-colors">
+            <Link href="/contact" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
               Contact
             </Link>
           </nav>
           <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className="text-emerald-600 dark:text-emerald-400"
+            >
+              {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              <span className="sr-only">Toggle theme</span>
+            </Button>
             <Link href="/login">
-              <Button variant="outline" className="border-emerald-600 text-emerald-600 hover:bg-emerald-50">
+              <Button variant="outline" className="border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-950">
                 Login
               </Button>
             </Link>
-            
           </div>
         </div>
       </header>
 
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="py-20 bg-gradient-to-r from-emerald-50 to-teal-50 relative overflow-hidden">
+        <section className="py-20 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-slate-950 dark:to-slate-900 relative overflow-hidden">
           <div className="absolute inset-0 bg-grid-pattern opacity-10"></div>
           <div className="container mx-auto px-4 grid md:grid-cols-2 gap-8 items-center relative z-10">
             <div className="space-y-6">
-              <div className="inline-block px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-sm font-medium mb-2">
+              <div className="inline-block px-3 py-1 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 rounded-full text-sm font-medium mb-2">
                 Transform Your Future
               </div>
-              <h1 className="text-4xl md:text-5xl font-bold leading-tight text-gray-900">
-                Launch Your Tech Career with <span className="text-emerald-600">Expert Training</span>
+              <h1 className="text-4xl md:text-5xl font-bold leading-tight text-gray-900 dark:text-slate-100">
+                Launch Your Tech Career with <span className="text-emerald-600 dark:text-emerald-400">Expert Training</span>
               </h1>
-              <p className="text-lg text-gray-600">
+              <p className="text-lg text-gray-600 dark:text-slate-300">
                 Gain in-demand skills with our industry-focused courses and hands-on learning experiences.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link href="/courses">
-                  <Button size="lg" className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+                  <Button size="lg" className="gap-2 bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700">
                     Explore Courses <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
@@ -59,7 +72,7 @@ export default function Home() {
                   <Button
                     size="lg"
                     variant="outline"
-                    className="border-emerald-600 text-emerald-600 hover:bg-emerald-50"
+                    className="border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-950"
                   >
                     Start Learning Today
                   </Button>
@@ -75,17 +88,15 @@ export default function Home() {
               />
             </div>
           </div>
-        </section>
-
-        {/* Featured Courses */}
-        <section className="py-16 bg-white">
+        </section>        {/* Featured Courses */}
+        <section className="py-16 bg-slate-50 dark:bg-slate-950">
           <div className="container mx-auto px-4">
             <div className="text-center mb-12">
-              <div className="inline-block px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-sm font-medium mb-2">
+              <div className="inline-block px-3 py-1 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 rounded-full text-sm font-medium mb-2">
                 Our Programs
               </div>
-              <h2 className="text-3xl font-bold mb-4 text-gray-900">Featured Courses</h2>
-              <p className="text-gray-600 max-w-2xl mx-auto">
+              <h2 className="text-3xl font-bold mb-4 text-gray-900 dark:text-slate-100">Featured Courses</h2>
+              <p className="text-gray-600 dark:text-slate-300 max-w-2xl mx-auto">
                 Our most popular courses designed to help you master the skills employers are looking for.
               </p>
             </div>
@@ -95,56 +106,53 @@ export default function Home() {
                 {
                   title: "Full Stack Web Development",
                   description: "Master frontend and backend technologies to build complete web applications",
-                  icon: <Code className="h-10 w-10 text-emerald-600" />,
+                  icon: <Code className="h-10 w-10 text-emerald-500 dark:text-emerald-400" />,
                   duration: "16 weeks",
-                  level: "Intermediate",
-                  bgColor: "bg-emerald-50",
+                  level: "Intermediate"
                 },
                 {
                   title: "Data Science Fundamentals",
                   description: "Learn data analysis, visualization and machine learning techniques",
-                  icon: <BookOpen className="h-10 w-10 text-teal-600" />,
+                  icon: <BookOpen className="h-10 w-10 text-emerald-500 dark:text-emerald-400" />,
                   duration: "12 weeks",
-                  level: "Beginner",
-                  bgColor: "bg-teal-50",
+                  level: "Beginner"
                 },
                 {
                   title: "Cloud Computing & DevOps",
                   description: "Deploy and manage applications in cloud environments with CI/CD pipelines",
-                  icon: <Users className="h-10 w-10 text-cyan-600" />,
+                  icon: <Users className="h-10 w-10 text-emerald-500 dark:text-emerald-400" />,
                   duration: "14 weeks",
-                  level: "Advanced",
-                  bgColor: "bg-cyan-50",
+                  level: "Advanced"
                 },
               ].map((course, index) => (
                 <Card
                   key={index}
-                  className="overflow-hidden transition-all hover:shadow-lg border-t-4 border-t-emerald-500 group"
+                  className="overflow-hidden transition-all hover:shadow-lg border-t-4 border-t-emerald-500 dark:bg-slate-800/50 group"
                 >
                   <CardHeader
-                    className={`pb-4 ${course.bgColor} group-hover:bg-gradient-to-r from-emerald-50 to-teal-50 transition-colors`}
+                    className="pb-4 bg-emerald-50/50 dark:bg-slate-800/50 group-hover:bg-gradient-to-r from-emerald-50/50 to-emerald-100/50 dark:group-hover:from-emerald-950/10 dark:group-hover:to-emerald-900/20 transition-colors"
                   >
                     <div className="mb-2">{course.icon}</div>
-                    <CardTitle>{course.title}</CardTitle>
-                    <CardDescription>{course.description}</CardDescription>
+                    <CardTitle className="dark:text-slate-100">{course.title}</CardTitle>
+                    <CardDescription className="dark:text-slate-400">{course.description}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="flex justify-between text-sm">
                       <div className="flex items-center gap-1">
-                        <span className="text-gray-500">Duration:</span>
-                        <span className="font-medium">{course.duration}</span>
+                        <span className="text-gray-500 dark:text-slate-400">Duration:</span>
+                        <span className="font-medium dark:text-slate-300">{course.duration}</span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-gray-500">Level:</span>
-                        <span className="font-medium">{course.level}</span>
+                        <span className="text-gray-500 dark:text-slate-400">Level:</span>
+                        <span className="font-medium dark:text-slate-300">{course.level}</span>
                       </div>
                     </div>
                   </CardContent>
-                  <CardFooter className="border-t bg-muted/50 pt-4">
+                  <CardFooter className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 pt-4">
                     <Link href={`/courses/${index + 1}`} className="w-full">
                       <Button
                         variant="outline"
-                        className="w-full text-emerald-600 border-emerald-600 hover:bg-emerald-50"
+                        className="w-full text-emerald-600 border-emerald-600 hover:bg-emerald-50 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-950"
                       >
                         View Course
                       </Button>
@@ -159,7 +167,7 @@ export default function Home() {
                 <Button
                   variant="outline"
                   size="lg"
-                  className="gap-2 border-emerald-600 text-emerald-600 hover:bg-emerald-50"
+                  className="gap-2 border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-950"
                 >
                   View All Courses <ArrowRight className="h-4 w-4" />
                 </Button>
@@ -168,61 +176,59 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Why Choose Us */}
-        <section className="py-16 bg-gradient-to-b from-gray-50 to-white">
+        {/* Why Choose Us */}        <section className="py-16 bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-950">
           <div className="container mx-auto px-4">
             <div className="text-center mb-12">
-              <div className="inline-block px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-sm font-medium mb-2">
+              <div className="inline-block px-3 py-1 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 rounded-full text-sm font-medium mb-2">
                 Our Advantages
               </div>
-              <h2 className="text-3xl font-bold mb-4 text-gray-900">Why Choose Us</h2>
-              <p className="text-gray-600 max-w-2xl mx-auto">
+              <h2 className="text-3xl font-bold mb-4 text-gray-900 dark:text-slate-100">Why Choose Us</h2>
+              <p className="text-gray-600 dark:text-slate-300 max-w-2xl mx-auto">
                 We provide a comprehensive learning experience that prepares you for real-world challenges.
               </p>
             </div>
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {[
-                {
+              {[                {
                   title: "Industry-Relevant Curriculum",
                   description:
                     "Our courses are designed in collaboration with industry experts to ensure you learn skills that employers value.",
-                  icon: <BookOpen className="h-6 w-6 text-emerald-600" />,
+                  icon: <BookOpen className="h-6 w-6 text-emerald-400 dark:text-emerald-400" />,
                 },
                 {
                   title: "Expert Instructors",
                   description: "Learn from professionals with years of experience in their respective fields.",
-                  icon: <Users className="h-6 w-6 text-teal-600" />,
+                  icon: <Users className="h-6 w-6 text-emerald-400 dark:text-emerald-400" />,
                 },
                 {
                   title: "Hands-on Projects",
                   description: "Apply your knowledge through practical projects that simulate real-world scenarios.",
-                  icon: <Code className="h-6 w-6 text-cyan-600" />,
+                  icon: <Code className="h-6 w-6 text-emerald-400 dark:text-emerald-400" />,
                 },
                 {
                   title: "Placement Assistance",
                   description: "Get help with resume building, interview preparation, and job placement.",
-                  icon: <GraduationCap className="h-6 w-6 text-emerald-600" />,
+                  icon: <GraduationCap className="h-6 w-6 text-emerald-400 dark:text-emerald-400" />,
                 },
                 {
                   title: "Flexible Learning",
                   description: "Access course materials anytime, anywhere, and learn at your own pace.",
-                  icon: <CheckCircle className="h-6 w-6 text-teal-600" />,
+                  icon: <CheckCircle className="h-6 w-6 text-emerald-400 dark:text-emerald-400" />,
                 },
                 {
                   title: "Community Support",
                   description: "Join a community of learners and professionals to network and grow together.",
-                  icon: <Users className="h-6 w-6 text-cyan-600" />,
+                  icon: <Users className="h-6 w-6 text-emerald-400 dark:text-emerald-400" />,
                 },
               ].map((feature, index) => (
                 <div
                   key={index}
-                  className="bg-white p-6 rounded-lg shadow-sm hover:shadow-md transition-shadow border-l-4 border-emerald-500 flex gap-4 group hover:bg-gradient-to-r hover:from-white hover:to-emerald-50"
+                  className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-lg shadow-sm hover:shadow-md transition-all border-l-4 border-emerald-500 flex gap-4 group hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:border-emerald-400"
                 >
                   <div className="mt-1 group-hover:scale-110 transition-transform">{feature.icon}</div>
                   <div>
-                    <h3 className="font-semibold text-lg mb-2 text-gray-900">{feature.title}</h3>
-                    <p className="text-gray-600">{feature.description}</p>
+                    <h3 className="font-semibold text-lg mb-2 text-gray-900 dark:text-slate-100">{feature.title}</h3>
+                    <p className="text-gray-600 dark:text-slate-300">{feature.description}</p>
                   </div>
                 </div>
               ))}
@@ -231,14 +237,14 @@ export default function Home() {
         </section>
 
         {/* Testimonials */}
-        <section className="py-16 bg-white">
+        <section className="py-16 bg-white dark:bg-slate-950">
           <div className="container mx-auto px-4">
             <div className="text-center mb-12">
-              <div className="inline-block px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-sm font-medium mb-2">
+              <div className="inline-block px-3 py-1 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 rounded-full text-sm font-medium mb-2">
                 Success Stories
               </div>
-              <h2 className="text-3xl font-bold mb-4 text-gray-900">What Our Students Say</h2>
-              <p className="text-gray-600 max-w-2xl mx-auto">
+              <h2 className="text-3xl font-bold mb-4 text-gray-900 dark:text-slate-100">What Our Students Say</h2>
+              <p className="text-gray-600 dark:text-slate-300 max-w-2xl mx-auto">
                 Hear from our graduates who have successfully transformed their careers.
               </p>
             </div>
@@ -266,25 +272,24 @@ export default function Home() {
                   testimonial:
                     "The hands-on projects in the DevOps course prepared me for real-world challenges. I was able to implement CI/CD pipelines at my new job from day one.",
                 },
-              ].map((testimonial, index) => (
-                <Card key={index} className="overflow-hidden hover:shadow-lg transition-all border-none">
-                  <CardContent className="pt-6 bg-gradient-to-r from-emerald-50 to-teal-50">
+              ].map((testimonial, index) => (                <Card key={index} className="overflow-hidden hover:shadow-lg transition-all border-none dark:bg-slate-800/50">
+                  <CardContent className="pt-6 bg-gradient-to-r from-emerald-50/50 to-emerald-100/50 dark:from-slate-800/50 dark:to-slate-900/50">
                     <div className="flex flex-col items-center text-center">
-                      <div className="w-20 h-20 rounded-full mb-4 overflow-hidden border-4 border-white shadow-md">
+                      <div className="w-20 h-20 rounded-full mb-4 overflow-hidden border-4 border-slate-100 dark:border-slate-700 shadow-md">
                         <img
                           src={testimonial.image || "/placeholder.svg"}
                           alt={testimonial.name}
                           className="w-full h-full object-cover"
                         />
                       </div>
-                      <p className="mb-4 italic text-gray-700 relative">
-                        <span className="text-5xl text-emerald-200 absolute -top-6 -left-2">"</span>
+                      <p className="mb-4 italic text-slate-700 dark:text-slate-300 relative">
+                        <span className="text-5xl text-emerald-200 dark:text-emerald-800 absolute -top-6 -left-2">"</span>
                         {testimonial.testimonial}
-                        <span className="text-5xl text-emerald-200 absolute -bottom-10 -right-2">"</span>
+                        <span className="text-5xl text-emerald-200 dark:text-emerald-800 absolute -bottom-10 -right-2">"</span>
                       </p>
                       <div className="mt-4">
-                        <h4 className="font-semibold text-gray-900">{testimonial.name}</h4>
-                        <p className="text-sm text-emerald-600">{testimonial.role}</p>
+                        <h4 className="font-semibold text-slate-900 dark:text-slate-100">{testimonial.name}</h4>
+                        <p className="text-sm text-emerald-600 dark:text-emerald-400">{testimonial.role}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -292,19 +297,17 @@ export default function Home() {
               ))}
             </div>
           </div>
-        </section>
-
-        {/* CTA Section */}
-        <section className="py-16 bg-gradient-to-r from-emerald-600 to-teal-600 text-white relative overflow-hidden">
+        </section>        {/* CTA Section */}
+        <section className="py-16 bg-gradient-to-r from-emerald-600 to-emerald-500 dark:from-emerald-900 dark:to-emerald-800 text-white relative overflow-hidden">
           <div className="absolute inset-0 bg-pattern opacity-10"></div>
           <div className="container mx-auto px-4 text-center relative z-10">
-            <h2 className="text-3xl font-bold mb-4">Ready to Start Your Learning Journey?</h2>
-            <p className="max-w-2xl mx-auto mb-8 text-emerald-100">
+            <h2 className="text-3xl font-bold mb-4 text-white dark:text-slate-100">Ready to Start Your Learning Journey?</h2>
+            <p className="max-w-2xl mx-auto mb-8 text-white/90 dark:text-slate-200">
               Join thousands of students who have transformed their careers with our courses.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/courses">
-                <Button size="lg" variant="secondary" className="gap-2 bg-white text-emerald-600 hover:bg-emerald-50">
+                <Button size="lg" variant="secondary" className="gap-2 bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800">
                   Explore Courses <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
@@ -312,7 +315,7 @@ export default function Home() {
                 <Button
                   size="lg"
                   variant="outline"
-                  className="bg-transparent border-white hover:bg-white hover:text-emerald-600"
+                  className="bg-transparent border-white dark:border-slate-200 text-white dark:text-slate-200 hover:bg-white/10 dark:hover:bg-slate-800"
                 >
                   Register Now
                 </Button>
