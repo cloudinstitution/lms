@@ -75,7 +75,7 @@ export default function AdminAttendancePage() {
     try {
       const selectedDate = new Date(date)
       const dateString = selectedDate.toISOString().split('T')[0]
-      
+
       // Update attendance-dates collection
       const attendanceDateRef = doc(db, "attendance-dates", dateString)
       const attendanceSnap = await getDoc(attendanceDateRef)
@@ -96,8 +96,8 @@ export default function AdminAttendancePage() {
       }, { merge: true })
 
       // Update local state
-      setStudents(prevStudents => 
-        prevStudents.map(student => 
+      setStudents(prevStudents =>
+        prevStudents.map(student =>
           student.id === studentId ? { ...student, present } : student
         )
       )
