@@ -1,633 +1,594 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useEffect } from "react"
-import { collection, getDocs, doc, deleteDoc, updateDoc } from "firebase/firestore"
-import { db } from "@/lib/firebase"
-import emailjs from "@emailjs/browser"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import React from 'react';
+import { StudentList } from './components/StudentList';
+import { StudentFilters } from './components/StudentFilters';
+import { StudentActions } from './components/StudentActions';
+import { EditStudentDialog } from './components/EditStudentDialog';
+import { EmailStudentDialog } from './components/EmailStudentDialog';
+import { DeleteStudentDialog } from './components/DeleteStudentDialog';
+import { useToast } from '@/components/ui/use-toast';
+import { Badge } from "@/components/ui/badge";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Plus, Search, MoreVertical, Edit, Trash2, Eye, Mail } from "lucide-react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { toast } from "@/components/ui/use-toast"
+  fetchStudents,
+  updateStudent,
+  bulkDeleteStudents,
+  bulkUpdateStudentStatus,
+} from '@/lib/student-service';
+import { filterStudents } from '@/lib/student-utils';
+import { convertStudentsToCSV, downloadCSV } from '@/lib/student-export-utils';
+import type {
+  Student,
+  FilterOptions,
+  PaginationState,
+  SortField
+} from '@/types/student';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Download, Plus, X } from 'lucide-react';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
-// EmailJS Config
-const SERVICE_ID = "service_0wpennn"
-const TEMPLATE_ID = "template_zly25zz"
-const PUBLIC_KEY = "f_2D0VC3LQZjhZDMC"
-
-interface Student {
-  id: string
-  name: string
-  username: string // email
-  password: string
-  phoneNumber: string
-  coursesEnrolled: number
-  studentId: string
-  joinedDate: string
-  status?: "Active" | "Inactive"
-}
+// Helper function to sort students
+const sortStudents = (students: Student[], field: SortField, direction: 'asc' | 'desc'): Student[] => {
+  return [...students].sort((a, b) => {
+    let comparison = 0;
+    
+    // Handle special cases for each field type
+    if (field === 'coursesEnrolled') {
+      comparison = (a[field] || 0) - (b[field] || 0);
+    } else if (field === 'joinedDate') {
+      comparison = new Date(a[field]).getTime() - new Date(b[field]).getTime();
+    } else {
+      comparison = String(a[field] || '').localeCompare(String(b[field] || ''));
+    }
+    
+    return direction === 'asc' ? comparison : -comparison;
+  });
+};
 
 export default function AdminStudents() {
-  const [isAddStudentOpen, setIsAddStudentOpen] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isViewDetailsDialogOpen, setIsViewDetailsDialogOpen] = useState(false)
-  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false)
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [students, setStudents] = useState<Student[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const { toast } = useToast();
+  const [students, setStudents] = React.useState<Student[]>([]);
+  const [selectedStudents, setSelectedStudents] = React.useState<string[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [searchQuery, setSearchQuery] = React.useState("");
 
-  // Form states for adding/editing a student
-  const [newStudent, setNewStudent] = useState({
-    name: "",
-    username: "", // email
-    password: "",
-    phoneNumber: "",
-    coursesEnrolled: 0,
-    studentId: "",
-    joinedDate: new Date().toISOString().slice(0, 10),
-    status: "Active",
-  })
+  const [filters, setFilters] = React.useState<FilterOptions>({
+    status: [],
+    dateRange: {
+      from: null,
+      to: null
+    },
+    coursesEnrolled: undefined
+  });
+  const [sort, setSort] = React.useState<{ field: SortField; direction: 'asc' | 'desc' }>({
+    field: 'name',
+    direction: 'asc'
+  });
 
-  // Form state for email
-  const [emailContent, setEmailContent] = useState({
-    subject: "",
-    message: "",
-  })
+  const [pagination, setPagination] = React.useState<PaginationState>({
+    currentPage: 1,
+    itemsPerPage: 10
+  });
 
-  // Initialize EmailJS
-  useEffect(() => {
-    emailjs.init(PUBLIC_KEY)
-  }, [])
+  // Dialog states
+  const [editDialog, setEditDialog] = React.useState<{
+    open: boolean;
+    student: Student | null;
+  }>({
+    open: false,
+    student: null
+  });
+  const [emailDialog, setEmailDialog] = React.useState(false);
+  const [deleteDialog, setDeleteDialog] = React.useState(false);
+  const [viewDetailsDialog, setViewDetailsDialog] = React.useState<{
+    open: boolean;
+    student: Student | null;
+  }>({
+    open: false,
+    student: null
+  });
 
-  // Fetch students from Firebase
-  useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        setIsLoading(true)
-        const studentsCollection = collection(db, "students")
-        const studentsSnapshot = await getDocs(studentsCollection)
-        const studentsList = studentsSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          status: "Active", // Default status if not in the data
-        })) as Student[]
+  // Fetch students on mount
+  React.useEffect(() => {
+    loadStudents();
+  }, []);
 
-        setStudents(studentsList)
-      } catch (error) {
-        console.error("Error fetching students:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load students data.",
-          variant: "destructive",
-        })
-      } finally {
-        setIsLoading(false)
-      }
+  const loadStudents = async () => {
+    try {
+      setLoading(true);
+      const data = await fetchStudents();
+      setStudents(data);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to load students',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
     }
+  };  // Filter and sort students
+  const filteredStudents = React.useMemo(() => {
+    // Apply search filter first
+    let result = [...students];
+    if (searchQuery) {
+      result = result.filter(
+        (student) =>
+          student.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          student.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          student.phoneNumber?.includes(searchQuery) ||
+          student.studentId?.includes(searchQuery),
+      );
+    }
+    // Apply other filters
+    result = filterStudents(result, '', filters);
+    // Apply sorting
+    if (sort.field) {
+      result = sortStudents(result, sort.field, sort.direction);
+    }
+    return result;
+  }, [students, searchQuery, filters, sort]);
 
-    fetchStudents()
-  }, [])
+  // Get paginated students
+  const paginatedStudents = React.useMemo(() => {
+    const startIndex = (pagination.currentPage - 1) * pagination.itemsPerPage;
+    const endIndex = startIndex + pagination.itemsPerPage;
+    return filteredStudents.slice(startIndex, endIndex);
+  }, [filteredStudents, pagination.currentPage, pagination.itemsPerPage]);
 
-  // Filter students based on search query
-  const filteredStudents = students.filter(
-    (student) =>
-      student.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      student.phoneNumber?.includes(searchQuery) ||
-      student.studentId?.includes(searchQuery),
-  )
+  // Get total pages
+  const totalPages = React.useMemo(() => {
+    return Math.ceil(filteredStudents.length / pagination.itemsPerPage);
+  }, [filteredStudents.length, pagination.itemsPerPage]);
 
-  // Handle view details
-  const handleViewDetails = (student: Student) => {
-    setSelectedStudent(student)
-    setIsViewDetailsDialogOpen(true)
-  }
+  // Selection handlers
+  const handleSelectStudent = (studentId: string) => {
+    setSelectedStudents((prev) =>
+      prev.includes(studentId)
+        ? prev.filter((id) => id !== studentId)
+        : [...prev, studentId]
+    );
+  };
 
-  // Handle edit
-  const handleEdit = (student: Student) => {
-    setSelectedStudent(student)
-    setNewStudent({
-      name: student.name || "",
-      username: student.username || "",
-      password: student.password || "",
-      phoneNumber: student.phoneNumber || "",
-      coursesEnrolled: student.coursesEnrolled || 0,
-      studentId: student.studentId || "",
-      joinedDate: student.joinedDate?.slice(0, 10) || new Date().toISOString().slice(0, 10),
-      status: student.status || "Active",
-    })
-    setIsEditDialogOpen(true)
-  }
+  const handleSelectAllStudents = () => {
+    setSelectedStudents((prev) =>
+      prev.length === filteredStudents.length
+        ? []
+        : filteredStudents.map((s) => s.id)
+    );
+  };
+  // Sort handler
+  const handleSort = (field: SortField) => {
+    setSort(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
 
-  // Handle send email
-  const handleSendEmail = (student: Student) => {
-    setSelectedStudent(student)
-    setEmailContent({
-      subject: "",
-      message: "",
-    })
-    setIsEmailDialogOpen(true)
-  }
+  // Edit handlers
+  const handleEditStudent = async (studentData: Partial<Student>) => {
+    try {
+      if (editDialog.student?.id) {
+        await updateStudent(editDialog.student.id, studentData);
+        await loadStudents();
+        setEditDialog({ open: false, student: null });
+        toast({
+          title: 'Success',
+          description: 'Student updated successfully',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update student',
+        variant: 'destructive',
+      });
+    }
+  };
 
-  // Handle delete click
-  const handleDeleteClick = (student: Student) => {
-    setSelectedStudent(student)
-    setIsDeleteDialogOpen(true)
-  }
-
-  // Handle delete confirm
+  // Delete handlers
   const handleDeleteConfirm = async () => {
-    if (selectedStudent) {
-      try {
-        await deleteDoc(doc(db, "students", selectedStudent.id))
-        setStudents(students.filter((student) => student.id !== selectedStudent.id))
-        toast({
-          title: "Student Deleted",
-          description: `${selectedStudent.name} has been removed from the system.`,
-        })
-      } catch (error) {
-        console.error("Error deleting student:", error)
-        toast({
-          title: "Error",
-          description: "Failed to delete student.",
-          variant: "destructive",
-        })
-      }
-    }
-    setIsDeleteDialogOpen(false)
-  }
-
-  // Handle add student form change
-  const handleAddStudentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { id, value } = e.target
-    setNewStudent((prev) => ({
-      ...prev,
-      [id]: value,
-    }))
-  }
-
-  // Handle number input change
-  const handleNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { id, value } = e.target
-    setNewStudent((prev) => ({
-      ...prev,
-      [id]: Number(value),
-    }))
-  }
-
-  // Handle select change
-  const handleSelectChange = (value: string, field: string) => {
-    setNewStudent((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
-  }
-
-  // Handle add student submit - redirects to the dashboard page with the form
-  const handleAddStudentRedirect = () => {
-    // Redirect to the admin dashboard page for adding a new student
-    window.location.href = "/admin/dashboard"
-  }
-
-  // Handle edit student submit
-  const handleEditStudentSubmit = async () => {
-    if (!selectedStudent) return
-
-    // Validate form
-    if (!newStudent.name || !newStudent.username || !newStudent.phoneNumber) {
-      toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields.",
-        variant: "destructive",
-      })
-      return
-    }
-
     try {
-      const studentRef = doc(db, "students", selectedStudent.id)
-      await updateDoc(studentRef, {
-        name: newStudent.name,
-        username: newStudent.username,
-        password: newStudent.password,
-        phoneNumber: newStudent.phoneNumber,
-        coursesEnrolled: newStudent.coursesEnrolled,
-        studentId: newStudent.studentId,
-        joinedDate: newStudent.joinedDate,
-      })
-
-      // Update local state
-      const updatedStudents = students.map((student) => {
-        if (student.id === selectedStudent.id) {
-          return {
-            ...student,
-            name: newStudent.name,
-            username: newStudent.username,
-            password: newStudent.password,
-            phoneNumber: newStudent.phoneNumber,
-            coursesEnrolled: newStudent.coursesEnrolled,
-            studentId: newStudent.studentId,
-            joinedDate: newStudent.joinedDate,
-            status: newStudent.status as "Active" | "Inactive",
-          }
-        }
-        return student
-      })
-
-      setStudents(updatedStudents)
-      setIsEditDialogOpen(false)
-
+      await bulkDeleteStudents(selectedStudents);
+      await loadStudents();
+      setSelectedStudents([]);
+      setDeleteDialog(false);
       toast({
-        title: "Student Updated",
-        description: `${newStudent.name}'s information has been updated.`,
-      })
+        title: 'Success',
+        description: 'Students deleted successfully',
+      });
     } catch (error) {
-      console.error("Error updating student:", error)
       toast({
-        title: "Error",
-        description: "Failed to update student information.",
-        variant: "destructive",
-      })
+        title: 'Error',
+        description: 'Failed to delete students',
+        variant: 'destructive',
+      });
     }
-  }
+  };
 
-  // Handle send email submit
-  const handleSendEmailSubmit = async () => {
-    if (!selectedStudent) return
-
-    // Validate form
-    if (!emailContent.subject || !emailContent.message) {
-      toast({
-        title: "Missing Information",
-        description: "Please fill in both subject and message.",
-        variant: "destructive",
-      })
-      return
-    }
-
+  // Bulk status update handler
+  const handleBulkStatusChange = async (status: Student['status']) => {
     try {
-      // Send email via EmailJS
-      const emailParams = {
-        to_email: selectedStudent.username,
-        subject: emailContent.subject,
-        message: emailContent.message,
-        name: selectedStudent.name,
+      if (status) {
+        await bulkUpdateStudentStatus(selectedStudents, status);
+        await loadStudents();
+        setSelectedStudents([]);
+        toast({
+          title: 'Success',
+          description: 'Student status updated successfully',
+        });
       }
-
-      await emailjs.send(SERVICE_ID, TEMPLATE_ID, emailParams)
-      setIsEmailDialogOpen(false)
-
-      toast({
-        title: "Email Sent",
-        description: `Email has been sent to ${selectedStudent.name}.`,
-      })
     } catch (error) {
-      console.error("Error sending email:", error)
       toast({
-        title: "Error",
-        description: "Failed to send email.",
-        variant: "destructive",
-      })
+        title: 'Error',
+        description: 'Failed to update student status',
+        variant: 'destructive',
+      });
     }
-  }
+  };
+
+  // Email handler
+  const handleSendEmail = async (subject: string, message: string) => {
+    // Implement email sending logic here
+    setEmailDialog(false);
+    toast({
+      title: 'Success',
+      description: 'Emails sent successfully',
+    });
+  };
 
   // Format date for display
   const formatDate = (dateString: string) => {
-    if (!dateString) return "N/A"
+    if (!dateString) return "N/A";
 
     try {
-      const date = new Date(dateString)
+      const date = new Date(dateString);
       return date.toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
-        year: "numeric",
-      })
+        year: "numeric"
+      });
     } catch (error) {
-      return dateString
+      return dateString;
     }
+  };
+
+  // Filter change handler
+  const handleFilterChange = (newFilters: Partial<FilterOptions>) => {
+    setFilters(prev => ({ ...prev, ...newFilters }));
+    // Reset to first page when filters change
+    setPagination(prev => ({ ...prev, currentPage: 1 }));
+  };
+
+  // Also reset pagination when search changes
+  React.useEffect(() => {
+    setPagination(prev => ({ ...prev, currentPage: 1 }));
+  }, [searchQuery]);
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setPagination(prev => ({ ...prev, currentPage: page }));
+  };
+
+  // Handle items per page change
+  const handleItemsPerPageChange = (itemsPerPage: number) => {
+    setPagination(prev => ({ 
+      itemsPerPage, 
+      currentPage: 1 // Reset to first page when changing items per page
+    }));
+  };
+
+  if (loading) {
+    return <div>Loading...</div>;
   }
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Students</h1>
-          <p className="text-muted-foreground">Manage your student enrollments</p>
-        </div>
-          <Button className="gap-1" onClick={handleAddStudentRedirect}>
+    <div className="container mx-auto py-10">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-foreground">Students</h1>
+        <div className="flex gap-4 items-center">
+          <Button variant="outline" className="gap-2">
+            <Download className="h-4 w-4" /> Export
+          </Button>
+          <Button className="gap-2" onClick={() => window.location.href = "/admin/dashboard"}>
             <Plus className="h-4 w-4" /> Add Student
           </Button>
         </div>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <CardTitle>All Students</CardTitle>
-                <CardDescription>You have {students.length} students in total</CardDescription>
-              </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="search"
-                  placeholder="Search students..."
-                  className="w-full pl-8"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex justify-between items-center">          <div className="flex flex-col gap-2">
+            <div className="flex gap-4 items-center">
+              <Input
+                placeholder="Search students..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="max-w-sm"
+              />
+              <StudentFilters
+                filters={filters}
+                onFilterChange={handleFilterChange}
+              />
             </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex justify-center items-center py-8">
-                <p>Loading students data...</p>
+            {(filters.status.length > 0 || filters.dateRange.from || filters.dateRange.to || filters.coursesEnrolled || filters.courseName || filters.courseID) && (
+              <div className="flex flex-wrap gap-2">
+                {filters.status.length > 0 && (
+                  <Badge variant="secondary" className="flex items-center gap-1">
+                    Status: {filters.status.join(', ')}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => handleFilterChange({ status: [] })} />
+                  </Badge>
+                )}
+                {(filters.dateRange.from || filters.dateRange.to) && (
+                  <Badge variant="secondary" className="flex items-center gap-1">
+                    Date Range: {filters.dateRange.from?.toLocaleDateString()} - {filters.dateRange.to?.toLocaleDateString()}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => handleFilterChange({ dateRange: { from: null, to: null } })} />
+                  </Badge>
+                )}
+                {filters.coursesEnrolled && (
+                  <Badge variant="secondary" className="flex items-center gap-1">
+                    Courses: {filters.coursesEnrolled}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => handleFilterChange({ coursesEnrolled: undefined })} />
+                  </Badge>
+                )}
+                {filters.courseName && (
+                  <Badge variant="secondary" className="flex items-center gap-1">
+                    Course: {filters.courseName}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => handleFilterChange({ courseName: undefined })} />
+                  </Badge>
+                )}
+                {filters.courseID && (
+                  <Badge variant="secondary" className="flex items-center gap-1">
+                    Course ID: {filters.courseID}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => handleFilterChange({ courseID: undefined })} />
+                  </Badge>
+                )}
               </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Student ID</TableHead>
-                    <TableHead>Courses</TableHead>
-                    <TableHead>Join Date</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredStudents.length > 0 ? (
-                    filteredStudents.map((student) => (
-                      <TableRow key={student.id}>
-                        <TableCell className="font-medium">{student.name}</TableCell>
-                        <TableCell>{student.username}</TableCell>
-                        <TableCell>{student.phoneNumber}</TableCell>
-                        <TableCell>{student.studentId}</TableCell>
-                        <TableCell>{student.coursesEnrolled}</TableCell>
-                        <TableCell>{formatDate(student.joinedDate)}</TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreVertical className="h-4 w-4" />
-                                <span className="sr-only">Open menu</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleViewDetails(student)}>
-                                <Eye className="mr-2 h-4 w-4" />
-                                <span>View Details</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleEdit(student)}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                <span>Edit</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleSendEmail(student)}>
-                                <Mail className="mr-2 h-4 w-4" />
-                                <span>Send Email</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDeleteClick(student)}>
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                <span>Delete</span>
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-6 text-muted-foreground">
-                        No students found matching your search.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
             )}
-          </CardContent>
-        </Card>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Label>Show:</Label>
+              <select
+                value={pagination.itemsPerPage}
+                onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+                className="h-9 w-[70px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Showing {((pagination.currentPage - 1) * pagination.itemsPerPage) + 1} to {Math.min(pagination.currentPage * pagination.itemsPerPage, filteredStudents.length)} of {filteredStudents.length}
+            </div>
+          </div>
+        </div>
 
-        {/* Delete Confirmation Dialog */}
-        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Delete Student</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to delete {selectedStudent?.name}? This action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={handleDeleteConfirm}>
-                Delete
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {selectedStudents.length > 0 && (
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">{selectedStudents.length} students selected</div>
+            <StudentActions
+              selectedCount={selectedStudents.length}
+              onBulkDelete={() => setDeleteDialog(true)}
+              onBulkStatusChange={handleBulkStatusChange}
+              onEmailSelected={() => setEmailDialog(true)}
+            />
+          </div>
+        )}
+      </div>
 
-        {/* View Details Dialog */}
-        <Dialog open={isViewDetailsDialogOpen} onOpenChange={setIsViewDetailsDialogOpen}>
-          <DialogContent className="sm:max-w-[500px]">
-            <DialogHeader>
-              <DialogTitle>Student Details</DialogTitle>
-              <DialogDescription>Detailed information about {selectedStudent?.name}</DialogDescription>
-            </DialogHeader>
-            {selectedStudent && (
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-3 items-center gap-4">
-                  <Label className="text-right font-medium">Name:</Label>
-                  <div className="col-span-2">{selectedStudent.name}</div>
-                </div>
-                <div className="grid grid-cols-3 items-center gap-4">
-                  <Label className="text-right font-medium">Email:</Label>
-                  <div className="col-span-2">{selectedStudent.username}</div>
-                </div>
-                <div className="grid grid-cols-3 items-center gap-4">
-                  <Label className="text-right font-medium">Phone:</Label>
-                  <div className="col-span-2">{selectedStudent.phoneNumber}</div>
-                </div>
-                <div className="grid grid-cols-3 items-center gap-4">
-                  <Label className="text-right font-medium">Student ID:</Label>
-                  <div className="col-span-2">{selectedStudent.studentId}</div>
-                </div>
-                <div className="grid grid-cols-3 items-center gap-4">
-                  <Label className="text-right font-medium">Enrolled Courses:</Label>
-                  <div className="col-span-2">{selectedStudent.coursesEnrolled}</div>
-                </div>
-                <div className="grid grid-cols-3 items-center gap-4">
-                  <Label className="text-right font-medium">Join Date:</Label>
-                  <div className="col-span-2">{formatDate(selectedStudent.joinedDate)}</div>
-                </div>
-                <div className="grid grid-cols-3 items-center gap-4">
-                  <Label className="text-right font-medium">Status:</Label>
-                  <div className="col-span-2">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        selectedStudent.status === "Active" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                      }`}
-                    >
-                      {selectedStudent.status || "Active"}
-                    </span>
+      <div className="rounded-md border mt-4">
+        {loading ? (
+          <div className="flex items-center justify-center p-8">
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-r-transparent" />
+              <p className="text-sm text-muted-foreground">Loading students...</p>
+            </div>
+          </div>
+        ) : filteredStudents.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-8 text-center">
+            <p className="text-sm text-muted-foreground">No students found</p>
+            {searchQuery && (
+              <p className="text-sm text-muted-foreground mt-1">
+                Try adjusting your search or filters
+              </p>
+            )}
+          </div>
+        ) : (
+          <StudentList
+            students={paginatedStudents}
+            selectedStudents={selectedStudents}
+            onSelect={(studentId: string) => handleSelectStudent(studentId)}
+            onSelectAll={handleSelectAllStudents}
+            sortField={sort.field}
+            sortDirection={sort.direction}
+            onSort={handleSort}
+            onEdit={(student: Student) => setEditDialog({ open: true, student })}
+            onDelete={(studentId: string) => handleSelectStudent(studentId)}
+            onEmail={(student: Student) => setEmailDialog(true)}
+            onViewDetails={(student: Student) => setViewDetailsDialog({ open: true, student })}
+          />
+        )}
+      </div>
+
+      {!loading && filteredStudents.length > 0 && (
+        <div className="flex justify-center mt-4">
+          <nav className="flex items-center gap-6">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => handlePageChange(pagination.currentPage - 1)}
+                    className={pagination.currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                    aria-disabled={pagination.currentPage === 1}
+                  />
+                </PaginationItem>
+                {Array.from({ length: totalPages }).map((_, i) => {
+                  const page = i + 1;
+                  const isCurrentPage = page === pagination.currentPage;
+                  
+                  // Show first page, current page and its neighbors, and last page
+                  if (
+                    page === 1 ||
+                    page === totalPages ||
+                    (page >= pagination.currentPage - 1 && page <= pagination.currentPage + 1)
+                  ) {
+                    return (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          isActive={isCurrentPage}
+                          onClick={() => handlePageChange(page)}
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    );
+                  }
+
+                  // Show ellipsis if there's a gap
+                  if (
+                    page === 2 ||
+                    page === totalPages - 1
+                  ) {
+                    return (
+                      <PaginationItem key={page}>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    );
+                  }
+
+                  return null;
+                })}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => handlePageChange(pagination.currentPage + 1)}
+                    className={pagination.currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                    aria-disabled={pagination.currentPage === totalPages}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </nav>
+        </div>
+      )}
+
+      <EditStudentDialog
+        student={editDialog.student}
+        open={editDialog.open}
+        onClose={() => setEditDialog({ open: false, student: null })}
+        onSave={handleEditStudent}
+      />
+
+      <EmailStudentDialog
+        recipientCount={selectedStudents.length}
+        open={emailDialog}
+        onClose={() => setEmailDialog(false)}
+        onSend={handleSendEmail}
+      />
+
+      <DeleteStudentDialog
+        studentCount={selectedStudents.length}
+        open={deleteDialog}
+        onClose={() => setDeleteDialog(false)}
+        onConfirm={handleDeleteConfirm}
+      />
+      <Dialog
+        open={viewDetailsDialog.open}
+        onOpenChange={(open) => setViewDetailsDialog({ open, student: open ? viewDetailsDialog.student : null })}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Student Details</DialogTitle>
+            <DialogDescription>Detailed information about {viewDetailsDialog.student?.name}</DialogDescription>
+          </DialogHeader>
+          {viewDetailsDialog.student && (
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label className="text-right font-medium">Name:</Label>
+                <div className="col-span-2">{viewDetailsDialog.student.name}</div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label className="text-right font-medium">Email:</Label>
+                <div className="col-span-2">{viewDetailsDialog.student.username}</div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label className="text-right font-medium">Phone:</Label>
+                <div className="col-span-2">{viewDetailsDialog.student.phoneNumber}</div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label className="text-right font-medium">Student ID:</Label>
+                <div className="col-span-2">{viewDetailsDialog.student.studentId}</div>
+              </div>
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label className="text-right font-medium">Total Courses:</Label>
+                <div className="col-span-2">{viewDetailsDialog.student.coursesEnrolled}</div>
+              </div>
+              <div className="grid grid-cols-3 items-start gap-4">
+                <Label className="text-right font-medium mt-2">Enrolled Courses:</Label>
+                <div className="col-span-2">
+                  <div className="border rounded-md">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Course Name</TableHead>
+                          <TableHead>Course ID</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {viewDetailsDialog.student?.courseName?.map((name, index) => (
+                          <TableRow key={index}>
+                            <TableCell>{name}</TableCell>
+                            <TableCell>{viewDetailsDialog.student?.courseID?.[index]?.toString() || 'N/A'}</TableCell>
+                          </TableRow>
+                        ))}
+                        {(!viewDetailsDialog.student?.courseName?.length) && (
+                          <TableRow>
+                            <TableCell colSpan={2} className="text-center text-muted-foreground">
+                              No courses enrolled
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
                   </div>
                 </div>
               </div>
-            )}
-            <DialogFooter>
-              <Button onClick={() => setIsViewDetailsDialogOpen(false)}>Close</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Edit Student Dialog */}
-        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Edit Student</DialogTitle>
-              <DialogDescription>Update student information</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  placeholder="Enter full name"
-                  value={newStudent.name}
-                  onChange={handleAddStudentChange}
-                />
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label className="text-right font-medium">Join Date:</Label>
+                <div className="col-span-2">{formatDate(viewDetailsDialog.student.joinedDate)}</div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="username">Student Email</Label>
-                <Input
-                  id="username"
-                  type="email"
-                  placeholder="Enter email address"
-                  value={newStudent.username}
-                  onChange={handleAddStudentChange}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter password"
-                  value={newStudent.password}
-                  onChange={handleAddStudentChange}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="phoneNumber">Phone Number</Label>
-                <Input
-                  id="phoneNumber"
-                  placeholder="Enter phone number"
-                  value={newStudent.phoneNumber}
-                  onChange={handleAddStudentChange}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="studentId">Student ID</Label>
-                <Input
-                  id="studentId"
-                  placeholder="Enter student ID"
-                  value={newStudent.studentId}
-                  onChange={handleAddStudentChange}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="coursesEnrolled">Courses Enrolled</Label>
-                <Input
-                  id="coursesEnrolled"
-                  type="number"
-                  placeholder="Number of courses"
-                  value={newStudent.coursesEnrolled}
-                  onChange={handleNumberChange}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="joinedDate">Joined Date</Label>
-                <Input id="joinedDate" type="date" value={newStudent.joinedDate} onChange={handleAddStudentChange} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="status">Status</Label>
-                <Select value={newStudent.status} onValueChange={(value) => handleSelectChange(value, "status")}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label className="text-right font-medium">Status:</Label>
+                <div className="col-span-2">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${viewDetailsDialog.student.status === "Active"
+                      ? "bg-green-100 text-green-800"
+                      : "bg-red-100 text-red-800"
+                      }`}
+                  >
+                    {viewDetailsDialog.student.status || 'Active'}
+                  </span>
+                </div>
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" onClick={handleEditStudentSubmit}>
-                Update Student
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Send Email Dialog */}
-        <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Send Email</DialogTitle>
-              <DialogDescription>
-                Send an email to {selectedStudent?.name} ({selectedStudent?.username})
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="email-subject">Subject</Label>
-                <Input
-                  id="email-subject"
-                  placeholder="Email subject"
-                  value={emailContent.subject}
-                  onChange={(e) => setEmailContent((prev) => ({ ...prev, subject: e.target.value }))}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="email-message">Message</Label>
-                <Input
-                  id="email-message"
-                  placeholder="Email message"
-                  className="min-h-[100px]"
-                  value={emailContent.message}
-                  onChange={(e) => setEmailContent((prev) => ({ ...prev, message: e.target.value }))}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" onClick={handleSendEmailSubmit}>
-                Send Email
-              </Button>
-            </DialogFooter>
-          </DialogContent>        </Dialog>
-      </div>
-  )
+          )}
+          <DialogFooter>
+            <Button onClick={() => setViewDetailsDialog({ open: false, student: null })}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }

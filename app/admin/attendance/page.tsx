@@ -254,20 +254,9 @@ export default function AdminAttendancePage() {
   const markAttendance = async (studentId: string, customStudentId: string, studentName: string, present: boolean) => {
     if (!date) return
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const selectedDate = new Date(date)
-    selectedDate.setHours(0, 0, 0, 0)
-
-    if (selectedDate > today) {
-      toast.error("Cannot mark attendance for future dates", {
-        description: "Please select today or a past date"
-      })
-      return
-    }
-
     try {
-      const dateString = date.toISOString().split('T')[0]
+      const selectedDate = new Date(date)
+      const dateString = selectedDate.toISOString().split('T')[0]
 
       // Update attendance-dates collection
       const attendanceDateRef = doc(db, "attendance-dates", dateString)
@@ -288,30 +277,12 @@ export default function AdminAttendancePage() {
         hoursSpent: present ? 7 : 0
       }, { merge: true })
 
-      // Update local state for students list
-      const updatedStudents = students.map(student =>
-        student.id === studentId ? { ...student, present } : student
+      // Update local state
+      setStudents(prevStudents =>
+        prevStudents.map(student =>
+          student.id === studentId ? { ...student, present } : student
+        )
       )
-      setStudents(updatedStudents)      // Recalculate statistics for all students
-      const totalStudents = updatedStudents.length
-      const presentCount = updatedStudents.filter(s => s.present).length
-      const absentCount = totalStudents - presentCount
-      const attendancePercentage = totalStudents > 0 ? (presentCount / totalStudents) * 100 : 0
-
-      // Calculate course stats using the existing function
-      const courseStats = calculateCourseStats(updatedStudents)
-
-      // Update stats
-      setStats({
-        totalStudents,
-        presentStudents: presentCount,
-        absentStudents: absentCount,
-        attendancePercentage,
-        courseStats: courseStats
-      })
-
-      // Show success message
-      toast.success(`Marked ${studentName} as ${present ? 'present' : 'absent'}`)
 
     } catch (error) {
       console.error("Error marking attendance:", error)
