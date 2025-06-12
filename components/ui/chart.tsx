@@ -363,3 +363,131 @@ export {
   ChartLegendContent,
   ChartStyle,
 }
+
+// Generic Chart component for the attendance page
+interface ChartProps {
+  type: 'line' | 'bar' | 'pie' | 'area' | 'doughnut';
+  data: any;
+  options?: any;
+  height?: number;
+}
+
+export function Chart({ type, data, options, height = 300 }: ChartProps) {
+  if (!data || !data.labels || !data.datasets) {
+    return <div className="p-4 text-center text-muted-foreground">No data available</div>;
+  }
+
+  // Create a basic config for the chart
+  const config: ChartConfig = {};
+  data.datasets.forEach((dataset: any, index: number) => {
+    config[dataset.label] = {
+      label: dataset.label,
+      color: dataset.backgroundColor || dataset.borderColor || '#6b7280'
+    };
+  });
+
+  // For pie/doughnut charts, data needs to be transformed differently
+  if (type === 'pie' || type === 'doughnut') {
+    // Transform the data for pie/doughnut charts
+    const pieData = data.datasets[0].data.map((value: number, index: number) => ({
+      name: data.labels[index],
+      value,
+      fill: data.datasets[0].backgroundColor[index] || `#${Math.floor(Math.random() * 16777215).toString(16)}`,
+    }));
+
+    const outerRadius = type === 'doughnut' ? '80%' : '65%';
+    const innerRadius = type === 'doughnut' ? '60%' : 0;
+
+    return (
+      <ChartContainer className="h-full w-full" config={config}>
+        <RechartsPrimitive.ResponsiveContainer width="100%" height={height}>
+          <RechartsPrimitive.PieChart margin={{ top: 10, right: 30, left: 0, bottom: 0 }} {...options}>
+            <RechartsPrimitive.Pie
+              data={pieData}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              outerRadius={outerRadius}
+              innerRadius={innerRadius}
+              fill="#8884d8"
+              label
+            >
+              {pieData.map((entry: any, index: number) => (
+                <RechartsPrimitive.Cell key={`cell-${index}`} fill={entry.fill} />
+              ))}
+            </RechartsPrimitive.Pie>
+            <RechartsPrimitive.Tooltip />
+            <RechartsPrimitive.Legend />
+          </RechartsPrimitive.PieChart>
+        </RechartsPrimitive.ResponsiveContainer>
+      </ChartContainer>
+    );
+  }
+
+  // For cartesian charts (line, bar, area)
+  // Transform the data to Recharts format
+  const transformedData = data.labels.map((label: string, index: number) => {
+    const dataPoint: Record<string, any> = { name: label };
+    data.datasets.forEach((dataset: any) => {
+      dataPoint[dataset.label] = dataset.data[index];
+    });
+    return dataPoint;
+  });
+
+  const ChartComponent = {
+    'line': RechartsPrimitive.LineChart,
+    'bar': RechartsPrimitive.BarChart,
+    'area': RechartsPrimitive.AreaChart
+  }[type];
+
+  return (
+    <ChartContainer className="h-full w-full" config={config}>
+      <ChartComponent
+        width="100%"
+        height={height}
+        data={transformedData}
+        margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+        {...options}
+      >
+        <RechartsPrimitive.CartesianGrid strokeDasharray="3 3" />
+        <RechartsPrimitive.XAxis dataKey="name" />
+        <RechartsPrimitive.YAxis />
+        <RechartsPrimitive.Tooltip />
+        <RechartsPrimitive.Legend />
+        {data.datasets.map((dataset: any, index: number) => {
+          if (type === 'line') {
+            return (
+              <RechartsPrimitive.Line
+                key={index}
+                type="monotone"
+                dataKey={dataset.label}
+                stroke={dataset.borderColor}
+                fill={dataset.backgroundColor}
+              />
+            );
+          } else if (type === 'bar') {
+            return (
+              <RechartsPrimitive.Bar
+                key={index}
+                dataKey={dataset.label}
+                fill={dataset.backgroundColor}
+              />
+            );
+          } else if (type === 'area') {
+            return (
+              <RechartsPrimitive.Area
+                key={index}
+                type="monotone"
+                dataKey={dataset.label}
+                stroke={dataset.borderColor}
+                fill={dataset.backgroundColor}
+              />
+            );
+          }
+          return null;
+        })}
+      </ChartComponent>
+    </ChartContainer>
+  );
+}

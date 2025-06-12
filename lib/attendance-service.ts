@@ -2,12 +2,18 @@ import { collection, onSnapshot, query, Timestamp, where, type DocumentData } fr
 import { db } from "./firebase"
 
 export interface AttendanceRecord {
+  id?: string
   date: string
-  status: "present" | "absent" | "holiday"
+  status: "present" | "absent" | "holiday" | "late" | "excused"
   time: string | null
   dayName?: string
   dayNumber?: number
   hoursSpent: number
+  courseId?: string
+  courseName?: string
+  timeIn?: string
+  timeOut?: string
+  notes?: string
 }
 
 export interface AttendanceSummary {
@@ -439,3 +445,16 @@ class AttendanceService {
 }
 
 export const attendanceService = AttendanceService.getInstance()
+
+// Export the utility functions for API routes to use
+export const getStudentAttendanceRecords = async (studentId: string, params: any = {}) => {
+  // Import from attendance-query-service to avoid circular dependencies
+  const { getStudentAttendanceRecords: fetchRecords } = await import('./attendance-query-service');
+  return fetchRecords(studentId, params);
+};
+
+export const getStudentAttendanceSummary = async (studentId: string, params: any = {}) => {
+  // Import from attendance-query-service to avoid circular dependencies
+  const { getStudentAttendanceSummary: fetchSummary } = await import('./attendance-query-service');
+  return fetchSummary(studentId, params);
+};
