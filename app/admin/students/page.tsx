@@ -568,8 +568,7 @@ export default function AdminStudents() {
               <div className="grid grid-cols-3 items-center gap-4">
                 <Label className="text-right font-medium">Join Date:</Label>
                 <div className="col-span-2">{formatDate(viewDetailsDialog.student.joinedDate)}</div>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-4">
+              </div>              <div className="grid grid-cols-3 items-center gap-4">
                 <Label className="text-right font-medium">Status:</Label>
                 <div className="col-span-2">
                   <span
@@ -580,6 +579,19 @@ export default function AdminStudents() {
                   >
                     {viewDetailsDialog.student.status || 'Active'}
                   </span>
+                </div>
+              </div>              <div className="grid grid-cols-3 items-center gap-4 mt-4">
+                <Label className="text-right font-medium">Attendance:</Label>
+                <div className="col-span-2">
+                  <Button 
+                    variant="outline" 
+                    className="w-full"
+                    onClick={() => {
+                      window.location.href = `/admin/students/${viewDetailsDialog.student?.id}/attendance`;
+                    }}
+                  >
+                    View Full Attendance Record
+                  </Button>
                 </div>
               </div>
             </div>
