@@ -5,6 +5,7 @@ import { StudentQRCode } from "@/components/student-qr-code"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { generateAttendanceQRCode } from "@/lib/attendance-utils"
 import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import { getStudentSession } from "@/lib/session-storage"
@@ -53,6 +54,7 @@ interface TimeSpentStats {
 function DashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [showQRDialog, setShowQRDialog] = useState(false)
   const [student, setStudent] = useState<Student | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [attendanceCode, setAttendanceCode] = useState("")
@@ -311,6 +313,14 @@ function DashboardContent() {
     fetchQuizStatistics()
   }, []) // Only run once on mount
 
+  // Generate attendance code when component mounts or student data changes
+  useEffect(() => {
+    if (student?.studentId) {
+      const code = generateAttendanceQRCode(student.studentId)
+      setAttendanceCode(code)
+    }
+  }, [student])
+
   if (isLoading) return <div className="p-6">Loading...</div>
   if (!student) return <div className="p-6">No student data available. Redirecting to login...</div>
 
@@ -330,8 +340,7 @@ function DashboardContent() {
               <span className="font-medium text-emerald-600 dark:text-emerald-400">{student.name}</span>! Here's your
               learning progress.
             </p>
-          </div>
-          <Dialog>
+          </div>          <Dialog open={showQRDialog} onOpenChange={setShowQRDialog}>
             <DialogTrigger asChild>
               <Button
                 variant="outline"
@@ -351,9 +360,8 @@ function DashboardContent() {
                   Your instructor will scan this QR code to mark your attendance
                 </p>
                 <p className="text-xs text-center text-muted-foreground mt-1">Code: {attendanceCode}</p>
-              </div>
-              <DialogFooter>
-                <Button className="w-full">Close</Button>
+              </div>              <DialogFooter className="sm:justify-center">
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => setShowQRDialog(false)}>Close</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
