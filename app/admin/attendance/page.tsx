@@ -92,7 +92,6 @@ export default function AdminAttendancePage() {
             }
           }
         })
-
         setCourses(courseMapping)
       } catch (error) {
         console.error("Error fetching courses:", error)
@@ -108,7 +107,9 @@ export default function AdminAttendancePage() {
   // Show error message if courses failed to load
   useEffect(() => {
     if (coursesError) {
-      toast.error(coursesError)
+      toast.error(coursesError, {
+        description: "Please check your network connection and try again."
+      })
     }
   }, [coursesError])
 
@@ -165,18 +166,27 @@ export default function AdminAttendancePage() {
 
     // Sort courses by name
     return courseStats.sort((a, b) => a.courseName.localeCompare(b.courseName));
-  }
-  const fetchStudentsForDate = useCallback(async () => {
+  }  
+  const fetchStudentsForDate = useCallback(async (showToast = true) => {
     if (!date) return
+    
+    // Only show toast if explicitly requested
+    if (showToast) {
+      toast.info("Loading students", {
+        id: "loading-students",
+        description: "Fetching student data for the selected date"
+      })
+    }
 
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const selectedDate = new Date(date)
     selectedDate.setHours(0, 0, 0, 0)
-
-    if (selectedDate > today) {
+      if (selectedDate > today) {
       toast.error("Cannot mark attendance for future dates", {
-        description: "Please select today or a past date"
+        id: "future-date-error",
+        description: "Please select today or a past date",
+        duration: 5000
       })
       return
     }
@@ -244,11 +254,10 @@ export default function AdminAttendancePage() {
       setLoading(false)
     }
   }, [date, courses]) // Added courses as dependency
-
   // Load students when date changes
   useEffect(() => {
     if (date) {
-      fetchStudentsForDate()
+      fetchStudentsForDate(true) // Show toast on initial date load
     }
   }, [date, fetchStudentsForDate])
   const markAttendance = async (studentId: string, customStudentId: string, studentName: string, present: boolean) => {
@@ -275,26 +284,36 @@ export default function AdminAttendancePage() {
         updatedBy: "admin",
         updatedByName: "Administrator",
         hoursSpent: present ? 7 : 0
-      }, { merge: true })
-
-      // Update local state
+      }, { merge: true })      // Update local state
       setStudents(prevStudents =>
         prevStudents.map(student =>
           student.id === studentId ? { ...student, present } : student
         )
       )
-
-    } catch (error) {
+      
+      // Show toast notification
+      toast.success(
+        present 
+          ? `${studentName} marked present` 
+          : `${studentName} marked absent`, 
+        {
+          id: `attendance-${studentId}`,
+          description: present 
+            ? "Student has been marked as present for today" 
+            : "Student has been marked as absent for today"
+        }
+      )    } catch (error) {
       console.error("Error marking attendance:", error)
       toast.error("Failed to mark attendance", {
-        description: "Please try again"
+        id: "mark-attendance-error",
+        description: "There was a problem updating attendance. Please try again or contact support if the issue persists.",
+        duration: 5000
       })
     }
   }
-
   // Callback for when attendance is marked via scanner
   const handleAttendanceMarked = useCallback(() => {
-    fetchStudentsForDate() // Refresh the student list
+    fetchStudentsForDate(false) // Refresh the student list without showing toast
     setScannerRefreshKey(prev => prev + 1) // Reset scanner
   }, [fetchStudentsForDate])
 
@@ -337,15 +356,19 @@ export default function AdminAttendancePage() {
 
     const ws = xlsxUtils.json_to_sheet(data);
     const wb = xlsxUtils.book_new();
-    xlsxUtils.book_append_sheet(wb, ws, 'Attendance');
-
-    if (format === 'csv') {
+    xlsxUtils.book_append_sheet(wb, ws, 'Attendance');      if (format === 'csv') {
       const csv = xlsxUtils.sheet_to_csv(ws);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = `attendance_${dateStr}.csv`;
       link.click();
+      
+      // Show success toast for CSV download
+      toast.success("Download started", {
+        id: "csv-download",
+        description: `Attendance data for ${dateStr} has been downloaded as CSV`
+      });
     } else {
       const buffer = xlsxWrite(wb, { type: 'array', bookType: 'xlsx' });
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -353,13 +376,18 @@ export default function AdminAttendancePage() {
       link.href = URL.createObjectURL(blob);
       link.download = `attendance_${dateStr}.xlsx`;
       link.click();
+      
+      // Show success toast for XLSX download
+      toast.success("Download started", {
+        id: "xlsx-download",
+        description: `Attendance data for ${dateStr} has been downloaded as Excel file`
+      });
     }
   };
-
   return (
     <div className="container mx-auto py-10">
       <h1 className="text-3xl font-bold mb-6 text-foreground">Attendance Management</h1>
-
+      
       <Tabs defaultValue="manual">
         <TabsList className="mb-6 bg-muted/50">
           <TabsTrigger value="manual" className="data-[state=active]:bg-background data-[state=active]:text-primary">
@@ -551,11 +579,13 @@ export default function AdminAttendancePage() {
 
                       const today = new Date()
                       today.setHours(0, 0, 0, 0)
-
-                      if (newDate > today) {
-                        toast.error("Future dates not allowed", {
-                          description: "You cannot mark attendance for future dates",
-                          duration: 3000,
+                      
+                      if (newDate > today) {                        
+                        // Show a more prominent warning for future dates
+                        toast.error("⚠️ Future Date Selected", {
+                          id: "calendar-future-date",
+                          description: "Attendance cannot be marked for future dates. Please select today or a past date.",
+                          duration: 4000
                         });
                         return;
                       }
@@ -613,7 +643,7 @@ export default function AdminAttendancePage() {
                       day_hidden: "invisible",
                     }}
                   />
-                  <Button onClick={fetchStudentsForDate} className="w-full mt-4" disabled={!date || loading}>
+                  <Button onClick={() => fetchStudentsForDate(true)} className="w-full mt-4" disabled={!date || loading}>
                     {loading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -645,14 +675,38 @@ export default function AdminAttendancePage() {
                           <Input
                             placeholder="Search by name or ID..."
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onChange={(e) => {
+                              const query = e.target.value;
+                              setSearchQuery(query)
+                              
+                              // Show toast only if user enters something
+                              if (query.trim().length > 0) {
+                                toast.info("Searching...", {
+                                  id: "search-students",
+                                  description: `Filtering students by "${query}"`,
+                                  duration: 2000
+                                })
+                              }
+                            }}
                             className="w-full"
                           />
                         </div>
                         <div className="flex gap-2">
                           <Select
                             value={selectedCourse}
-                            onValueChange={setSelectedCourse}
+                            onValueChange={(value) => {
+                              setSelectedCourse(value)
+                              
+                              // Show toast notification for course filter change
+                              const courseName = value === "all" 
+                                ? "all courses" 
+                                : courses[value]?.title || "selected course";
+                                
+                              toast.info("Course filter applied", {
+                                id: "filter-course",
+                                description: `Now showing students from ${courseName}`
+                              })
+                            }}
                             disabled={coursesLoading}
                           >
                             <SelectTrigger className="w-[180px]">
@@ -674,7 +728,23 @@ export default function AdminAttendancePage() {
                               )}
                             </SelectContent>
                           </Select>
-                          <Select value={selectedStatus} onValueChange={(value: string) => setSelectedStatus(value as AttendanceStatus)}>
+                          <Select 
+                            value={selectedStatus} 
+                            onValueChange={(value: string) => {
+                              setSelectedStatus(value as AttendanceStatus)
+                              
+                              // Show toast notification for filter change
+                              const statusText = value === "all" 
+                                ? "Showing all students" 
+                                : value === "present" 
+                                  ? "Showing present students only" 
+                                  : "Showing absent students only";
+                                  
+                              toast.info("Filter applied", {
+                                id: "filter-status",
+                                description: statusText
+                              })
+                            }}>
                             <SelectTrigger className="w-[150px]">
                               <SelectValue placeholder="Filter by status" />
                             </SelectTrigger>
