@@ -16,7 +16,7 @@ import {
   bulkUpdateStudentStatus,
 } from '@/lib/student-service';
 import { filterStudents } from '@/lib/student-utils';
-import { convertStudentsToCSV, downloadCSV } from '@/lib/student-export-utils';
+import { convertStudentsToCSV, downloadCSV, exportStudentsToExcel } from '@/lib/student-export-utils';
 import type {
   Student,
   FilterOptions,
@@ -28,7 +28,16 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import { Download, Plus, X } from 'lucide-react';
+import { Download, Plus, X, FileSpreadsheet, FileText } from 'lucide-react';
+import { 
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import {
   Pagination,
   PaginationContent,
@@ -290,6 +299,33 @@ export default function AdminStudents() {
     }));
   };
 
+  // Handle export in different formats
+  const handleExport = (format: 'csv' | 'excel') => {
+    // Use the filtered students for export
+    const studentsToExport = selectedStudents.length > 0
+      ? filteredStudents.filter(student => selectedStudents.includes(student.id))
+      : filteredStudents;
+    
+    if (studentsToExport.length === 0) {
+      toast({
+        title: 'No students to export',
+        description: 'Please select at least one student or ensure your filters return results.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `students_export_${dateStr}${format === 'excel' ? '.xlsx' : '.csv'}`;
+    
+    if (format === 'csv') {
+      const csvData = convertStudentsToCSV(studentsToExport);
+      downloadCSV(csvData, filename);
+    } else {
+      exportStudentsToExcel(studentsToExport, filename);
+    }
+  };
+
   if (loading) {
     return <div>Loading...</div>;
   }
@@ -297,11 +333,46 @@ export default function AdminStudents() {
   return (
     <div className="container mx-auto py-10">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-foreground">Students</h1>
-        <div className="flex gap-4 items-center">
-          <Button variant="outline" className="gap-2">
-            <Download className="h-4 w-4" /> Export
-          </Button>
+        <h1 className="text-3xl font-bold text-foreground">Students</h1>        <div className="flex gap-4 items-center">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hover:text-primary-foreground/90 shadow-sm transition-all duration-200 ease-in-out hover:shadow-md"
+                disabled={!students.length}
+              >
+                <Download className="h-4 w-4 mr-1.5" />
+                <span className="font-medium">Export</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-56 p-2 backdrop-blur-sm border border-border/50 shadow-lg animate-in fade-in-0 zoom-in-95"
+            >
+              <DropdownMenuLabel className="font-semibold px-2 py-1.5 text-sm">Export Options</DropdownMenuLabel>
+              <DropdownMenuSeparator className="my-1.5" />
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => handleExport('excel')}
+                  className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-primary/10 rounded-sm"
+                >
+                  <div className="rounded-sm bg-emerald-100 dark:bg-emerald-900/30 p-1">
+                    <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <span>Excel Spreadsheet (.xlsx)</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleExport('csv')}
+                  className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-primary/10 rounded-sm"
+                >
+                  <div className="rounded-sm bg-blue-100 dark:bg-blue-900/30 p-1">
+                    <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <span>CSV File (.csv)</span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button className="gap-2" onClick={() => window.location.href = "/admin/dashboard"}>
             <Plus className="h-4 w-4" /> Add Student
           </Button>
