@@ -446,7 +446,7 @@ class AttendanceService {
 
 export const attendanceService = AttendanceService.getInstance()
 
-// Export the utility functions for API routes to use
+// Export these functions to be used by API routes
 export const getStudentAttendanceRecords = async (studentId: string, params: any = {}) => {
   // Import from attendance-query-service to avoid circular dependencies
   const { getStudentAttendanceRecords: fetchRecords } = await import('./attendance-query-service');

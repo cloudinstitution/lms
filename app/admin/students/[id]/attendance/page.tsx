@@ -142,13 +142,15 @@ export default function StudentAttendancePage() {
     currentPage: number;
   } | null>(null);
   const [loadingRecords, setLoadingRecords] = useState<boolean>(true);
-  
-  // State for attendance summary
+    // State for attendance summary
   const [attendanceSummary, setAttendanceSummary] = useState<any>(null);
   const [loadingSummary, setLoadingSummary] = useState<boolean>(true);
   
   // State for course list (for filtering)
   const [courses, setCourses] = useState<{ id: string; name: string }[]>([]);
+  
+  // State to track export operations
+  const [isExporting, setIsExporting] = useState<boolean>(false);
   
   // State for current tab
   const [currentTab, setCurrentTab] = useState<string>('overview');
@@ -331,37 +333,121 @@ export default function StudentAttendancePage() {
       startDate,
       endDate: now
     });
-  };
-
-  // Handle export to CSV
+  };  // Handle export to CSV
   const handleExportCSV = () => {
-    if (!attendanceRecords?.records.length) return;
+    if (!student || isExporting) return;
     
-    let csv = 'Date,Status,Time,Course,Hours Spent\n';
-    
-    attendanceRecords.records.forEach(record => {
-      csv += `${record.date},${record.status},${record.time || ''},${record.courseName || ''},${record.hoursSpent}\n`;
-    });
-    
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.setAttribute('hidden', '');
-    a.setAttribute('href', url);
-    a.setAttribute('download', `${student?.name || 'student'}_attendance.csv`);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      setIsExporting(true);
+      
+      // Create URL with query parameters for filtering
+      let exportUrl = `/api/students/${studentId}/export-attendance?format=csv`;
+      
+      if (filters.startDate) {
+        exportUrl += `&startDate=${filters.startDate.toISOString()}`;
+      }
+      
+      if (filters.endDate) {
+        exportUrl += `&endDate=${filters.endDate.toISOString()}`;
+      }
+      
+      if (filters.courseId) {
+        exportUrl += `&courseId=${filters.courseId}`;
+      }
+      
+      if (filters.status) {
+        exportUrl += `&status=${filters.status}`;
+      }
+      
+      // Create a more informative description based on active filters
+      let filterDescription = '';
+      if (filters.status) filterDescription += ` filtered by ${filters.status} status`;
+      if (filters.courseId) filterDescription += ` for selected course`;
+      
+      toast({
+        title: "Exporting CSV",
+        description: `Your attendance data${filterDescription} is being exported to CSV format.`,
+      });
+      
+      // Open the URL in a new tab or trigger download
+      window.open(exportUrl, '_blank');
+    } catch (error) {
+      console.error("Error exporting to CSV:", error);
+      toast({
+        title: "Export Failed",
+        description: "There was an error exporting your attendance data. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      // Reset exporting state after a short delay to allow UI feedback
+      setTimeout(() => setIsExporting(false), 1000);
+    }
   };
-
+  
   // Handle print
   const handlePrint = () => {
     window.print();
   };
-
+  
+  // Handle export to Excel
+  const handleExportExcel = () => {
+    if (!student || isExporting) return;
+    
+    try {
+      setIsExporting(true);
+      
+      // Create URL with query parameters for filtering
+      let exportUrl = `/api/students/${studentId}/export-attendance?format=xlsx`;
+      
+      if (filters.startDate) {
+        exportUrl += `&startDate=${filters.startDate.toISOString()}`;
+      }
+      
+      if (filters.endDate) {
+        exportUrl += `&endDate=${filters.endDate.toISOString()}`;
+      }
+      
+      if (filters.courseId) {
+        exportUrl += `&courseId=${filters.courseId}`;
+      }
+      
+      if (filters.status) {
+        exportUrl += `&status=${filters.status}`;
+      }
+      
+      // Create a more informative description based on active filters
+      let filterDescription = '';
+      if (filters.status) filterDescription += ` filtered by ${filters.status} status`;
+      if (filters.courseId) {
+        // Get course name if available
+        const course = courses.find(c => c.id === filters.courseId);
+        filterDescription += ` for ${course?.name || 'selected course'}`;
+      }
+      
+      toast({
+        title: "Exporting Excel",
+        description: `Your attendance data${filterDescription} is being exported to Excel format.`,
+      });
+      
+      // Open the URL in a new tab or trigger download
+      window.open(exportUrl, '_blank');
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      toast({
+        title: "Export Failed",
+        description: "There was an error exporting your attendance data. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      // Reset exporting state after a short delay to allow UI feedback
+      setTimeout(() => setIsExporting(false), 1000);
+    }  };
   // Student attendance overview chart data
   const getOverviewChartData = () => {
-    if (!attendanceSummary) return {};
+    if (!attendanceSummary || !attendanceSummary.overallSummary) return {
+      labels: ['Present', 'Absent'],
+      datasets: [{ label: 'Days', data: [0, 0], backgroundColor: ['rgba(34, 197, 94, 0.7)', 'rgba(239, 68, 68, 0.7)'], borderColor: ['rgb(34, 197, 94)', 'rgb(239, 68, 68)'], borderWidth: 1 }]
+    };
     
     return {
       labels: ['Present', 'Absent'],
@@ -379,10 +465,27 @@ export default function StudentAttendancePage() {
       ]
     };
   };
-
   // Monthly trend chart data
   const getTrendChartData = () => {
-    if (!attendanceSummary?.monthlySummary) return {};
+    if (!attendanceSummary?.monthlySummary) return {
+      labels: [],
+      datasets: [
+        {
+          label: 'Present',
+          data: [],
+          borderColor: 'rgb(34, 197, 94)',
+          backgroundColor: 'rgba(34, 197, 94, 0.5)',
+          tension: 0.3
+        },
+        {
+          label: 'Absent',
+          data: [],
+          borderColor: 'rgb(239, 68, 68)',
+          backgroundColor: 'rgba(239, 68, 68, 0.5)',
+          tension: 0.3
+        }
+      ]
+    };
     
     const labels = attendanceSummary.monthlySummary.map((month: any) => month.month);
     const presentData = attendanceSummary.monthlySummary.map((month: any) => month.presentDays);
@@ -408,10 +511,25 @@ export default function StudentAttendancePage() {
       ]
     };
   };
-
   // Course breakdown chart data
   const getCourseChartData = () => {
-    if (!attendanceSummary?.courseBreakdown) return {};
+    if (!attendanceSummary?.courseBreakdown) return {
+      labels: [],
+      datasets: [
+        {
+          label: 'Attendance %',
+          data: [],
+          backgroundColor: [
+            'rgba(34, 197, 94, 0.7)',
+            'rgba(59, 130, 246, 0.7)',
+            'rgba(249, 115, 22, 0.7)',
+            'rgba(139, 92, 246, 0.7)',
+            'rgba(236, 72, 153, 0.7)'
+          ],
+          borderWidth: 1
+        }
+      ]
+    };
     
     const labels = attendanceSummary.courseBreakdown.map((course: any) => course.courseName);
     const presentData = attendanceSummary.courseBreakdown.map((course: any) => course.presentPercentage);
@@ -475,24 +593,66 @@ export default function StudentAttendancePage() {
             <User className="h-6 w-6" /> 
             {student.name}'s Attendance
           </h1>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleExportCSV} className="flex items-center gap-1">
-            <Download className="h-4 w-4" />
-            <span>Export</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={handlePrint} className="flex items-center gap-1">
-            <Printer className="h-4 w-4" />
-            <span>Print</span>
-          </Button>
-          <Button asChild variant="default" size="sm" className="flex items-center gap-1">
-            <Link href={`/admin/students`}>
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back</span>
-            </Link>
-          </Button>
-        </div>
+        </div>          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex items-center gap-1"
+                    disabled={!attendanceRecords || attendanceRecords.records.length === 0}
+                  >
+                    <Download className="h-4 w-4" />
+                    <span>{isExporting ? 'Exporting...' : 'Export'}</span>
+                    <ChevronDown className="h-4 w-4 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem 
+                      onClick={handleExportCSV}
+                      disabled={isExporting || !attendanceRecords || attendanceRecords.records.length === 0}
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      <span>CSV File</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={handleExportExcel}
+                      disabled={isExporting || !attendanceRecords || attendanceRecords.records.length === 0}
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      <span>Excel File</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handlePrint} 
+                className="flex items-center gap-1"
+                disabled={!attendanceRecords || attendanceRecords.records.length === 0}
+              >
+                <Printer className="h-4 w-4" />
+                <span>Print</span>
+              </Button>
+              <Button asChild variant="default" size="sm" className="flex items-center gap-1">
+                <Link href={`/admin/students`}>
+                  <ArrowLeft className="h-4 w-4" />
+                  <span>Back</span>
+                </Link>
+              </Button>
+            </div>
+            <div className="text-xs text-muted-foreground flex items-center gap-1">
+              <span>Export will use current filters</span>
+              {attendanceRecords && attendanceRecords.records.length > 0 && (
+                <span className="font-semibold">
+                  ({attendanceRecords.records.length} records)
+                </span>
+              )}
+            </div>
+          </div>
       </div>
       
       {/* Student info card */}
@@ -611,27 +771,8 @@ export default function StudentAttendancePage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-              <div className="flex flex-col gap-1.5">
+            </div>              <div className="flex flex-col gap-1.5">
               <Label htmlFor="status">Attendance Status</Label>
-              <Select
-                value={filters.status || 'all'}
-                onValueChange={(value) => handleFilterChange({ status: value === 'all' ? undefined : value })}
-              >
-                <SelectTrigger id="status">
-                  <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="present">Present</SelectItem>
-                  <SelectItem value="absent">Absent</SelectItem>
-                  <SelectItem value="late">Late</SelectItem>
-                  <SelectItem value="excused">Excused</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-              <div className="flex flex-col gap-1.5">
-              <Label htmlFor="status">Status</Label>
               <Select
                 value={filters.status || 'all'}
                 onValueChange={(value) => handleFilterChange({ status: value === 'all' ? undefined : value })}

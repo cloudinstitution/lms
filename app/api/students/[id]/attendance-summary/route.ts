@@ -1,5 +1,6 @@
+
 import { NextRequest, NextResponse } from 'next/server';
-import { getStudentAttendanceRecords } from '@/lib/attendance-query-service';
+import { getStudentAttendanceSummary } from '@/lib/attendance-query-service';
 import { fetchStudentById } from '@/lib/student-service';
 
 export async function GET(
@@ -23,38 +24,29 @@ export async function GET(
     const endDate = searchParams.get('endDate') || undefined;
     const courseId = searchParams.get('courseId') || undefined;
     const status = searchParams.get('status') || undefined;
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = parseInt(searchParams.get('limit') || '10', 10);
 
-    console.log('Fetching attendance records for student:', studentId, {
+    console.log('Fetching attendance summary for student:', studentId, {
       startDate,
       endDate,
       courseId,
-      status,
-      page,
-      limit
+      status
     });
 
-    const attendanceRecords = await getStudentAttendanceRecords(
+    const attendanceSummary = await getStudentAttendanceSummary(
       studentId,
       {
         startDate: startDate ? new Date(startDate) : undefined,
         endDate: endDate ? new Date(endDate) : undefined,
         courseId,
-        status,
-        page,
-        limit
+        status
       }
     );
-    
-    // Log the response data for debugging
-    console.log(`Found ${attendanceRecords.totalRecords} records, page ${attendanceRecords.currentPage} of ${attendanceRecords.totalPages}`);
 
-    return NextResponse.json(attendanceRecords);
+    return NextResponse.json(attendanceSummary);
   } catch (error) {
-    console.error('Error fetching student attendance:', error);
+    console.error('Error fetching student attendance summary:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch student attendance records' },
+      { error: 'Failed to fetch student attendance summary' },
       { status: 500 }
     );
   }
