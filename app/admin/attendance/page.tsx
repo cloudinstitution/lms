@@ -700,7 +700,12 @@ export default function AdminAttendancePage() {
                                 size="sm"
                                 variant={student.present ? "default" : "outline"}
                                 onClick={() => markAttendance(student.id, student.customId, student.name, true)}
-                                className="bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white"
+                                className={cn(
+                                  "text-white",
+                                  student.present 
+                                    ? "bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700" 
+                                    : "bg-muted hover:bg-emerald-500/90 dark:hover:bg-emerald-600"
+                                )}
                               >
                                 Present
                               </Button>
@@ -708,6 +713,12 @@ export default function AdminAttendancePage() {
                                 size="sm"
                                 variant={!student.present ? "destructive" : "outline"}
                                 onClick={() => markAttendance(student.id, student.customId, student.name, false)}
+                                className={cn(
+                                  "text-white",
+                                  !student.present 
+                                    ? "bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700" 
+                                    : "bg-muted hover:bg-red-500/90 dark:hover:bg-red-600"
+                                )}
                               >
                                 Absent
                               </Button>

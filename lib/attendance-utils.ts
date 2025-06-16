@@ -21,7 +21,7 @@ interface StudentData {
 
 /**
  * Parse the QR code data string
- * Expected format: CI2025001-YYYY-MM-DD
+ * Expected format: studentId-YYYY-MM-DD or just studentId
  */
 export const parseQRCodeData = (qrData: string): QRCodeData | null => {
   try {
@@ -29,13 +29,15 @@ export const parseQRCodeData = (qrData: string): QRCodeData | null => {
       console.error("Invalid QR code input: must be a non-empty string", qrData)
       return null
     }
-    const match = qrData.match(/^([A-Za-z0-9]+)-(\d{4}-\d{2}-\d{2})$/)
+
+    // If the QR code contains a date (format: studentId-YYYY-MM-DD)
+    const match = qrData.match(/^([A-Za-z0-9]+)(?:-(\d{4}-\d{2}-\d{2}))?$/)
     if (!match) {
-      console.error("Invalid QR code format: expected <studentId>-YYYY-MM-DD", qrData)
+      console.error("Invalid QR code format: expected studentId or studentId-YYYY-MM-DD", qrData)
       return null
     }
 
-    const [, studentId, date] = match
+    const [, studentId, date = new Date().toISOString().split('T')[0]] = match
     return { studentId, date }
   } catch (error) {
     console.error("Error parsing QR code data:", error, "Input:", qrData)
@@ -169,9 +171,8 @@ export const generateAttendanceQRCode = (studentId: string): string => {
       console.error("Invalid studentId for QR code generation:", studentId)
       return ""
     }
-    const today = new Date()
-    const dateString = today.toISOString().split("T")[0]
-    return `${studentId}-${dateString}`
+    // Just use the student ID as the QR code value - the date will be determined when scanned
+    return studentId
   } catch (error) {
     console.error("Error generating QR code:", error, "studentId:", studentId)
     return ""
