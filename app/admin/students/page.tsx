@@ -333,12 +333,13 @@ export default function AdminStudents() {
   return (
     <div className="container mx-auto py-10">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-foreground">Students</h1>        <div className="flex gap-4 items-center">
+        <h1 className="text-3xl font-bold text-foreground">Students</h1>        
+        <div className="flex gap-4 items-center">
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger asChild>              
               <Button
                 variant="outline"
-                className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground hover:text-primary-foreground/90 shadow-sm transition-all duration-200 ease-in-out hover:shadow-md"
+                className="gap-2 bg-purple-600 hover:bg-purple-700 text-white hover:text-white shadow-sm transition-all duration-200 ease-in-out hover:shadow-md"
                 disabled={!students.length}
               >
                 <Download className="h-4 w-4 mr-1.5" />
@@ -380,7 +381,8 @@ export default function AdminStudents() {
       </div>
 
       <div className="flex flex-col gap-4">
-        <div className="flex justify-between items-center">          <div className="flex flex-col gap-2">
+        <div className="flex justify-between items-center">          
+          <div className="flex flex-col gap-2">
             <div className="flex gap-4 items-center">
               <Input
                 placeholder="Search students..."

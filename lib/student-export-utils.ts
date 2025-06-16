@@ -77,14 +77,12 @@ export function formatStudentsForExcel(students: Student[]): Record<string, any>
     'Phone Number': student.phoneNumber || 'N/A',
     'Courses Enrolled': student.coursesEnrolled,
     'Course Names': (student.courseName || []).join('; '),
-    'Course IDs': (student.courseID || []).join('; '),
-    'Primary Course': student.courseName && student.courseName.length > 0 && student.primaryCourseIndex !== undefined 
-      ? student.courseName[student.primaryCourseIndex] 
+    'Course IDs': (student.courseID || []).join('; '),    
+    'Primary Course': student.courseName && student.courseName.length > 0 
+      ? student.courseName[0] 
       : 'N/A',
     'Joined Date': student.joinedDate,
-    'Status': student.status || 'Active',
-    'Course Mode': student.courseMode || 'N/A',
-    'Notes': student.notes || ''
+    'Status': student.status || 'Active'
   }))
 }
 
@@ -108,8 +106,7 @@ export function exportStudentsToExcel(students: Student[], filename: string): vo
     Author: "LMS Portal",
     CreatedDate: new Date()
   }
-  
-  // Set column widths for better readability
+    // Set column widths for better readability
   const columnWidths = [
     { wch: 15 },  // Student ID
     { wch: 25 },  // Name
@@ -120,9 +117,7 @@ export function exportStudentsToExcel(students: Student[], filename: string): vo
     { wch: 15 },  // Course IDs
     { wch: 25 },  // Primary Course
     { wch: 15 },  // Joined Date
-    { wch: 10 },  // Status
-    { wch: 15 },  // Course Mode
-    { wch: 30 }   // Notes
+    { wch: 10 }   // Status
   ]
   ws['!cols'] = columnWidths
   
