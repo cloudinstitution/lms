@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { db } from "@/lib/firebase"
 import { cn } from "@/lib/utils"
-import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp } from "firebase/firestore"
+import { collection, doc, getDocs, query, Timestamp, writeBatch } from "firebase/firestore"
 import { DownloadCloud, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -31,6 +31,10 @@ interface Student {
   present: boolean
   courseName: string
   courseID: string
+  attendanceSummary?: {
+    present: number
+    absent: number
+  }
 }
 
 interface CourseStats {
@@ -49,7 +53,12 @@ interface AttendanceStats {
   courseStats: CourseStats[]
 }
 
-type AttendanceStatus = "all" | "present" | "absent"
+interface BatchAttendanceState {
+  changes: Map<string, boolean> // studentId -> present
+  modified: boolean
+  submitting: boolean
+}
+
 type FilterStatus = "all" | "present" | "absent"
 
 export default function AdminAttendancePage() {
@@ -71,6 +80,11 @@ export default function AdminAttendancePage() {
     attendancePercentage: 0,
     courseStats: []
   })
+  const [batchAttendance, setBatchAttendance] = useState<BatchAttendanceState>({
+    changes: new Map(),
+    modified: false,
+    submitting: false
+  });
 
   // Load courses data on component mount
   useEffect(() => {
@@ -118,6 +132,36 @@ export default function AdminAttendancePage() {
     return student.name.toLowerCase().includes(query) ||
       student.customId.toLowerCase().includes(query);
   };
+
+  // Batch Controls Component
+  const BatchControls = () => (
+    <div className="flex items-center gap-4 my-4">
+      <Button
+        variant="outline"
+        onClick={() => markAllStudents(true)}
+        disabled={batchAttendance.submitting}>
+        Mark All Present
+      </Button>
+      <Button
+        variant="outline"
+        onClick={() => markAllStudents(false)}
+        disabled={batchAttendance.submitting}>
+        Mark All Absent
+      </Button>
+      <Button
+        onClick={submitAttendanceChanges}
+        disabled={!batchAttendance.modified || batchAttendance.submitting}>
+        {batchAttendance.submitting ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Submitting...
+          </>
+        ) : (
+          'Submit Attendance'
+        )}
+      </Button>
+    </div>
+  );
 
   // Filter students based on search and filters
   const filteredStudents = useMemo(() => {
@@ -170,7 +214,6 @@ export default function AdminAttendancePage() {
   const fetchStudentsForDate = useCallback(async (showToast = true) => {
     if (!date) return
     
-    // Only show toast if explicitly requested
     if (showToast) {
       toast.info("Loading students", {
         id: "loading-students",
@@ -182,7 +225,8 @@ export default function AdminAttendancePage() {
     today.setHours(0, 0, 0, 0)
     const selectedDate = new Date(date)
     selectedDate.setHours(0, 0, 0, 0)
-      if (selectedDate > today) {
+
+    if (selectedDate > today) {
       toast.error("Cannot mark attendance for future dates", {
         id: "future-date-error",
         description: "Please select today or a past date",
@@ -194,38 +238,30 @@ export default function AdminAttendancePage() {
     setLoading(true)
     setError(null)
     try {
-      const dateString = date.toISOString().split('T')[0]
-
-      // Get all students
+      const dateString = date.toISOString().split('T')[0]      // Get all students
       const studentsQuery = query(collection(db, "students"))
       const studentSnapshot = await getDocs(studentsQuery)
-
-      // Get attendance for the selected date
-      const attendanceRef = doc(db, "attendance-dates", dateString)
-      const attendanceDoc = await getDoc(attendanceRef)
-      const presentStudents: string[] = attendanceDoc.exists() ? attendanceDoc.data().presentStudents || [] : []      // Create the students list with attendance status
+      
+      // Create the students list with attendance status
       const studentsList = studentSnapshot.docs.map(studentDoc => {
-        const studentData = studentDoc.data()
-        const customId = studentData.studentId || "unknown"
+        const studentData = studentDoc.data();
+        const customId = studentData.studentId || "unknown";
+        const dates = studentData.attendanceDates || [];
+        const isPresent = dates.includes(dateString);
 
         // Ensure courseID is processed correctly
         let courseID = studentData.courseID;
         if (Array.isArray(courseID)) {
           courseID = courseID[0]; // Take first course if it's an array
         }
-        // Convert courseID to string for consistent comparison
-        courseID = courseID ? courseID.toString() : "0";
-
-        // Get course name
-        const courseName = courses[courseID]?.title || "Uncategorized";
-
-        return {
+        courseID = courseID ? courseID.toString() : "0";        return {
           id: studentDoc.id,
           customId: customId,
           name: studentData.name || "Unknown Student",
-          courseName: courseName,
+          courseName: courses[courseID]?.title || "Uncategorized",
           courseID: courseID,
-          present: presentStudents.includes(studentDoc.id) || presentStudents.includes(customId)
+          present: isPresent,
+          attendanceSummary: studentData.attendanceSummary || { present: 0, absent: 0 }
         }
       })
 
@@ -234,7 +270,9 @@ export default function AdminAttendancePage() {
       const presentCount = studentsList.filter(s => s.present).length
       const absentCount = totalStudents - presentCount
       const attendancePercentage = totalStudents > 0 ? (presentCount / totalStudents) * 100 : 0
-      const courseStats = calculateCourseStats(studentsList)      // Update state
+      const courseStats = calculateCourseStats(studentsList)
+
+      // Update state
       setStudents(studentsList)
       setStats({
         totalStudents,
@@ -253,65 +291,14 @@ export default function AdminAttendancePage() {
     } finally {
       setLoading(false)
     }
-  }, [date, courses]) // Added courses as dependency
+  }, [date, courses])
+
   // Load students when date changes
   useEffect(() => {
     if (date) {
       fetchStudentsForDate(true) // Show toast on initial date load
-    }
-  }, [date, fetchStudentsForDate])
-  const markAttendance = async (studentId: string, customStudentId: string, studentName: string, present: boolean) => {
-    if (!date) return
-
-    try {
-      const selectedDate = new Date(date)
-      const dateString = selectedDate.toISOString().split('T')[0]
-
-      // Update attendance-dates collection
-      const attendanceDateRef = doc(db, "attendance-dates", dateString)
-      const attendanceSnap = await getDoc(attendanceDateRef)
-      const currentData = attendanceSnap.exists() ? attendanceSnap.data() : { presentStudents: [] }
-
-      // Store both Firebase ID and custom student ID
-      const updatedPresentStudents = present
-        ? Array.from(new Set([...currentData.presentStudents, studentId, customStudentId]))
-        : currentData.presentStudents.filter((id: string) => id !== studentId && id !== customStudentId)
-
-      await setDoc(attendanceDateRef, {
-        date: Timestamp.fromDate(date),
-        presentStudents: updatedPresentStudents,
-        lastUpdated: Timestamp.now(),
-        updatedBy: "admin",
-        updatedByName: "Administrator",
-        hoursSpent: present ? 7 : 0
-      }, { merge: true })      // Update local state
-      setStudents(prevStudents =>
-        prevStudents.map(student =>
-          student.id === studentId ? { ...student, present } : student
-        )
-      )
-      
-      // Show toast notification
-      toast.success(
-        present 
-          ? `${studentName} marked present` 
-          : `${studentName} marked absent`, 
-        {
-          id: `attendance-${studentId}`,
-          description: present 
-            ? "Student has been marked as present for today" 
-            : "Student has been marked as absent for today"
-        }
-      )    } catch (error) {
-      console.error("Error marking attendance:", error)
-      toast.error("Failed to mark attendance", {
-        id: "mark-attendance-error",
-        description: "There was a problem updating attendance. Please try again or contact support if the issue persists.",
-        duration: 5000
-      })
-    }
-  }
-  // Callback for when attendance is marked via scanner
+    }  }, [date, fetchStudentsForDate])
+    // Callback for when attendance is marked via scanner
   const handleAttendanceMarked = useCallback(() => {
     fetchStudentsForDate(false) // Refresh the student list without showing toast
     setScannerRefreshKey(prev => prev + 1) // Reset scanner
@@ -384,6 +371,147 @@ export default function AdminAttendancePage() {
       });
     }
   };
+
+  // Update the attendance change in local state
+  const handleAttendanceChange = (studentId: string, customId: string, name: string, present: boolean) => {
+    setBatchAttendance(prev => ({
+      ...prev,
+      changes: new Map(prev.changes).set(studentId, present),
+      modified: true
+    }));
+    
+    // Update UI immediately
+    setStudents(prevStudents =>
+      prevStudents.map(student =>
+        student.id === studentId ? { ...student, present } : student
+      )
+    );
+  };
+
+  // Mark all students present/absent
+  const markAllStudents = (present: boolean) => {
+    const newChanges = new Map();
+    students.forEach(student => {
+      newChanges.set(student.id, present);
+    });
+
+    setBatchAttendance(prev => ({
+      ...prev,
+      changes: newChanges,
+      modified: true
+    }));
+
+    // Update UI immediately
+    setStudents(prevStudents =>
+      prevStudents.map(student => ({
+        ...student,
+        present
+      }))
+    );
+  };
+
+  // Submit all attendance changes
+  const submitAttendanceChanges = async () => {
+    if (!date) return;
+
+    setBatchAttendance(prev => ({ ...prev, submitting: true }));
+    const dateString = date.toISOString().split('T')[0];
+
+    try {
+      const batch = writeBatch(db);
+
+      // First, get all dates when attendance was marked
+      const allAttendanceDates = new Set<string>();
+      const attendanceDatesQuery = await getDocs(collection(db, "attendance-dates"));
+      attendanceDatesQuery.docs.forEach(doc => {
+        allAttendanceDates.add(doc.id);
+      });
+      
+      // Add today's date as it's being marked now
+      allAttendanceDates.add(dateString);
+
+      // Get ALL students
+      const studentsQuery = query(collection(db, "students"));
+      const studentSnapshot = await getDocs(studentsQuery);
+      
+      // Process each student
+      for (const studentDoc of studentSnapshot.docs) {
+        const studentId = studentDoc.id;
+        const studentData = studentDoc.data();
+        const currentDates = studentData.attendanceDates || [];
+        
+        // Check if student was explicitly marked present
+        const isMarkedPresent = batchAttendance.changes.get(studentId) === true;
+        
+        // Update the dates array based on present/absent status
+        let updatedDates: string[];
+        if (isMarkedPresent) {
+          updatedDates = Array.from(new Set([...currentDates, dateString]));
+        } else {
+          updatedDates = currentDates.filter((date: string) => date !== dateString);
+        }
+
+        // Calculate summary
+        const presentCount = updatedDates.length; // dates when student was present
+        const absentCount = allAttendanceDates.size - presentCount; // dates when attendance was taken but student was absent
+
+        // Update student document
+        const studentRef = doc(db, "students", studentId);
+        batch.update(studentRef, {
+          attendanceDates: updatedDates,
+          attendanceSummary: {
+            present: presentCount,
+            absent: Math.max(0, absentCount)
+          }
+        });
+      }
+
+      // Add today's date to attendance-dates collection
+      const attendanceDateRef = doc(db, "attendance-dates", dateString);
+      batch.set(attendanceDateRef, {
+        date: dateString,
+        lastUpdated: Timestamp.now()
+      }, { merge: true });
+
+      // Commit all changes
+      await batch.commit();
+
+      // Clear batch state
+      setBatchAttendance({
+        changes: new Map(),
+        modified: false,
+        submitting: false
+      });
+
+      // Show success message
+      toast.success("Attendance submitted successfully", {
+        description: "Updated attendance for all students",
+        duration: 5000
+      });
+
+      // Refresh the student list
+      fetchStudentsForDate(false);
+
+    } catch (error) {
+      console.error("Error submitting attendance:", error);
+      toast.error("Failed to submit attendance", {
+        description: "There was a problem updating attendance. Please try again.",
+        duration: 5000
+      });
+    } finally {
+      setBatchAttendance(prev => ({ ...prev, submitting: false }));
+    }
+  };
+
+  // Reset batch state when date changes
+  useEffect(() => {
+    setBatchAttendance({
+      changes: new Map(),
+      modified: false,
+      submitting: false
+    });
+  }, [date]);
+
   return (
     <div className="container mx-auto py-10">
       <h1 className="text-3xl font-bold mb-6 text-foreground">Attendance Management</h1>
@@ -731,7 +859,7 @@ export default function AdminAttendancePage() {
                           <Select 
                             value={selectedStatus} 
                             onValueChange={(value: string) => {
-                              setSelectedStatus(value as AttendanceStatus)
+                              setSelectedStatus(value as FilterStatus)
                               
                               // Show toast notification for filter change
                               const statusText = value === "all" 
@@ -755,40 +883,40 @@ export default function AdminAttendancePage() {
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>
-
+                      </div>                      <BatchControls />
                       <div className="space-y-4">
                         {filteredStudents.map((student) => (
-                          <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:bg-muted/50 transition-colors">
-                            <div>
+                          <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:bg-muted/50 transition-colors">                            <div>
                               <p className="font-medium text-foreground">{student.name}</p>
                               <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
-                              <p className="text-sm text-muted-foreground">Course: {student.courseName}</p>
+                              <p className="text-sm text-muted-foreground">Course: {student.courseName}</p>                              
                             </div>
                             <div className="flex gap-2">
                               <Button
                                 size="sm"
                                 variant={student.present ? "default" : "outline"}
-                                onClick={() => markAttendance(student.id, student.customId, student.name, true)}
+                                onClick={() => handleAttendanceChange(student.id, student.customId, student.name, true)}
                                 className={cn(
                                   "text-white",
                                   student.present 
                                     ? "bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700" 
                                     : "bg-muted hover:bg-emerald-500/90 dark:hover:bg-emerald-600"
                                 )}
+                                disabled={batchAttendance.submitting}
                               >
                                 Present
                               </Button>
                               <Button
                                 size="sm"
                                 variant={!student.present ? "destructive" : "outline"}
-                                onClick={() => markAttendance(student.id, student.customId, student.name, false)}
+                                onClick={() => handleAttendanceChange(student.id, student.customId, student.name, false)}
                                 className={cn(
                                   "text-white",
                                   !student.present 
                                     ? "bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700" 
                                     : "bg-muted hover:bg-red-500/90 dark:hover:bg-red-600"
                                 )}
+                                disabled={batchAttendance.submitting}
                               >
                                 Absent
                               </Button>

@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp, where } from "firebase/firestore"
+import { collection, doc, getDoc, getDocs, query, Timestamp, where, writeBatch } from "firebase/firestore"
 import { db } from "./firebase"
 
 interface QRCodeData {
@@ -108,10 +108,11 @@ export const processAttendanceQRCode = async (qrData: string): Promise<Attendanc
     startTime.setHours(10, 0, 0, 0) // Class starts at 10 AM
     
     const endTime = new Date(date)
-    endTime.setHours(17, 0, 0, 0) // Class ends at 5 PM
+    endTime.setHours(17, 0, 0, 0) // Class ends at 5 PM    // Create a batch for atomic operations
+    const batch = writeBatch(db)
 
-    // Save individual attendance record
-    await setDoc(attendanceRef, {
+    // Create the attendance record in the main attendance collection
+    const attendanceData = {
       studentId: studentDocId,
       customStudentId: studentId,
       date: Timestamp.fromDate(attendanceDate),
@@ -122,6 +123,19 @@ export const processAttendanceQRCode = async (qrData: string): Promise<Attendanc
       hoursSpent: 7, // 7 hours for full day
       markedBy: "admin",
       markedByName: "Administrator",
+      status: "present",
+      courseId: "", // Will be populated when course tracking is added
+      courseName: "", // Will be populated when course tracking is added
+    }
+    batch.set(attendanceRef, attendanceData)
+
+    // Create a detailed record in the student's attendance subcollection
+    const studentAttendanceRef = doc(db, `students/${studentDocId}/attendance/${date}`)
+    batch.set(studentAttendanceRef, {
+      ...attendanceData,
+      timeIn: attendanceData.startTime,
+      timeOut: attendanceData.endTime,
+      notes: "",
     })
 
     // Update attendance-dates collection with both IDs
@@ -132,13 +146,22 @@ export const processAttendanceQRCode = async (qrData: string): Promise<Attendanc
     // Add both IDs to presentStudents if not already present
     const newPresentStudents = [...new Set([...currentData.presentStudents, studentDocId, studentId])]
     
-    await setDoc(attendanceDateRef, {
+    batch.set(attendanceDateRef, {
       date: Timestamp.fromDate(attendanceDate),
       presentStudents: newPresentStudents,
       lastUpdated: Timestamp.now(),
       updatedBy: "admin",
       updatedByName: "Administrator"
     }, { merge: true })
+
+    // Commit all operations atomically
+    try {
+      await batch.commit()
+      console.log("Successfully committed attendance batch operations")
+    } catch (error) {
+      console.error("Error committing attendance batch:", error)
+      throw error
+    }
 
     console.log("Attendance marked successfully:", {
       studentId,
