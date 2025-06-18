@@ -1,7 +1,25 @@
 import { AttendanceRecord, AttendanceSummary } from './attendance-service';
 import { AttendanceSummaryResponse } from './attendance-types';
 import { db } from './firebase';
-import { collection, query, where, orderBy, limit, getDocs, startAfter, Timestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, getDocs, startAfter, Timestamp, doc, getDoc } from 'firebase/firestore';
+import { subMonths } from 'date-fns';
+
+// Define interfaces for new attendance data structure
+interface AttendanceSummaryData {
+  present: number;
+  absent: number;
+}
+
+interface AttendanceMonthData {
+  present: number;
+  absent: number;
+}
+
+interface AttendanceCourseData {
+  courseName?: string;
+  present: number;
+  absent: number;
+}
 
 // Interface for attendance queries
 export interface AttendanceQueryParams {
@@ -11,6 +29,9 @@ export interface AttendanceQueryParams {
   status?: string;
   page?: number;
   limit?: number;
+  useCourseTimeframe?: boolean; // Whether to use the course start/end dates instead of custom dates
+  courseStartDate?: Date; // The start date of the course
+  courseEndDate?: Date; // The end date of the course
 }
 
 export async function getStudentAttendanceRecords(
@@ -172,8 +193,60 @@ export async function getStudentAttendanceSummary(
   try {
     console.log(`Fetching attendance summary for student: ${studentId} with params:`, params);
     
-    // Get all attendance records for the student with no pagination
-    // In a production environment, you might want to use a different approach for large datasets
+    // First, get the student document to access the real-time attendance summary
+    const studentRef = doc(db, "students", studentId);
+    const studentDoc = await getDoc(studentRef);
+    
+    if (!studentDoc.exists()) {
+      throw new Error(`Student with ID ${studentId} not found`);
+    }
+    
+    const studentData = studentDoc.data();
+    
+    // Access the new real-time attendance summary
+    const realTimeSummary = studentData.attendanceSummary || { present: 0, absent: 0 };
+    const attendanceDates = studentData.attendanceDates || [];
+    
+    console.log('Real-time attendance data:', { 
+      studentId,
+      realTimeSummary,
+      attendanceDatesCount: attendanceDates.length,
+      hasFilters: !!(params.startDate || params.endDate || params.courseId || params.status)
+    });
+
+    // If a course ID is provided, fetch the course to get its dates
+    let courseData = null;
+    if (params.courseId) {
+      try {
+        const courseRef = doc(db, "courses", params.courseId);
+        const courseDoc = await getDoc(courseRef);
+        if (courseDoc.exists()) {
+          courseData = courseDoc.data();
+          console.log(`Found course data for ${params.courseId}:`, {
+            startDate: courseData.startDate,
+            endDate: courseData.endDate,
+            duration: courseData.duration
+          });
+          
+          // If we should use course timeframe and dates are available
+          if (params.useCourseTimeframe && courseData.startDate && courseData.endDate) {
+            params = {
+              ...params,
+              startDate: new Date(courseData.startDate),
+              endDate: new Date(courseData.endDate)
+            };
+            console.log('Using course timeframe for attendance calculation:', {
+              startDate: params.startDate,
+              endDate: params.endDate
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching course ${params.courseId}:`, error);
+      }
+    }
+    
+    // Get detailed attendance records from the student's attendance subcollection
     const attendanceRef = collection(db, "students", studentId, "attendance");
     
     // Build query constraints
@@ -222,71 +295,153 @@ export async function getStudentAttendanceSummary(
         notes: data.notes
       } as AttendanceRecord;
     });
-      // Calculate overall summary
-    const totalDays = records.length;
-    const presentDays = records.filter(r => r.status === 'present').length;
-    const absentDays = records.filter(r => r.status === 'absent').length;
-    const lateDays = records.filter(r => r.status === 'late').length;
-    const excusedDays = records.filter(r => r.status === 'excused').length;
-    const presentPercentage = totalDays > 0 ? (presentDays / totalDays) * 100 : 0;
-    const totalHours = records.reduce((sum, record) => sum + (record.hoursSpent || 0), 0);
-    const averageHoursPerDay = presentDays > 0 ? totalHours / presentDays : 0;
+      
+    // If we have filtered data (date range, course, or status), calculate summary from filtered records
+    // Otherwise, use the real-time summary data for better performance
+    let totalDays, presentDays, absentDays, lateDays, excusedDays, presentPercentage, totalHours, averageHoursPerDay;
+      // Check if we need to use filtered data instead of real-time data
+    const useFilteredData = 
+      // Use filtered data when specific courseId or status filters are applied
+      params.courseId || params.status ||
+      // Use filtered data when using non-default date ranges
+      (params.startDate && params.endDate && 
+       (Math.abs(new Date().getTime() - params.endDate.getTime()) > 86400000 || // End date is not today (allowing 1 day difference)
+        Math.abs(subMonths(new Date(), 3).getTime() - params.startDate.getTime()) > 86400000)); // Start date is not 3 months ago
+    
+    console.log('Attendance data source decision:', { 
+      useFilteredData,
+      hasRealTimeData: !!(realTimeSummary.present || realTimeSummary.absent)
+    });
+        
+    if (useFilteredData) {
+      // Calculate from filtered records
+      totalDays = records.length;
+      presentDays = records.filter(r => r.status === 'present').length;
+      absentDays = records.filter(r => r.status === 'absent').length;
+      lateDays = records.filter(r => r.status === 'late').length;
+      excusedDays = records.filter(r => r.status === 'excused').length;
+      
+      console.log('Using filtered data for attendance summary:', { totalDays, presentDays, absentDays });
+    } else {
+      // Use real-time summary when using default filters
+      totalDays = realTimeSummary.present + realTimeSummary.absent;
+      presentDays = realTimeSummary.present;
+      absentDays = realTimeSummary.absent;
+      lateDays = records.filter(r => r.status === 'late').length; // Calculate from records as it may not be in the summary
+      excusedDays = records.filter(r => r.status === 'excused').length; // Calculate from records as it may not be in the summary
+      
+      console.log('Using real-time data for attendance summary:', { totalDays, presentDays, absentDays });
+    }
+    
+    presentPercentage = totalDays > 0 ? (presentDays / totalDays) * 100 : 0;
+    totalHours = records.reduce((sum, record) => sum + (record.hoursSpent || 0), 0);
+    averageHoursPerDay = presentDays > 0 ? totalHours / presentDays : 0;
   
-    // Calculate monthly summary
-    const monthlyData = records.reduce((acc, record) => {
-      const month = record.date.substring(0, 7); // YYYY-MM format
-      
-      if (!acc[month]) {
-        acc[month] = {
-          total: 0,
-          present: 0,
-          absent: 0
-        };
-      }
-      
-      acc[month].total += 1;
-      if (record.status === 'present') acc[month].present += 1;
-      if (record.status === 'absent') acc[month].absent += 1;
-      
-      return acc;
-    }, {} as Record<string, { total: number; present: number; absent: number }>);
+  // Check if student has attendanceSummaryByMonth in the new data structure
+    const monthlyBreakdown = (studentData.attendanceSummaryByMonth || {}) as Record<string, AttendanceMonthData>;
     
-    const monthlySummary = Object.entries(monthlyData).map(([month, data]) => ({
-      month,
-      presentDays: data.present,
-      absentDays: data.absent,
-      presentPercentage: data.total > 0 ? (data.present / data.total) * 100 : 0
-    })).sort((a, b) => a.month.localeCompare(b.month));
+    // If we have filtered data, calculate monthly summary from records
+    // Otherwise, use the real-time monthly summary if available
+    let monthlySummary;
     
-    // Calculate course breakdown
-    const courseData = records.reduce((acc, record) => {
-      const courseId = record.courseId || 'unknown';
-      const courseName = record.courseName || 'Unknown Course';
+    if (useFilteredData || !Object.keys(monthlyBreakdown).length) {
+      // Calculate from filtered records (traditional way)
+      const monthlyData = records.reduce((acc, record) => {
+        const month = record.date.substring(0, 7); // YYYY-MM format
+        
+        if (!acc[month]) {
+          acc[month] = {
+            total: 0,
+            present: 0,
+            absent: 0
+          };
+        }
+        
+        acc[month].total += 1;
+        if (record.status === 'present') acc[month].present += 1;
+        if (record.status === 'absent') acc[month].absent += 1;
+        
+        return acc;
+      }, {} as Record<string, { total: number; present: number; absent: number }>);
       
-      if (!acc[courseId]) {
-        acc[courseId] = {
-          courseName,
-          total: 0,
-          present: 0,
-          absent: 0
-        };
-      }
-      
-      acc[courseId].total += 1;
-      if (record.status === 'present') acc[courseId].present += 1;
-      if (record.status === 'absent') acc[courseId].absent += 1;
-      
-      return acc;
-    }, {} as Record<string, { courseName: string; total: number; present: number; absent: number }>);
+      monthlySummary = Object.entries(monthlyData).map(([month, data]) => ({
+        month,
+        presentDays: data.present,
+        absentDays: data.absent,
+        presentPercentage: data.total > 0 ? (data.present / data.total) * 100 : 0
+      })).sort((a, b) => a.month.localeCompare(b.month));
+    } else {    // Use real-time monthly summary
+      monthlySummary = Object.entries(monthlyBreakdown).map(([month, data]) => ({
+        month,
+        presentDays: data.present,
+        absentDays: data.absent,
+        presentPercentage: (data.present + data.absent) > 0 
+          ? (data.present / (data.present + data.absent)) * 100 
+          : 0
+      })).sort((a, b) => a.month.localeCompare(b.month));
+    }
     
-    const courseBreakdown = Object.entries(courseData).map(([courseId, data]) => ({
-      courseId,
-      courseName: data.courseName,
-      presentDays: data.present,
-      absentDays: data.absent,
-      presentPercentage: data.total > 0 ? (data.present / data.total) * 100 : 0
-    }));
-      return {
+    // Check if student has attendanceSummaryByCourse in the new data structure
+    const courseBreakdown = (studentData.attendanceSummaryByCourse || {}) as Record<string, AttendanceCourseData>;
+      // If we have filtered data, calculate course breakdown from records
+    // Otherwise, use the real-time course summary if available
+    let courseBreakdownData;
+    
+    if (useFilteredData || !Object.keys(courseBreakdown).length) {
+      // Calculate from filtered records (traditional way)
+      const courseData = records.reduce((acc, record) => {
+        const courseId = record.courseId || 'unknown';
+        const courseName = record.courseName || 'Unknown Course';
+        
+        if (!acc[courseId]) {
+          acc[courseId] = {
+            courseName,
+            total: 0,
+            present: 0,
+            absent: 0
+          };
+        }
+        
+        acc[courseId].total += 1;
+        if (record.status === 'present') acc[courseId].present += 1;
+        if (record.status === 'absent') acc[courseId].absent += 1;
+        
+        return acc;
+      }, {} as Record<string, { courseName: string; total: number; present: number; absent: number }>);
+      
+      courseBreakdownData = Object.entries(courseData).map(([courseId, data]) => ({
+        courseId,
+        courseName: data.courseName,
+        presentDays: data.present,
+        absentDays: data.absent,
+        presentPercentage: data.total > 0 ? (data.present / data.total) * 100 : 0
+      }));
+    } else {
+      // Use real-time course summary
+      courseBreakdownData = Object.entries(courseBreakdown).map(([courseId, courseData]) => ({
+        courseId,
+        courseName: courseData.courseName || `Course ${courseId}`,
+        presentDays: courseData.present,
+        absentDays: courseData.absent,
+        presentPercentage: (courseData.present + courseData.absent) > 0 
+          ? (courseData.present / (courseData.present + courseData.absent)) * 100 
+          : 0
+      }));
+    }    // Add course dates if available
+    let courseInfo = {};
+    if (courseData) {
+      courseInfo = {
+        courseStartDate: courseData.startDate ? new Date(courseData.startDate) : undefined,
+        courseEndDate: courseData.endDate ? new Date(courseData.endDate) : undefined,
+        courseDuration: courseData.duration || '',
+        courseDates: {
+          start: courseData.startDate ? new Date(courseData.startDate).toISOString().split('T')[0] : '',
+          end: courseData.endDate ? new Date(courseData.endDate).toISOString().split('T')[0] : '',
+        }
+      };
+    }
+    
+    return {
       overallSummary: {
         totalDays,
         presentDays,
@@ -295,10 +450,11 @@ export async function getStudentAttendanceSummary(
         excusedDays,
         presentPercentage,
         totalHours,
-        averageHoursPerDay
+        averageHoursPerDay,
+        ...courseInfo
       },
       monthlySummary,
-      courseBreakdown,
+      courseBreakdown: courseBreakdownData,
       // Include raw records for any advanced processing
       records: records.slice(0, 100) // Limit to 100 records for performance
     };

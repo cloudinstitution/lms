@@ -1,6 +1,6 @@
 import { AttendanceRecord } from './attendance-service';
 
-export interface AttendanceSummaryResponse {
+export interface AttendanceSummaryResponse {  
   overallSummary: {
     totalDays: number;
     presentDays: number;
@@ -10,6 +10,13 @@ export interface AttendanceSummaryResponse {
     presentPercentage: number;
     totalHours: number;
     averageHoursPerDay: number;
+    courseStartDate?: Date;
+    courseEndDate?: Date;
+    courseDuration?: string;
+    courseDates?: {
+      start: string;
+      end: string;
+    };
   };
   monthlySummary: {
     month: string;

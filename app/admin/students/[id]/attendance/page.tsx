@@ -123,7 +123,16 @@ export default function StudentAttendancePage() {
   // State for student data
   const [student, setStudent] = useState<Student | null>(null);
   const [loadingStudent, setLoadingStudent] = useState<boolean>(true);
-  
+    // State for course dates when applicable
+  const [courseDates, setCourseDates] = useState<{
+    start?: Date;
+    end?: Date;
+    duration?: string;
+    isActive: boolean;
+  }>({
+    isActive: false
+  });
+
   // State for filters
   const [filters, setFilters] = useState<AttendanceQueryParams>({
     startDate: subMonths(new Date(), 3),
@@ -131,7 +140,8 @@ export default function StudentAttendancePage() {
     courseId: undefined,
     status: undefined,
     page: 1,
-    limit: 10
+    limit: 10,
+    useCourseTimeframe: false
   });
   
   // State for attendance data
@@ -328,12 +338,105 @@ export default function StudentAttendancePage() {
       default:
         startDate = subMonths(now, 3); // Default to last 3 months
     }
-    
-    handleFilterChange({
+      handleFilterChange({
       startDate,
       endDate: now
     });
-  };  // Handle export to CSV
+  };
+    // Handle using course dates for attendance
+  const handleUseCourseTimeframe = () => {
+    // If already using course timeframe, toggle it off
+    if (filters.useCourseTimeframe) {
+      handleFilterChange({
+        useCourseTimeframe: false
+      });
+      toast({
+        title: "Custom Timeframe",
+        description: "Now using custom date range",
+      });
+      return;
+    }
+    
+    // First check if we have a selected course
+    if (!filters.courseId) {      
+      toast({
+        title: "No Course Selected",
+        description: "Please select a course first to use its timeframe",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Show visual feedback that we're applying course dates
+    toast({
+      title: "Applying Course Dates",
+      description: "Fetching and applying date range from course...",
+    });
+
+    // Then check if we have course dates from the summary
+    if (attendanceSummary?.overallSummary?.courseDates) {
+      const { start, end } = attendanceSummary.overallSummary.courseDates;
+      
+      if (start && end) {
+        handleFilterChange({
+          startDate: parseISO(start),
+          endDate: parseISO(end),
+          useCourseTimeframe: true
+        });
+        
+        toast({
+          title: "Using Course Timeframe",
+          description: `Showing attendance from ${format(parseISO(start), 'PP')} to ${format(parseISO(end), 'PP')}`,
+        });
+      } else {        
+        toast({
+          title: "Course Dates Unavailable",
+          description: "This course doesn't have defined start and end dates",
+          variant: "destructive"
+        });
+      }
+    } else {
+      // Get course dates by loading the summary again with the useCourseTimeframe flag
+      setLoadingSummary(true);
+      getStudentAttendanceSummary(studentId, {
+        courseId: filters.courseId,
+        useCourseTimeframe: true
+      }).then(summary => {
+        setAttendanceSummary(summary);
+        
+        if (summary?.overallSummary?.courseDates?.start && summary?.overallSummary?.courseDates?.end) {
+          const { start, end } = summary.overallSummary.courseDates;
+          handleFilterChange({
+            startDate: parseISO(start),
+            endDate: parseISO(end),
+            useCourseTimeframe: true
+          });
+          
+          toast({
+            title: "Using Course Timeframe",
+            description: `Showing attendance from ${format(parseISO(start), 'PP')} to ${format(parseISO(end), 'PP')}`,
+          });
+        } else {          
+          toast({
+            title: "Course Dates Unavailable",
+            description: "Could not retrieve course dates",
+            variant: "destructive"
+          });
+        }
+      }).catch(error => {
+        console.error("Error fetching course dates:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load course dates",
+          variant: "destructive"
+        });
+      }).finally(() => {
+        setLoadingSummary(false);
+      });
+    }
+  };
+  
+  // Handle export to CSV
   const handleExportCSV = () => {
     if (!student || isExporting) return;
     
@@ -464,52 +567,94 @@ export default function StudentAttendancePage() {
         }
       ]
     };
-  };
-  // Monthly trend chart data
+  };  // Monthly trend chart data
   const getTrendChartData = () => {
-    if (!attendanceSummary?.monthlySummary) return {
-      labels: [],
+    // Default empty chart data configuration
+    const emptyChartData = {
+      labels: ['No Data'],
       datasets: [
         {
           label: 'Present',
-          data: [],
+          data: [0],
           borderColor: 'rgb(34, 197, 94)',
           backgroundColor: 'rgba(34, 197, 94, 0.5)',
           tension: 0.3
         },
         {
           label: 'Absent',
-          data: [],
+          data: [0],
           borderColor: 'rgb(239, 68, 68)',
           backgroundColor: 'rgba(239, 68, 68, 0.5)',
           tension: 0.3
         }
       ]
     };
-    
-    const labels = attendanceSummary.monthlySummary.map((month: any) => month.month);
-    const presentData = attendanceSummary.monthlySummary.map((month: any) => month.presentDays);
-    const absentData = attendanceSummary.monthlySummary.map((month: any) => month.absentDays);
-    
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Present',
-          data: presentData,
-          borderColor: 'rgb(34, 197, 94)',
-          backgroundColor: 'rgba(34, 197, 94, 0.5)',
-          tension: 0.3
-        },
-        {
-          label: 'Absent',
-          data: absentData,
-          borderColor: 'rgb(239, 68, 68)',
-          backgroundColor: 'rgba(239, 68, 68, 0.5)',
-          tension: 0.3
+
+    // Handle missing data cases
+    if (!attendanceSummary || !attendanceSummary.monthlySummary || attendanceSummary.monthlySummary.length === 0) {
+      console.log('Monthly trend: No attendance summary data available');
+      return emptyChartData;
+    }
+
+    try {
+      // Make a safe copy of the monthly summary array
+      const monthlySummaryArray = Array.isArray(attendanceSummary.monthlySummary) 
+        ? [...attendanceSummary.monthlySummary] 
+        : [];
+        
+      // If array is still empty after validation, return empty chart
+      if (monthlySummaryArray.length === 0) {
+        console.log('Monthly trend: Empty monthly summary array');
+        return emptyChartData;
+      }
+
+      // Sort months chronologically before mapping
+      const sortedMonths = monthlySummaryArray.sort((a, b) => {
+        try {
+          return new Date(a.month + '-01').getTime() - new Date(b.month + '-01').getTime();
+        } catch (err) {
+          console.error('Error sorting months:', err, { a, b });
+          return 0;
         }
-      ]
-    };
+      });
+      
+      // Format month labels to be more readable (e.g., "Jan 2025" instead of "2025-01")
+      const labels = sortedMonths.map((month) => {
+        try {
+          const [year, monthNum] = month.month.split('-');
+          const date = new Date(parseInt(year), parseInt(monthNum) - 1, 1);
+          return format(date, 'MMM yyyy');
+        } catch (err) {
+          console.error('Error formatting month label:', err, { month });
+          return month.month || 'Unknown';
+        }
+      });
+      
+      const presentData = sortedMonths.map((month) => month.presentDays || 0);
+      const absentData = sortedMonths.map((month) => month.absentDays || 0);
+      
+      return {
+        labels,
+        datasets: [
+          {
+            label: 'Present',
+            data: presentData,
+            borderColor: 'rgb(34, 197, 94)',
+            backgroundColor: 'rgba(34, 197, 94, 0.5)',
+            tension: 0.3
+          },
+          {
+            label: 'Absent',
+            data: absentData,
+            borderColor: 'rgb(239, 68, 68)',
+            backgroundColor: 'rgba(239, 68, 68, 0.5)',
+            tension: 0.3
+          }
+        ]
+      };
+    } catch (error) {
+      console.error('Error generating trend chart data:', error);      return emptyChartData;
+    }
   };
   // Course breakdown chart data
   const getCourseChartData = () => {
@@ -551,9 +696,7 @@ export default function StudentAttendancePage() {
         }
       ]
     };
-  };
-
-  if (loadingStudent) {
+  };  if (loadingStudent) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-2">
@@ -734,44 +877,169 @@ export default function StudentAttendancePage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="start-date">Start Date</Label>
-              <Input
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="start-date">Start Date</Label>              <Input
                 id="start-date"
                 type="date"
                 value={filters.startDate ? format(filters.startDate, 'yyyy-MM-dd') : ''}
-                onChange={(e) => handleFilterChange({ startDate: e.target.value ? new Date(e.target.value) : undefined })}
+                onChange={(e) => {
+                  const newDate = e.target.value ? new Date(e.target.value) : undefined;
+                  
+                  // If using course timeframe, enforce date constraints
+                  if (filters.useCourseTimeframe && newDate && attendanceSummary?.overallSummary?.courseDates) {
+                    const courseDates = attendanceSummary.overallSummary.courseDates;
+                    const courseStart = courseDates.start ? parseISO(courseDates.start) : null;
+                    const courseEnd = courseDates.end ? parseISO(courseDates.end) : null;
+                    
+                    // Validate that the selected date is within course range
+                    if (courseStart && newDate < courseStart) {
+                      toast({
+                        title: "Date Adjusted",
+                        description: "Start date can't be earlier than course start date",
+                      });
+                      handleFilterChange({ startDate: courseStart });
+                      return;
+                    }
+                    
+                    if (courseEnd && newDate > courseEnd) {
+                      toast({
+                        title: "Date Adjusted",
+                        description: "Start date can't be later than course end date",
+                      });
+                      handleFilterChange({ startDate: courseEnd });
+                      return;
+                    }
+                  }
+                  
+                  handleFilterChange({ startDate: newDate });
+                }}
+                min={attendanceSummary?.overallSummary?.courseDates?.start && filters.useCourseTimeframe 
+                  ? attendanceSummary.overallSummary.courseDates.start : undefined}
+                max={attendanceSummary?.overallSummary?.courseDates?.end && filters.useCourseTimeframe 
+                  ? attendanceSummary.overallSummary.courseDates.end : undefined}
+                disabled={filters.useCourseTimeframe && (!attendanceSummary?.overallSummary?.courseDates?.start || !attendanceSummary?.overallSummary?.courseDates?.end)}
               />
             </div>
             
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="end-date">End Date</Label>
+              <Label htmlFor="end-date">End Date</Label>              
               <Input
                 id="end-date"
                 type="date"
                 value={filters.endDate ? format(filters.endDate, 'yyyy-MM-dd') : ''}
-                onChange={(e) => handleFilterChange({ endDate: e.target.value ? new Date(e.target.value) : undefined })}
+                onChange={(e) => {
+                  const newDate = e.target.value ? new Date(e.target.value) : undefined;
+                  
+                  // If using course timeframe, enforce date constraints
+                  if (filters.useCourseTimeframe && newDate && attendanceSummary?.overallSummary?.courseDates) {
+                    const courseDates = attendanceSummary.overallSummary.courseDates;
+                    const courseStart = courseDates.start ? parseISO(courseDates.start) : null;
+                    const courseEnd = courseDates.end ? parseISO(courseDates.end) : null;
+                    
+                    // Validate that the selected date is within course range
+                    if (courseStart && newDate < courseStart) {
+                      toast({
+                        title: "Date Adjusted",
+                        description: "End date can't be earlier than course start date",
+                      });
+                      handleFilterChange({ endDate: courseStart });
+                      return;
+                    }
+                    
+                    if (courseEnd && newDate > courseEnd) {
+                      toast({
+                        title: "Date Adjusted",
+                        description: "End date can't be later than course end date",
+                      });
+                      handleFilterChange({ endDate: courseEnd });
+                      return;
+                    }
+                  }
+                  
+                  handleFilterChange({ endDate: newDate });
+                }}
+                min={attendanceSummary?.overallSummary?.courseDates?.start && filters.useCourseTimeframe 
+                  ? attendanceSummary.overallSummary.courseDates.start : undefined}
+                max={attendanceSummary?.overallSummary?.courseDates?.end && filters.useCourseTimeframe 
+                  ? attendanceSummary.overallSummary.courseDates.end : undefined}
+                disabled={filters.useCourseTimeframe && (!attendanceSummary?.overallSummary?.courseDates?.start || !attendanceSummary?.overallSummary?.courseDates?.end)}
               />
-            </div>
-              <div className="flex flex-col gap-1.5">
-              <Label htmlFor="course">Course</Label>              <Select
-                value={filters.courseId || 'all'}
-                onValueChange={(value) => handleFilterChange({ courseId: value === 'all' ? undefined : value })}
-              >
-                <SelectTrigger id="course">
-                  <SelectValue placeholder="All Courses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Courses</SelectItem>
-                  {courses.map((course) => (
-                    <SelectItem key={course.id} value={course.id}>
-                      {course.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>              <div className="flex flex-col gap-1.5">
+            </div>            
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between">
+                <Label htmlFor="course">Course</Label>
+                {filters.useCourseTimeframe && (
+                  <Badge variant="outline" className="text-xs">Course Timeframe Active</Badge>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">                  <Select
+                    value={filters.courseId || 'all'}
+                    onValueChange={(value) => {
+                      // If switching from a specific course to "All Courses", 
+                      // also deactivate course timeframe
+                      if (value === 'all') {
+                        handleFilterChange({ 
+                          courseId: undefined, 
+                          useCourseTimeframe: false
+                        });
+                      } else {
+                        // Update the courseId and automatically fetch course dates
+                        handleFilterChange({ courseId: value });
+                        
+                        // Automatically fetch and apply course dates when a course is selected
+                        setLoadingSummary(true);
+                        getStudentAttendanceSummary(studentId, {
+                          courseId: value,
+                          useCourseTimeframe: true
+                        }).then(summary => {
+                          setAttendanceSummary(summary);
+                          
+                          if (summary?.overallSummary?.courseDates?.start && summary?.overallSummary?.courseDates?.end) {
+                            const { start, end } = summary.overallSummary.courseDates;
+                            handleFilterChange({
+                              startDate: parseISO(start),
+                              endDate: parseISO(end),
+                              useCourseTimeframe: true
+                            });
+                            
+                            toast({
+                              title: "Course Timeframe Applied",
+                              description: `Using dates from ${format(parseISO(start), 'PP')} to ${format(parseISO(end), 'PP')}`,
+                            });
+                          }
+                        }).catch(error => {
+                          console.error("Error fetching course dates:", error);
+                        }).finally(() => {
+                          setLoadingSummary(false);
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="course">
+                      <SelectValue placeholder="All Courses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Courses</SelectItem>
+                      {courses.map((course) => (
+                        <SelectItem key={course.id} value={course.id}>
+                          {course.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button 
+                  variant={filters.useCourseTimeframe ? "secondary" : "outline"}
+                  size="icon" 
+                  title={filters.useCourseTimeframe ? "Course Dates Active" : "Use Course Dates"}
+                  onClick={handleUseCourseTimeframe}
+                  disabled={!filters.courseId}
+                >
+                  <CalendarIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div><div className="flex flex-col gap-1.5">
               <Label htmlFor="status">Attendance Status</Label>
               <Select
                 value={filters.status || 'all'}
