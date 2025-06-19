@@ -14,7 +14,11 @@ interface SystemNotification {
   read: boolean
 }
 
-export default function SystemNotifications() {
+interface SystemNotificationsProps {
+  userRole?: string;
+}
+
+export default function SystemNotifications({ userRole = 'admin' }: SystemNotificationsProps) {
   // Sample notifications - in a real app, these would come from a database
   const [notifications, setNotifications] = useState<SystemNotification[]>([
     {

@@ -10,13 +10,20 @@ import {
   Upload,
   Download,
   RefreshCw,
-  QrCode
+  QrCode,
+  ClipboardList,
+  BookOpen,
+  Calendar
 } from "lucide-react"
 
-export default function QuickActions() {
+interface QuickActionsProps {
+  userRole?: string;
+}
+
+export default function QuickActions({ userRole = 'admin' }: QuickActionsProps) {
   const router = useRouter()
-  
-  const actions = [
+    // Define role-specific actions
+  const adminActions = [
     {
       name: "Add Student",
       icon: UserPlus,
@@ -47,16 +54,42 @@ export default function QuickActions() {
       action: () => router.push("/admin/settings?tab=reports"),
       color: "text-indigo-600"
     },
-    {
-      name: "Sync Data",
-      icon: RefreshCw,
-      action: () => {
-        // Here we would implement data synchronization logic
-        console.log("Syncing data...")
-      },
-      color: "text-cyan-600"
-    }
   ]
+  
+  const teacherActions = [
+    {
+      name: "View My Courses",
+      icon: BookOpen,
+      action: () => router.push("/admin/courses"),
+      color: "text-green-600"
+    },
+    {
+      name: "View My Students",
+      icon: UserPlus,
+      action: () => router.push("/admin/students"),
+      color: "text-blue-600"
+    },
+    {
+      name: "Mark Attendance",
+      icon: QrCode,
+      action: () => router.push("/admin/attendance"),
+      color: "text-purple-600"
+    },
+    {
+      name: "View Schedule",
+      icon: Calendar,
+      action: () => router.push("/admin/schedule"),
+      color: "text-amber-600"
+    },
+    {
+      name: "Grade Assessments",
+      icon: ClipboardList,
+      action: () => router.push("/admin/assessments"),
+      color: "text-indigo-600"
+    },
+  ]
+    // Select the appropriate actions based on role
+  const actions = userRole === 'admin' ? adminActions : teacherActions
 
   return (
     <Card>

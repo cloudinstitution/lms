@@ -11,6 +11,7 @@ import {
 } from "firebase/auth"
 import { doc, getDoc, setDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { getUserCustomClaims } from "@/lib/firebase-admin-client"
 
 interface AuthContextType {
   user: User | null
@@ -19,6 +20,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, name: string, batch: string) => Promise<void>
   signOut: () => Promise<void>
   userProfile: any | null
+  userClaims: any | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -27,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [userProfile, setUserProfile] = useState<any | null>(null)
+  const [userClaims, setUserClaims] = useState<any | null>(null)
   const auth = getAuth()
 
   useEffect(() => {
@@ -35,17 +38,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (user) {
         try {
+          // Fetch user profile from students collection
           const userDoc = await getDoc(doc(db, "students", user.uid))
           if (userDoc.exists()) {
             setUserProfile(userDoc.data())
           } else {
-            console.log("No user profile found")
+            // If not in students collection, might be in admin collection
+            const adminDoc = await getDoc(doc(db, "admin", user.uid))
+            if (adminDoc.exists()) {
+              setUserProfile(adminDoc.data())
+            } else {
+              console.log("No user profile found")
+            }
           }
+          
+          // Fetch user custom claims
+          const claims = await getUserCustomClaims(user)
+          setUserClaims(claims)
         } catch (error) {
-          console.error("Error fetching user profile:", error)
+          console.error("Error fetching user data:", error)
         }
       } else {
         setUserProfile(null)
+        setUserClaims(null)
       }
 
       setLoading(false)
@@ -93,9 +108,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw error
     }
   }
-
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, userProfile }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, userProfile, userClaims }}>
       {children}
     </AuthContext.Provider>
   )

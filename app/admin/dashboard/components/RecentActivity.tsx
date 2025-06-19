@@ -19,7 +19,12 @@ interface Activity {
   }
 }
 
-export default function RecentActivity() {
+interface RecentActivityProps {
+  userRole?: string;
+  userId?: string;
+}
+
+export default function RecentActivity({ userRole = 'admin', userId }: RecentActivityProps) {
   const [activities, setActivities] = useState<Activity[]>([])
   const [loading, setLoading] = useState(true)
 

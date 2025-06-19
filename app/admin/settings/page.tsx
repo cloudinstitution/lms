@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -9,9 +9,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Settings, User, Bell, Shield, CreditCard, Save, Upload } from "lucide-react"
+import { getAdminSession } from "@/lib/session-storage"
+import TeacherManagement from "./components/TeacherManagement"
 
 export default function AdminSettings() {
   const [isLoading, setIsLoading] = useState(false)
+  const [adminData, setAdminData] = useState<any>(null)
+
+  useEffect(() => {
+    const data = getAdminSession()
+    if (data) {
+      setAdminData(data)
+    }
+  }, [])
 
   const handleSave = async () => {
     setIsLoading(true)
@@ -27,8 +37,7 @@ export default function AdminSettings() {
         <p className="text-muted-foreground">Manage your account settings and preferences</p>
       </div>
 
-      <Tabs defaultValue="general">
-        <TabsList className="grid grid-cols-5 w-full max-w-3xl">
+      <Tabs defaultValue="general">        <TabsList className={`grid ${adminData?.role === 'admin' ? 'grid-cols-6' : 'grid-cols-5'} w-full max-w-3xl`}>
           <TabsTrigger value="general" className="flex items-center gap-2">
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">General</span>
@@ -41,6 +50,12 @@ export default function AdminSettings() {
             <Bell className="h-4 w-4" />
             <span className="hidden sm:inline">Notifications</span>
           </TabsTrigger>
+          {adminData?.role === 'admin' && (
+            <TabsTrigger value="teachers" className="flex items-center gap-2">
+              <User className="h-4 w-4" />
+              <span className="hidden sm:inline">Teachers</span>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="security" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             <span className="hidden sm:inline">Security</span>
@@ -201,6 +216,9 @@ export default function AdminSettings() {
               </Button>
             </CardFooter>
           </Card>
+        </TabsContent>        
+        <TabsContent value="teachers">
+          <TeacherManagement />
         </TabsContent>
 
         <TabsContent value="security">

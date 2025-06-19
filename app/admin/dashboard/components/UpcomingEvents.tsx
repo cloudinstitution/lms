@@ -16,7 +16,12 @@ interface Event {
   course?: string
 }
 
-export default function UpcomingEvents() {
+interface UpcomingEventsProps {
+  userRole?: string;
+  userId?: string;
+}
+
+export default function UpcomingEvents({ userRole = 'admin', userId }: UpcomingEventsProps) {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedDateEvents, setSelectedDateEvents] = useState<Event[]>([])

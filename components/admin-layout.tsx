@@ -26,6 +26,8 @@ import {
   User,
 } from "lucide-react"
 import { getAdminSession } from "@/lib/session-storage"
+import { getNavigationForRole, getPageTitleForRole, canAccessPath } from "@/lib/role-config"
+import { useAuth } from "@/lib/auth-context"
 
 interface AdminLayoutProps {
   children: React.ReactNode
@@ -37,16 +39,52 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const [isMounted, setIsMounted] = useState(false)
   const { theme, setTheme } = useTheme()
   const [adminData, setAdminData] = useState<any>(null)
+  const { user, userClaims, loading } = useAuth()
 
   useEffect(() => {
     setIsMounted(true)
+    
+    // First check session storage (for backward compatibility)
     const data = getAdminSession()
-    if (!data) {
+    
+    if (!data && !user) {
       router.push("/login")
       return
     }
-    setAdminData(data)
-  }, [router])
+      // If we have user claims, use those for role-based access
+    if (userClaims) {
+      const role = userClaims.role || 'teacher'
+      
+      // Check if the user can access this page based on role
+      if (!canAccessPath(role, pathname)) {
+        // Redirect to dashboard if trying to access unauthorized page
+        router.push("/admin/dashboard")
+        return
+      }
+      
+      // Update admin data with claims
+      const updatedData = {
+        ...data,
+        role: role,
+        name: user?.displayName || data?.name || 'User',
+        email: user?.email || data?.username || '',
+        id: user?.uid || data?.id
+      }
+      
+      setAdminData(updatedData)
+      console.log('Updated admin data with claims:', updatedData)
+    } else if (data) {
+      // Fall back to session storage data
+      // Check if the user can access this page based on role
+      if (data.role && !canAccessPath(data.role, pathname)) {
+        // Redirect to dashboard if trying to access unauthorized page
+        router.push("/admin/dashboard")
+        return
+      }
+      
+      setAdminData(data)
+    }
+  }, [router, pathname, user, userClaims, loading])
 
   const handleLogout = () => {
     localStorage.clear()
@@ -55,19 +93,17 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
   if (!isMounted || !adminData) {
     return null
+  }  // Get navigation based on user role - explicitly cast to allowed role types
+  let userRole: 'admin' | 'teacher' = 'teacher'
+  
+  if (adminData.role === 'admin') {
+    userRole = 'admin'
+  } else if (adminData.roleId === 1) {
+    userRole = 'admin'
   }
-
-  const navigation = [
-    { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
-    { name: "Students", href: "/admin/students", icon: Users },
-    { name: "Courses", href: "/admin/courses", icon: BookOpen },
-    { name: "Assessments", href: "/admin/assessments", icon: FileText },
-    { name: "Programming", href: "/admin/programming", icon: FileText },
-    { name: "Company Questions", href: "/admin/company-questions", icon: Briefcase },
-    { name: "Attendance", href: "/admin/attendance", icon: QrCode },
-    { name: "Notifications", href: "/admin/notifications", icon: Bell },
-    { name: "Settings", href: "/admin/settings", icon: Settings },
-  ] 
+  
+  console.log('User role for navigation:', userRole, 'Admin data:', adminData)
+  const navigation = getNavigationForRole(userRole)
   
   return (
     <div className="flex h-screen bg-background">
@@ -111,14 +147,18 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="flex items-center gap-2">
-                    <Avatar className="h-8 w-8">
+                  <Button variant="ghost" className="flex items-center gap-2">                    <Avatar className="h-8 w-8">
                       <AvatarImage src="/placeholder-user.jpg" alt={adminData.name || "Admin"} />
                       <AvatarFallback>{adminData.name?.[0] || "A"}</AvatarFallback>
                     </Avatar>
                     <div className="hidden md:block text-sm font-medium text-left">
                       <div>{adminData.name || "Admin"}</div>
-                      <div className="text-xs text-muted-foreground">{adminData.username}</div>
+                      <div className="text-xs text-muted-foreground">
+                        <span>{adminData.username}</span>
+                        <span className="ml-2 px-2 py-0.5 bg-primary/20 text-primary rounded-full text-[10px] uppercase font-semibold">
+                          {adminData.role || 'admin'}
+                        </span>
+                      </div>
                     </div>
                   </Button>
                 </DropdownMenuTrigger>
@@ -147,11 +187,24 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 }
 
 function AdminSidebar({ pathname, navigation }: { pathname: string, navigation: Array<{ name: string, href: string, icon: React.ElementType }> }) {
+  // Get admin data to determine portal name based on role
+  const adminData = getAdminSession();
+    // Determine role from both role field and roleId
+  let role: 'admin' | 'teacher' = 'teacher';
+  if (adminData?.role === 'admin') {
+    role = 'admin';
+  } else if (adminData?.roleId === 1) {
+    role = 'admin';
+  }
+  
+  console.log('Sidebar role:', role, 'Admin data:', adminData);
+  const portalTitle = getPageTitleForRole(role);
+  
   return (    <div className="flex flex-col h-screen border-r bg-card">
       <div className="flex items-center flex-shrink-0 h-16 px-4 border-b">
         <Link href="/admin/dashboard" className="flex items-center gap-2">
           <GraduationCap className="h-8 w-8 text-primary" />
-          <span className="font-bold text-xl">Admin Portal</span>
+          <span className="font-bold text-xl">{portalTitle}</span>
         </Link>
       </div>
       <nav className="flex-1 px-2 pb-4 space-y-1">

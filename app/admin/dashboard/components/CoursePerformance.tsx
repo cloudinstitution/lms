@@ -14,56 +14,73 @@ interface CoursePerformance {
   satisfactionScore: number
 }
 
-export default function CoursePerformance() {
+interface CoursePerformanceProps {
+  userRole?: string;
+  userId?: string;
+}
+
+export default function CoursePerformance({ userRole = 'admin', userId }: CoursePerformanceProps) {
   const [courses, setCourses] = useState<CoursePerformance[]>([])
   const [loading, setLoading] = useState(true)
-
   useEffect(() => {
     const fetchCourseData = async () => {
       try {
         setLoading(true)
         
-        // In a real implementation, you would calculate metrics based on actual student data
-        // For now, we're using sample data
-        const sampleCourses: CoursePerformance[] = [
-          {
-            id: "course1",
-            name: "Web Development Bootcamp",
-            enrollments: 45,
-            completionRate: 72,
-            satisfactionScore: 4.5
-          },
-          {
-            id: "course2",
-            name: "Data Science Fundamentals",
-            enrollments: 38,
-            completionRate: 65,
-            satisfactionScore: 4.2
-          },
-          {
-            id: "course3",
-            name: "Mobile App Development",
-            enrollments: 32,
-            completionRate: 80,
-            satisfactionScore: 4.8
-          },
-          {
-            id: "course4",
-            name: "DevOps Engineering",
-            enrollments: 26,
-            completionRate: 58,
-            satisfactionScore: 3.9
-          },
-          {
-            id: "course5",
-            name: "UI/UX Design",
-            enrollments: 30,
-            completionRate: 75,
-            satisfactionScore: 4.6
-          }
-        ]
+        let coursesToShow: CoursePerformance[] = [];
         
-        setCourses(sampleCourses)
+        if (userRole === 'admin') {
+          // Admins see all courses
+          const coursesRef = collection(db, "courses");
+          try {
+            const coursesSnapshot = await getDocs(coursesRef);
+            // In a real app, we would process actual course data here
+            // For now, we'll use sample data
+            coursesToShow = [
+              {
+                id: "course1",
+                name: "Web Development Bootcamp",
+                enrollments: 45,
+                completionRate: 72,
+                satisfactionScore: 4.5
+              },
+              {
+                id: "course2",
+                name: "Data Science Fundamentals",
+                enrollments: 38,
+                completionRate: 65,
+                satisfactionScore: 4.2
+              },
+            ];
+          } catch (error) {
+            console.error("Error fetching courses:", error);
+          }
+        } else if (userRole === 'teacher' && userId) {            // Teachers only see their assigned courses
+          try {
+            // In a real app, fetch teacher's courses from Firestore
+            // For now, use filtered sample data
+            coursesToShow = [
+              {
+                id: "course2",
+                name: "Data Science Fundamentals",
+                enrollments: 38,
+                completionRate: 65,
+                satisfactionScore: 4.2
+              },
+              {
+                id: "course3",
+                name: "Mobile App Development",
+                enrollments: 32,
+                completionRate: 80,
+                satisfactionScore: 4.8
+              }
+            ];
+          } catch (error) {
+            console.error("Error fetching teacher courses:", error);
+          }
+        }
+        
+        setCourses(coursesToShow)
       } catch (error) {
         console.error("Error fetching course performance data:", error)
       } finally {
@@ -72,13 +89,19 @@ export default function CoursePerformance() {
     }
     
     fetchCourseData()
-  }, [])
+  }, [userRole, userId])
 
   return (
-    <Card className="col-span-full">
-      <CardHeader>
-        <CardTitle>Course Performance</CardTitle>
-        <CardDescription>Enrollment and completion metrics for top courses</CardDescription>
+    <Card className="col-span-full">      
+    <CardHeader>
+        <CardTitle>
+          {userRole === 'teacher' ? 'My Courses Performance' : 'Course Performance'}
+        </CardTitle>
+        <CardDescription>
+          {userRole === 'teacher' 
+            ? 'Enrollment and completion metrics for your assigned courses' 
+            : 'Enrollment and completion metrics for all courses'}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (

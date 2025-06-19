@@ -6,7 +6,12 @@ import { collection, getDocs, query, where } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { Users, BookOpen, GraduationCap, Calendar } from "lucide-react"
 
-export default function KPICards() {
+interface KPICardsProps {
+  userRole?: string;
+  userId?: string;
+}
+
+export default function KPICards({ userRole = 'admin', userId }: KPICardsProps) {
   const [stats, setStats] = useState({
     totalStudents: 0,
     activeCourses: 0,
@@ -15,21 +20,51 @@ export default function KPICards() {
   })
   
   const [loading, setLoading] = useState(true)
-
   useEffect(() => {
     const fetchStats = async () => {
       try {
         setLoading(true)
         
-        // Fetch total students
-        const studentsSnapshot = await getDocs(collection(db, "students"))
-        const totalStudents = studentsSnapshot.size
+        let studentsSnapshot, coursesSnapshot;
         
-        // Fetch active courses
-        const coursesSnapshot = await getDocs(
-          query(collection(db, "courses"), where("status", "==", "Active"))
-        )
-        const activeCourses = coursesSnapshot.size
+        if (userRole === 'admin') {
+          // Admin can see all students and courses
+          studentsSnapshot = await getDocs(collection(db, "students"));
+          coursesSnapshot = await getDocs(
+            query(collection(db, "courses"), where("status", "==", "Active"))
+          );
+        } else {
+          // Teacher can only see assigned students and courses
+          if (userId) {
+            // Get teacher's assigned courses
+            const teacherData = await getDocs(
+              query(collection(db, "admin"), where("id", "==", userId))
+            );
+            
+            const assignedCourses = teacherData.docs[0]?.data()?.assignedCourses || [];
+            
+            // Get students enrolled in teacher's courses
+            studentsSnapshot = await getDocs(
+              query(collection(db, "students"), where("coursesEnrolled", "array-contains-any", assignedCourses))
+            );
+            
+            // Get teacher's active courses
+            coursesSnapshot = await getDocs(
+              query(
+                collection(db, "courses"), 
+                where("status", "==", "Active"),
+                where("teacherId", "==", userId)
+              )
+            );
+          } else {
+            // Fallback if no userId provided
+            studentsSnapshot = { size: 0 };
+            coursesSnapshot = { size: 0 };
+          }
+        }
+        
+        const totalStudents = studentsSnapshot.size;
+        const activeCourses = coursesSnapshot.size;
         
         // For demonstration purposes, we're using placeholder data for these metrics
         // In a real implementation, you would calculate these from actual data

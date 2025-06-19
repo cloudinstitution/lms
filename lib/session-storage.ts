@@ -175,6 +175,7 @@ export interface AdminData {
   id: string;
   username: string;
   roleId: number;
+  role: 'admin' | 'teacher';
   name?: string;
 }
 
