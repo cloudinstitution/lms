@@ -3,13 +3,25 @@ import * as admin from 'firebase-admin';
 
 // Initialize Firebase Admin if it hasn't been already
 if (!admin.apps.length) {
-  // You should use environment variables for these values in production
+  // Make sure all required fields are present
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error(
+      `Missing Firebase credentials. Check that all environment variables are set: 
+      FIREBASE_PROJECT_ID: ${projectId ? 'Set' : 'Missing'}, 
+      FIREBASE_CLIENT_EMAIL: ${clientEmail ? 'Set' : 'Missing'}, 
+      FIREBASE_PRIVATE_KEY: ${privateKey ? 'Set' : 'Missing'}`
+    );
+  }
+
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      // The private key needs to have newlines replaced
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      projectId,
+      clientEmail,
+      privateKey,
     }),
   });
 }

@@ -21,8 +21,7 @@ import { collection, doc, getDocs, query, Timestamp, writeBatch } from "firebase
 import { DownloadCloud, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import * as xlsxUtils from 'xlsx/xlsx.mjs'
-import { write as xlsxWrite } from 'xlsx/xlsx.mjs'
+import * as XLSX from 'xlsx'
 import AttendanceScanner from "./attendance-scanner"
 
 interface Student {
@@ -342,12 +341,10 @@ export default function AdminAttendancePage() {
         'Course': student.courses[student.primaryCourseIndex].courseName,
         'Status': student.present ? 'Present' : 'Absent'
       }));
-    }
-
-    const ws = xlsxUtils.json_to_sheet(data);
-    const wb = xlsxUtils.book_new();
-    xlsxUtils.book_append_sheet(wb, ws, 'Attendance');      if (format === 'csv') {
-      const csv = xlsxUtils.sheet_to_csv(ws);
+    }    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');      if (format === 'csv') {
+      const csv = XLSX.utils.sheet_to_csv(ws);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
@@ -360,7 +357,7 @@ export default function AdminAttendancePage() {
         description: `Attendance data for ${dateStr} has been downloaded as CSV`
       });
     } else {
-      const buffer = xlsxWrite(wb, { type: 'array', bookType: 'xlsx' });
+      const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
