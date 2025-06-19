@@ -1,0 +1,219 @@
+/* Custom styling for react-phone-input-2 to match shadcn UI input styles */
+
+/* Phone input container */
+.phone-input-container {
+  width: 100%; /* Make width match parent container */
+}
+
+/* Main form control */
+.phone-input-container .react-tel-input .form-control,
+.phone-input-container .react-tel-input .phone-input-field {
+  width: 100% !important;
+  height: 40px !important;
+  font-size: 0.875rem !important; /* match text-sm */
+  border-radius: 6px !important;
+  padding: 8px 12px 8px 62px !important; /* Adjusted for flag */
+  border: 1px solid hsl(var(--input)) !important;
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: none !important;
+  transition: all 0.15s ease !important;
+}
+
+/* Flag dropdown button */
+.phone-input-container .react-tel-input .flag-dropdown,
+.phone-input-container .react-tel-input .phone-input-dropdown {
+  background-color: hsl(var(--background)) !important;
+  border: 1px solid hsl(var(--input)) !important;
+  border-right: none !important;
+  border-radius: 6px 0 0 6px !important;
+}
+
+/* Selected flag area */
+.phone-input-container .react-tel-input .selected-flag {
+  background-color: transparent !important;
+  border-radius: 6px 0 0 6px !important;
+  padding: 0 8px 0 8px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* Flag hover/active states */
+.phone-input-container .react-tel-input .selected-flag:hover,
+.phone-input-container .react-tel-input .selected-flag.open {
+  background-color: hsl(var(--muted)) !important;
+}
+
+/* Focus state - match shadow with other inputs */
+.phone-input-container .react-tel-input .form-control:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px hsl(var(--ring)) !important;
+  border-color: hsl(var(--ring)) !important;
+}
+
+/* Country dropdown list */
+.phone-input-container .react-tel-input .country-list {
+  background-color: hsl(var(--background)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
+  border-radius: 6px !important;
+  margin-top: 8px !important;
+  /* Make dropdown width match input */
+  width: 300px !important;
+  max-height: 220px !important;
+  overflow-y: auto !important;
+}
+
+/* Country list items */
+.phone-input-container .react-tel-input .country-list .country {
+  padding: 8px 10px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* Country name */
+.phone-input-container .react-tel-input .country-list .country-name {
+  color: hsl(var(--foreground)) !important;
+  margin-left: 8px !important;
+}
+
+/* Country dial code */
+.phone-input-container .react-tel-input .country-list .dial-code {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Hover state for country */
+.phone-input-container .react-tel-input .country-list .country:hover,
+.phone-input-container .react-tel-input .country-list .country.highlight {
+  background-color: hsl(var(--accent)) !important;
+}
+
+/* Search box */
+.phone-input-container .react-tel-input .country-list .search {
+  background-color: hsl(var(--background)) !important;
+  padding: 10px !important;
+}
+
+.phone-input-container .react-tel-input .country-list .search-box {
+  border: 1px solid hsl(var(--input)) !important;
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  width: 100% !important;
+  border-radius: 4px !important;
+  padding: 6px 8px !important;
+}
+
+/* Error state */
+.phone-input-container.error .react-tel-input .form-control {
+  border-color: hsl(var(--destructive)) !important;
+  box-shadow: 0 0 0 1px hsl(var(--destructive) / 0.3) !important;
+}
+
+.phone-input-container.error .react-tel-input .flag-dropdown {
+  border-color: hsl(var(--destructive)) !important;
+}
+
+/* Dark mode specific adjustments */
+:root[class~="dark"] .phone-input-container .react-tel-input .flag {
+  opacity: 0.9; /* Make flags slightly less bright in dark mode */
+}
+
+:root[class~="dark"] .phone-input-container .react-tel-input .country-list {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Fix background and text colors for dark mode */
+:root[class~="dark"] .phone-input-container .react-tel-input .form-control,
+:root[class~="dark"] .phone-input-container .react-tel-input .phone-input-field {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--input)) !important;
+}
+
+:root[class~="dark"] .phone-input-container .react-tel-input .flag-dropdown,
+:root[class~="dark"] .phone-input-container .react-tel-input .phone-input-dropdown,
+:root[class~="dark"] .phone-input-container .react-tel-input .selected-flag {
+  background-color: hsl(var(--background)) !important;
+  border-color: hsl(var(--input)) !important;
+}
+
+:root[class~="dark"] .phone-input-container .react-tel-input .country-list {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+:root[class~="dark"] .phone-input-container .react-tel-input .country-list .country-name {
+  color: hsl(var(--foreground)) !important;
+}
+
+:root[class~="dark"] .phone-input-container .react-tel-input .country-list .country:hover {
+  background-color: hsl(var(--accent)) !important;
+}
+
+:root[class~="dark"] .phone-input-container .react-tel-input .country-list .search-box {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--input)) !important;
+}
+
+/* Fixed width matching other inputs */
+.phone-input-container,
+.phone-input-container .react-tel-input {
+  display: block !important;
+  width: 100% !important;
+}
+
+.phone-input-container .react-tel-input .form-control,
+.phone-input-container .react-tel-input .phone-input-field {
+  width: 100% !important;
+}
+
+/* Make sure phone input matches other shadcn inputs */
+.phone-input-container .react-tel-input .form-control,
+.phone-input-container .react-tel-input .phone-input-field {
+  display: flex !important;
+  height: 2.5rem !important; /* h-10 */
+  width: 100% !important;
+  border-radius: 0.375rem !important; /* rounded-md */
+  border: 1px solid hsl(var(--input)) !important;
+  background-color: hsl(var(--background)) !important;
+  padding-left: 60px !important;
+  padding-right: 0.75rem !important; /* px-3 */
+  padding-top: 0.5rem !important; /* py-2 */
+  padding-bottom: 0.5rem !important;
+  font-size: 0.875rem !important; /* text-sm */
+  line-height: 1.25rem !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Override any hardcoded colors in the library */
+.react-tel-input .form-control {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--input)) !important;
+}
+
+.react-tel-input .flag-dropdown {
+  background-color: hsl(var(--background)) !important;
+  border-color: hsl(var(--input)) !important;
+}
+
+.react-tel-input .selected-flag {
+  background-color: hsl(var(--background)) !important;
+}
+
+.react-tel-input .country-list {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+.react-tel-input .country-list .country-name {
+  color: hsl(var(--foreground)) !important;
+}
+
+.react-tel-input .country-list .country:hover {
+  background-color: hsl(var(--accent)) !important;
+}

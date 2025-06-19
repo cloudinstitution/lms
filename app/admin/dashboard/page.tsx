@@ -8,7 +8,8 @@ import CoursePerformance from "./components/CoursePerformance"
 import UpcomingEvents from "./components/UpcomingEvents"
 import SystemNotifications from "./components/SystemNotifications"
 import QuickActions from "./components/QuickActions"
-import StudentCreationForm from "./components/StudentCreationForm"
+import StudentCreationForm from "@/components/forms/StudentCreationForm"
+import TeacherCreationForm from "@/components/forms/TeacherCreationForm"
 import { getAdminSession } from "@/lib/session-storage"
 
 export default function AdminDashboard() {
@@ -30,14 +31,17 @@ export default function AdminDashboard() {
         <h1 className="text-3xl font-bold">{dashboardTitle}</h1>
       </div>
 
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList>
+      <Tabs defaultValue="overview" className="w-full">        <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          {/* Only show Create Student tab for admins */}
+          {/* Only show Create Student and Teacher tabs for admins */}
           {adminData?.role === 'admin' && (
-            <TabsTrigger value="createStudent">Create Student</TabsTrigger>
+            <>
+              <TabsTrigger value="createStudent">Create Student</TabsTrigger>
+              <TabsTrigger value="createTeacher">Create Teacher</TabsTrigger>
+            </>
           )}
-        </TabsList>        {/* Overview Tab */}
+        </TabsList>
+        {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
           {/* KPIs - Show for all roles but with filtered data */}
           <KPICards userRole={adminData?.role} userId={adminData?.id} />
@@ -61,13 +65,18 @@ export default function AdminDashboard() {
 
           {/* Course Performance - Full Width - filtered by role */}
           <CoursePerformance userRole={adminData?.role} userId={adminData?.id} />
-        </TabsContent>
-
-        {/* Create Student Tab - we'll use the existing functionality */}
+        </TabsContent>        {/* Create Student Tab - we'll use the existing functionality */}
         <TabsContent value="createStudent" className="space-y-6">
           {/* Use the separated student creation form component */}
           <div className="max-w-3xl mx-auto">
             <StudentCreationForm />
+          </div>
+        </TabsContent>
+
+        {/* Create Teacher Tab - only for admin users */}
+        <TabsContent value="createTeacher" className="space-y-6">
+          <div className="max-w-3xl mx-auto">
+            <TeacherCreationForm />
           </div>
         </TabsContent>
       </Tabs>
