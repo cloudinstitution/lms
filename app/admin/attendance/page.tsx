@@ -21,7 +21,8 @@ import { collection, doc, getDocs, query, Timestamp, writeBatch } from "firebase
 import { DownloadCloud, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { utils as xlsxUtils, write as xlsxWrite } from 'xlsx'
+import * as xlsxUtils from 'xlsx/xlsx.mjs'
+import { write as xlsxWrite } from 'xlsx/xlsx.mjs'
 import AttendanceScanner from "./attendance-scanner"
 
 interface Student {
@@ -29,8 +30,11 @@ interface Student {
   customId: string
   name: string
   present: boolean
-  courseName: string
-  courseID: string
+  courses: {
+    courseID: string
+    courseName: string
+  }[]
+  primaryCourseIndex: number
   attendanceSummary?: {
     present: number
     absent: number
@@ -38,8 +42,8 @@ interface Student {
 }
 
 interface CourseStats {
-  courseName: string
   courseID: string
+  courseName: string
   totalStudents: number
   presentStudents: number
   percentage: number
@@ -54,7 +58,7 @@ interface AttendanceStats {
 }
 
 interface BatchAttendanceState {
-  changes: Map<string, boolean> // studentId -> present
+  changes: Map<string, boolean>
   modified: boolean
   submitting: boolean
 }
@@ -88,7 +92,7 @@ export default function AdminAttendancePage() {
 
   // Load courses data on component mount
   useEffect(() => {
-    const fetchCourses = async () => {
+    const fetchCourses = async (): Promise<void> => {
       setCoursesLoading(true)
       setCoursesError(null)
       try {
@@ -166,42 +170,36 @@ export default function AdminAttendancePage() {
   // Filter students based on search and filters
   const filteredStudents = useMemo(() => {
     return students.filter(student => {
-      // Debug the values
-      console.log('Comparing:', {
-        selectedCourse,
-        studentCourseID: student.courseID,
-        matches: selectedCourse === "all" || student.courseID.toString() === selectedCourse.toString()
-      });
-
-      // Course filtering - convert both to strings for comparison
-      const courseMatch = selectedCourse === "all" || student.courseID.toString() === selectedCourse.toString();
+      const primaryCourse = student.courses[student.primaryCourseIndex];
+      const courseMatch = selectedCourse === "all" || primaryCourse.courseID === selectedCourse;
       const statusMatch = selectedStatus === "all" ||
         (selectedStatus === "present" && student.present) ||
         (selectedStatus === "absent" && !student.present);
       return courseMatch && statusMatch && matchesSearch(student);
     });
-  }, [students, selectedCourse, selectedStatus, searchQuery]); const calculateCourseStats = (studentsList: Student[]) => {
-    // Group students by courseID to get unique courses
+  }, [students, selectedCourse, selectedStatus, searchQuery]);
+  
+  const calculateCourseStats = (studentsList: Student[]): CourseStats[] => {
+    // Group students by their primary course
     const courseGroups = new Map<string, Student[]>();
 
     studentsList.forEach(student => {
-      const courseID = student.courseID;
-      if (!courseGroups.has(courseID)) {
-        courseGroups.set(courseID, []);
+      const primaryCourse = student.courses[student.primaryCourseIndex];
+      if (!courseGroups.has(primaryCourse.courseID)) {
+        courseGroups.set(primaryCourse.courseID, []);
       }
-      courseGroups.get(courseID)!.push(student);
+      courseGroups.get(primaryCourse.courseID)!.push(student);
     });
 
-    // Calculate stats for each unique course
+    // Calculate stats for each course
     const courseStats = Array.from(courseGroups.entries()).map(([courseID, students]) => {
-      const courseInfo = courses[courseID];
-      const courseTitle = courseInfo?.title || 'Unknown Course';
+      const primaryCourse = students[0].courses[students[0].primaryCourseIndex];
       const totalStudents = students.length;
       const presentStudents = students.filter(s => s.present).length;
 
       return {
         courseID,
-        courseName: courseTitle,
+        courseName: primaryCourse.courseName,
         totalStudents,
         presentStudents,
         percentage: totalStudents > 0 ? (presentStudents / totalStudents) * 100 : 0
@@ -249,23 +247,28 @@ export default function AdminAttendancePage() {
         const dates = studentData.attendanceDates || [];
         const isPresent = dates.includes(dateString);
 
-        // Ensure courseID is processed correctly
-        let courseID = studentData.courseID;
-        if (Array.isArray(courseID)) {
-          courseID = courseID[0]; // Take first course if it's an array
-        }
-        courseID = courseID ? courseID.toString() : "0";        return {
+        // Handle multiple courses
+        const courseIDs = Array.isArray(studentData.courseID) ? studentData.courseID : [studentData.courseID];
+        const primaryCourseIndex = studentData.primaryCourseIndex || 0;
+          // Map all courses with their names
+        const studentCourses = courseIDs.map((id: string) => {
+          const courseId = id ? id.toString() : "0";
+          return {
+            courseID: courseId,
+            courseName: courses[courseId]?.title || "Uncategorized"
+          };
+        });        return {
           id: studentDoc.id,
           customId: customId,
           name: studentData.name || "Unknown Student",
-          courseName: courses[courseID]?.title || "Uncategorized",
-          courseID: courseID,
+          courses: studentCourses,
+          primaryCourseIndex: primaryCourseIndex,
           present: isPresent,
           attendanceSummary: studentData.attendanceSummary || { present: 0, absent: 0 }
         }
       })
 
-      // Calculate statistics
+      // Calculate statistics for primary courses only
       const totalStudents = studentsList.length
       const presentCount = studentsList.filter(s => s.present).length
       const absentCount = totalStudents - presentCount
@@ -303,7 +306,6 @@ export default function AdminAttendancePage() {
     fetchStudentsForDate(false) // Refresh the student list without showing toast
     setScannerRefreshKey(prev => prev + 1) // Reset scanner
   }, [fetchStudentsForDate])
-
   const downloadAttendance = (format: 'csv' | 'xlsx', groupBy?: 'course' | 'none') => {
     if (!date || !students.length) return;
 
@@ -311,13 +313,14 @@ export default function AdminAttendancePage() {
     let data: any[] = [];
 
     if (groupBy === 'course') {
-      // Group by course
+      // Group by primary course
       const courseGroups = new Map<string, Student[]>();
       students.forEach(student => {
-        if (!courseGroups.has(student.courseName)) {
-          courseGroups.set(student.courseName, []);
+        const primaryCourse = student.courses[student.primaryCourseIndex];
+        if (!courseGroups.has(primaryCourse.courseName)) {
+          courseGroups.set(primaryCourse.courseName, []);
         }
-        courseGroups.get(student.courseName)!.push(student);
+        courseGroups.get(primaryCourse.courseName)!.push(student);
       });
 
       courseGroups.forEach((students, courseName) => {
@@ -332,11 +335,11 @@ export default function AdminAttendancePage() {
         data.push({}); // Add empty row between courses
       });
     } else {
-      // No grouping
+      // No grouping, but include primary course info
       data = students.map(student => ({
         'Student ID': student.customId,
         'Name': student.name,
-        'Course': student.courseName,
+        'Course': student.courses[student.primaryCourseIndex].courseName,
         'Status': student.present ? 'Present' : 'Absent'
       }));
     }
@@ -374,14 +377,14 @@ export default function AdminAttendancePage() {
 
   // Update the attendance change in local state
   const handleAttendanceChange = (studentId: string, customId: string, name: string, present: boolean) => {
-    setBatchAttendance(prev => ({
+    setBatchAttendance((prev: BatchAttendanceState) => ({
       ...prev,
       changes: new Map(prev.changes).set(studentId, present),
       modified: true
     }));
     
     // Update UI immediately
-    setStudents(prevStudents =>
+    setStudents((prevStudents: Student[]) =>
       prevStudents.map(student =>
         student.id === studentId ? { ...student, present } : student
       )
@@ -391,30 +394,30 @@ export default function AdminAttendancePage() {
   // Mark all students present/absent
   const markAllStudents = (present: boolean) => {
     const newChanges = new Map();
-    students.forEach(student => {
+    filteredStudents.forEach(student => {
       newChanges.set(student.id, present);
     });
 
-    setBatchAttendance(prev => ({
+    setBatchAttendance((prev: BatchAttendanceState) => ({
       ...prev,
       changes: newChanges,
       modified: true
     }));
 
     // Update UI immediately
-    setStudents(prevStudents =>
+    setStudents((prevStudents: Student[]) =>
       prevStudents.map(student => ({
         ...student,
-        present
+        present: filteredStudents.some(fs => fs.id === student.id) ? present : student.present
       }))
     );
   };
 
-  // Submit all attendance changes
-  const submitAttendanceChanges = async () => {
+  // Submit all attendance changes  const submitAttendanceChanges = async () => {
+    const submitAttendanceChanges = async (): Promise<void> => {
     if (!date) return;
 
-    setBatchAttendance(prev => ({ ...prev, submitting: true }));
+    setBatchAttendance((prev: BatchAttendanceState) => ({ ...prev, submitting: true }));
     const dateString = date.toISOString().split('T')[0];
 
     try {
@@ -452,8 +455,8 @@ export default function AdminAttendancePage() {
         }
 
         // Calculate summary
-        const presentCount = updatedDates.length; // dates when student was present
-        const absentCount = allAttendanceDates.size - presentCount; // dates when attendance was taken but student was absent
+        const presentCount = updatedDates.length;
+        const absentCount = allAttendanceDates.size - presentCount;
 
         // Update student document
         const studentRef = doc(db, "students", studentId);
@@ -490,7 +493,7 @@ export default function AdminAttendancePage() {
       });
 
       // Refresh the student list
-      fetchStudentsForDate(false);
+      await fetchStudentsForDate(false);
 
     } catch (error) {
       console.error("Error submitting attendance:", error);
@@ -510,6 +513,15 @@ export default function AdminAttendancePage() {
       modified: false,
       submitting: false
     });
+    
+    // Clean up function
+    return () => {
+      setBatchAttendance({
+        changes: new Map(),
+        modified: false,
+        submitting: false
+      });
+    };
   }, [date]);
 
   return (
@@ -889,7 +901,7 @@ export default function AdminAttendancePage() {
                           <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:bg-muted/50 transition-colors">                            <div>
                               <p className="font-medium text-foreground">{student.name}</p>
                               <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
-                              <p className="text-sm text-muted-foreground">Course: {student.courseName}</p>                              
+                              <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p>                              
                             </div>
                             <div className="flex gap-2">
                               <Button
