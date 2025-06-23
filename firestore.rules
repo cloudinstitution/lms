@@ -73,5 +73,23 @@ service cloud.firestore {
         isAuthenticated() && request.resource.data.userId == request.auth.uid
       );
     }
+
+    // Schedules collection
+    match /schedules/{scheduleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Holidays collection
+    match /holidays/{holidayId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Schedule exceptions collection
+    match /schedule_exceptions/{exceptionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
   }
 }
