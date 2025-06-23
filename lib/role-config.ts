@@ -1,15 +1,15 @@
 "use client"
 
-import { 
-  LayoutDashboard,
-  Users, 
-  BookOpen, 
-  FileText, 
-  Settings,
-  Bell,
-  QrCode,
-  Briefcase,
-  Calendar
+import {
+    Bell,
+    BookOpen,
+    Briefcase,
+    Calendar,
+    FileText,
+    LayoutDashboard,
+    QrCode,
+    Settings,
+    Users
 } from "lucide-react"
 import type React from "react"
 
@@ -34,6 +34,7 @@ export const roleConfigs: Record<string, RoleConfig> = {
       { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
       { name: "Students", href: "/admin/students", icon: Users },
       { name: "Courses", href: "/admin/courses", icon: BookOpen },
+      { name: "Schedule", href: "/admin/schedule", icon: Calendar },
       { name: "Assessments", href: "/admin/assessments", icon: FileText },
       { name: "Programming", href: "/admin/programming", icon: FileText },
       { name: "Company Questions", href: "/admin/company-questions", icon: Briefcase },
