@@ -1,4 +1,4 @@
-import { collection, getDocs, getDoc, doc, deleteDoc, updateDoc, writeBatch } from "firebase/firestore"
+import { collection, getDocs, getDoc, doc, deleteDoc, updateDoc, writeBatch, query, where } from "firebase/firestore"
 import { db } from "./firebase"
 import { Student } from "@/types/student"
 
@@ -6,9 +6,23 @@ export const SERVICE_ID = "service_0wpennn"
 export const TEMPLATE_ID = "template_zly25zz"
 export const PUBLIC_KEY = "f_2D0VC3LQZjhZDMC"
 
-export async function fetchStudents() {
+export async function fetchStudents(userRole?: string, assignedCourses?: string[]) {
   const studentsCollection = collection(db, "students")
-  const studentsSnapshot = await getDocs(studentsCollection)  
+  let studentsSnapshot;
+  
+  // If user is a teacher, filter students by assigned courses
+  if (userRole === 'teacher' && assignedCourses && assignedCourses.length > 0) {
+    // For teachers, only fetch students enrolled in their assigned courses
+    const studentsQuery = query(
+      studentsCollection,
+      where("coursesEnrolled", "array-contains-any", assignedCourses)
+    )
+    studentsSnapshot = await getDocs(studentsQuery)
+  } else {
+    // For admins, fetch all students
+    studentsSnapshot = await getDocs(studentsCollection)
+  }
+  
   return studentsSnapshot.docs.map((doc) => {
     const data = doc.data();
     return {

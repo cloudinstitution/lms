@@ -64,8 +64,7 @@ export default function LoginPage() {
       const adminQuery = query(collection(db, "admin"), where("username", "==", formData.email))
       const adminSnapshot = await getDocs(adminQuery)      
       if (!adminSnapshot.empty) {
-        const userDoc = adminSnapshot.docs[0].data()
-        // Check password and valid roleId (1 for admin, 2 for teacher)
+        const userDoc = adminSnapshot.docs[0].data()        // Check password and valid roleId (1 for admin, 2 for teacher)
         if (userDoc.password === formData.password && (userDoc.roleId === 1 || userDoc.roleId === 2)) {          // Determine role based on roleId
           const role: 'admin' | 'teacher' = userDoc.roleId === 1 ? 'admin' : 'teacher';
           
@@ -75,7 +74,8 @@ export default function LoginPage() {
             username: userDoc.username,
             roleId: userDoc.roleId,
             role: role,
-            name: userDoc.name || undefined
+            name: userDoc.name || undefined,
+            assignedCourses: userDoc.assignedCourses || []
           }
           
           // Use the proper session storage method

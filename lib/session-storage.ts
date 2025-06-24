@@ -177,6 +177,7 @@ export interface AdminData {
   roleId: number;
   role: 'admin' | 'teacher';
   name?: string;
+  assignedCourses?: string[];
 }
 
 export function storeAdminSession(adminData: AdminData): void {

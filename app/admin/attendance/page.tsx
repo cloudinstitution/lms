@@ -17,12 +17,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { db } from "@/lib/firebase"
 import { cn } from "@/lib/utils"
-import { collection, doc, getDocs, query, Timestamp, writeBatch } from "firebase/firestore"
+import { collection, doc, getDocs, query, Timestamp, writeBatch, where } from "firebase/firestore"
 import { DownloadCloud, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import * as XLSX from 'xlsx'
 import AttendanceScanner from "./attendance-scanner"
+import { useAuth } from "@/lib/auth-context"
+import { getAdminSession } from "@/lib/session-storage"
 
 interface Student {
   id: string
@@ -89,14 +91,30 @@ export default function AdminAttendancePage() {
     submitting: false
   });
 
+  // Get user authentication data and claims
+  const { userClaims } = useAuth()
+  const adminData = getAdminSession()
+  
+  // Determine if user is teacher and get their assigned courses
+  const isTeacher = userClaims?.role === 'teacher' || adminData?.role === 'teacher'
+  const assignedCourses = userClaims?.assignedCourses || adminData?.assignedCourses || []
+
   // Load courses data on component mount
-  useEffect(() => {
-    const fetchCourses = async (): Promise<void> => {
+  useEffect(() => {    const fetchCourses = async (): Promise<void> => {
       setCoursesLoading(true)
       setCoursesError(null)
       try {
         const coursesCollection = collection(db, "courses")
-        const coursesSnapshot = await getDocs(coursesCollection)
+        let coursesSnapshot
+        
+        // Filter courses for teachers based on their assigned courses
+        if (isTeacher && assignedCourses.length > 0) {
+          const coursesQuery = query(coursesCollection, where("__name__", "in", assignedCourses))
+          coursesSnapshot = await getDocs(coursesQuery)
+        } else {
+          coursesSnapshot = await getDocs(coursesCollection)
+        }
+        
         const courseMapping: { [key: string]: { id: string; title: string } } = {}
 
         coursesSnapshot.docs.forEach(doc => {
@@ -109,6 +127,7 @@ export default function AdminAttendancePage() {
             }
           }
         })
+        
         setCourses(courseMapping)
       } catch (error) {
         console.error("Error fetching courses:", error)
@@ -119,7 +138,7 @@ export default function AdminAttendancePage() {
     }
 
     fetchCourses()
-  }, [])
+  }, [isTeacher, assignedCourses])
 
   // Show error message if courses failed to load
   useEffect(() => {

@@ -27,6 +27,7 @@ interface StudentListProps {
   onDelete: (studentId: string) => void;
   onEmail: (student: Student) => void;
   onViewDetails: (student: Student) => void;
+  isTeacher?: boolean;
 }
 
 export function StudentList({
@@ -40,7 +41,8 @@ export function StudentList({
   onEdit,
   onDelete,
   onEmail,
-  onViewDetails
+  onViewDetails,
+  isTeacher = false
 }: StudentListProps) {
   const [showSelection, setShowSelection] = React.useState(false);
 
@@ -107,8 +109,7 @@ export function StudentList({
               >
                 Joined Date {getSortIcon('joinedDate')}
               </div>
-            </TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            </TableHead>            <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -135,6 +136,7 @@ export function StudentList({
                   onDelete={() => onDelete(student.id)}
                   onEmail={() => onEmail(student)}
                   onViewDetails={() => onViewDetails(student)}
+                  isTeacher={isTeacher}
                 />
               </TableCell>
             </TableRow>

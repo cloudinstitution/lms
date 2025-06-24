@@ -42,16 +42,20 @@ export const roleConfigs: Record<string, RoleConfig> = {
       { name: "Notifications", href: "/admin/notifications", icon: Bell },
       { name: "Settings", href: "/admin/settings", icon: Settings },
     ],
-  },
-  teacher: {
+  },  teacher: {
     roleName: "Teacher",
     pageTitle: "Teacher Portal",
     navigation: [
-      { name: "My Courses", href: "/admin/courses", icon: BookOpen },
-      { name: "My Students", href: "/admin/students", icon: Users },
+      { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
+      { name: "Students", href: "/admin/students", icon: Users },
+      { name: "Courses", href: "/admin/courses", icon: BookOpen },
       { name: "Schedule", href: "/admin/schedule", icon: Calendar },
+      { name: "Assessments", href: "/admin/assessments", icon: FileText },
+      { name: "Programming", href: "/admin/programming", icon: FileText },
+      { name: "Company Questions", href: "/admin/company-questions", icon: Briefcase },
       { name: "Attendance", href: "/admin/attendance", icon: QrCode },
       { name: "Notifications", href: "/admin/notifications", icon: Bell },
+      { name: "Settings", href: "/admin/settings", icon: Settings },
     ],
   },
 }
