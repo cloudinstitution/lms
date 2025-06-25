@@ -2,7 +2,9 @@
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { processAttendanceQRCode } from "@/lib/attendance-utils"
+import { useAuth } from "@/lib/auth-context"
+import NewAttendanceService from "@/lib/new-attendance-service"
+import { getAdminSession } from "@/lib/session-storage"
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser"
 import { CheckCircle, Loader2, XCircle } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -17,6 +19,8 @@ interface VideoDevice {
 }
 
 const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
+  const { user, userProfile } = useAuth()
+  const adminSession = getAdminSession()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const controlsRef = useRef<IScannerControls | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -28,6 +32,127 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [devices, setDevices] = useState<VideoDevice[]>([])
   const [selectedCamera, setSelectedCamera] = useState<string>("")
+
+  // Function to process QR code using the new attendance system
+  const processAttendanceQRCode = async (qrData: string): Promise<{
+    success: boolean;
+    message: string;
+    studentName?: string;
+  }> => {
+    try {
+      if (!qrData || typeof qrData !== "string") {
+        return {
+          success: false,
+          message: "Invalid QR code format. Please try again."
+        };
+      }
+
+      // Parse student ID from QR code (expected format: studentId or studentId-YYYY-MM-DD)
+      const match = qrData.match(/^([A-Za-z0-9]+)(?:-(\d{4}-\d{2}-\d{2}))?$/);
+      if (!match) {
+        return {
+          success: false,
+          message: "Invalid QR code format. Expected student ID."
+        };
+      }
+
+      const [, studentId] = match;
+      const today = new Date();
+      const dateString = NewAttendanceService.formatDate(today);
+
+      // Query students collection to find the student
+      const { collection, getDocs, query, where } = await import("firebase/firestore");
+      const { db } = await import("@/lib/firebase");
+
+      const studentsQuery = query(collection(db, "students"), where("studentId", "==", studentId));
+      const studentSnap = await getDocs(studentsQuery);
+
+      if (studentSnap.empty) {
+        return {
+          success: false,
+          message: `Student with ID ${studentId} not found.`
+        };
+      }
+
+      const studentDoc = studentSnap.docs[0];
+      const studentData = studentDoc.data();
+      const studentName = studentData.name || "Unknown Student";
+
+      // Get student's courses
+      const courseIDs = Array.isArray(studentData.courseID) ? studentData.courseID : [studentData.courseID];
+      const primaryCourseIndex = studentData.primaryCourseIndex || 0;
+      const primaryCourseId = courseIDs[primaryCourseIndex]?.toString() || courseIDs[0]?.toString();
+
+      if (!primaryCourseId) {
+        return {
+          success: false,
+          message: `No course found for student ${studentName}.`,
+          studentName
+        };
+      }
+
+      // Check if attendance is already marked for this student's primary course today
+      const attendanceService = NewAttendanceService.getInstance();
+      const existingAttendance = await attendanceService.getAttendanceByDate(primaryCourseId, dateString);
+
+      if (existingAttendance && existingAttendance.presentStudents.includes(studentDoc.id)) {
+        return {
+          success: false,
+          message: `Attendance already marked for ${studentName} today.`,
+          studentName
+        };
+      }
+
+      // Get current present students for this course and date, or start with empty array
+      const currentPresentStudents = existingAttendance?.presentStudents || [];
+      
+      // Add this student to the present list
+      const updatedPresentStudents = [...currentPresentStudents, studentDoc.id];      // Mark or update attendance
+      let result;
+      
+      // Use admin session data for proper Firestore document ID
+      const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'scanner';
+      const teacherName = adminSession?.role || userProfile?.role || 'scanner';
+      
+      if (existingAttendance) {        result = await attendanceService.updateAttendance(
+          primaryCourseId,
+          dateString,
+          updatedPresentStudents,
+          teacherId,
+          teacherName
+        );
+      } else {
+        result = await attendanceService.markAttendance({
+          courseId: primaryCourseId,
+          date: dateString,
+          presentStudents: updatedPresentStudents,
+          teacherId,
+          teacherName
+        });
+      }
+
+      if (result.success) {
+        return {
+          success: true,
+          message: `Attendance marked successfully for ${studentName}`,
+          studentName
+        };
+      } else {
+        return {
+          success: false,
+          message: result.message || "Failed to mark attendance",
+          studentName
+        };
+      }
+
+    } catch (error) {
+      console.error("Error processing QR code:", error);
+      return {
+        success: false,
+        message: `Error marking attendance: ${error instanceof Error ? error.message : "Unknown error"}`
+      };
+    }
+  };
 
   // Function to get available cameras
   const getAvailableCameras = async () => {

@@ -47,6 +47,8 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
+import { useAuth } from '@/lib/auth-context';
+import { getAdminSession } from '@/lib/session-storage';
 
 // Helper function to sort students
 const sortStudents = (students: Student[], field: SortField, direction: 'asc' | 'desc'): Student[] => {
@@ -72,6 +74,14 @@ export default function AdminStudents() {
   const [selectedStudents, setSelectedStudents] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [searchQuery, setSearchQuery] = React.useState("");
+
+  // Get user authentication data and claims
+  const { userClaims } = useAuth()
+  const adminData = getAdminSession()
+  
+  // Determine if user is teacher and get their assigned courses
+  const isTeacher = userClaims?.role === 'teacher' || adminData?.role === 'teacher'
+  const assignedCourses = userClaims?.assignedCourses || adminData?.assignedCourses || []
 
   const [filters, setFilters] = React.useState<FilterOptions>({
     status: [],
@@ -113,11 +123,11 @@ export default function AdminStudents() {
   React.useEffect(() => {
     loadStudents();
   }, []);
-
   const loadStudents = async () => {
     try {
       setLoading(true);
-      const data = await fetchStudents();
+      const userRole = isTeacher ? 'teacher' : 'admin';
+      const data = await fetchStudents(userRole, assignedCourses);
       setStudents(data);
     } catch (error) {
       toast({
@@ -128,7 +138,7 @@ export default function AdminStudents() {
     } finally {
       setLoading(false);
     }
-  };  // Filter and sort students
+  };// Filter and sort students
   const filteredStudents = React.useMemo(() => {
     // Apply search filter first
     let result = [...students];
@@ -331,9 +341,18 @@ export default function AdminStudents() {
   }
 
   return (
-    <div className="container mx-auto py-10">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-foreground">Students</h1>        
+    <div className="container mx-auto py-10">      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">
+            {isTeacher ? "My Students" : "Students"}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            {isTeacher 
+              ? "Students enrolled in your assigned courses"
+              : "Manage all student accounts"
+            }
+          </p>
+        </div>
         <div className="flex gap-4 items-center">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>              
@@ -370,13 +389,14 @@ export default function AdminStudents() {
                     <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   </div>
                   <span>CSV File (.csv)</span>
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
+                </DropdownMenuItem>              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button className="gap-2" onClick={() => window.location.href = "/admin/dashboard"}>
-            <Plus className="h-4 w-4" /> Add Student
-          </Button>
+          {!isTeacher && (
+            <Button className="gap-2" onClick={() => window.location.href = "/admin/dashboard"}>
+              <Plus className="h-4 w-4" /> Add Student
+            </Button>
+          )}
         </div>
       </div>
 
@@ -479,8 +499,7 @@ export default function AdminStudents() {
               </p>
             )}
           </div>
-        ) : (
-          <StudentList
+        ) : (          <StudentList
             students={paginatedStudents}
             selectedStudents={selectedStudents}
             onSelect={(studentId: string) => handleSelectStudent(studentId)}
@@ -492,6 +511,7 @@ export default function AdminStudents() {
             onDelete={(studentId: string) => handleSelectStudent(studentId)}
             onEmail={(student: Student) => setEmailDialog(true)}
             onViewDetails={(student: Student) => setViewDetailsDialog({ open: true, student })}
+            isTeacher={isTeacher}
           />
         )}
       </div>

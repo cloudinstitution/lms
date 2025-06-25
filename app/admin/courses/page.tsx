@@ -25,6 +25,8 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { useAuth } from "@/lib/auth-context"
+import { getAdminSession } from "@/lib/session-storage"
 
 interface Course {
   id: string
@@ -58,21 +60,34 @@ export default function AdminCourses() {
   })
 
   const [courses, setCourses] = useState<Course[]>([])
+  
+  // Get user authentication data and claims
+  const { userClaims } = useAuth()
+  const adminData = getAdminSession()
+  
+  // Determine if user is teacher and get their assigned courses
+  const isTeacher = userClaims?.role === 'teacher' || adminData?.role === 'teacher'
+  const assignedCourses = userClaims?.assignedCourses || adminData?.assignedCourses || []
 
   useEffect(() => {
     fetchCourses()
   }, [])
-
   const fetchCourses = async () => {
     try {
       setLoading(true)
       console.log("Fetching courses from Firebase...")
       const coursesCollection = collection(db, "courses")
       const coursesSnapshot = await getDocs(coursesCollection)
-      const coursesList = coursesSnapshot.docs.map((doc) => ({
+      let coursesList = coursesSnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       })) as Course[]
+
+      // Filter courses for teachers - only show assigned courses
+      if (isTeacher && assignedCourses.length > 0) {
+        coursesList = coursesList.filter(course => assignedCourses.includes(course.id))
+        console.log("Filtered courses for teacher:", coursesList)
+      }
 
       console.log("Courses fetched successfully:", coursesList)
       setCourses(coursesList)
@@ -295,24 +310,28 @@ export default function AdminCourses() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6">      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Courses</h1>
-          <p className="text-muted-foreground">Manage your course offerings</p>
+          <h1 className="text-3xl font-bold tracking-tight">
+            {isTeacher ? "My Courses" : "Courses"}
+          </h1>
+          <p className="text-muted-foreground">
+            {isTeacher ? "Manage your assigned courses" : "Manage your course offerings"}
+          </p>
         </div>
-        <Dialog
-          open={isAddCourseOpen}
-          onOpenChange={(open) => {
-            setIsAddCourseOpen(open)
-            if (open) resetForm()
-          }}
-        >
-          <DialogTrigger asChild>
-            <Button className="gap-1">
-              <Plus className="h-4 w-4" /> Add Course
-            </Button>
-          </DialogTrigger>
+        {!isTeacher && (
+          <Dialog
+            open={isAddCourseOpen}
+            onOpenChange={(open) => {
+              setIsAddCourseOpen(open)
+              if (open) resetForm()
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button className="gap-1">
+                <Plus className="h-4 w-4" /> Add Course
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
               <DialogTitle>Add New Course</DialogTitle>
@@ -397,8 +416,7 @@ export default function AdminCourses() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddCourseOpen(false)} disabled={submitting}>
                 Cancel
-              </Button>
-              <Button type="submit" onClick={handleAddCourseSubmit} disabled={submitting} className="relative">
+              </Button>              <Button type="submit" onClick={handleAddCourseSubmit} disabled={submitting} className="relative">
                 {submitting ? (
                   <>
                     <span className="opacity-0">Create Course</span>
@@ -413,14 +431,19 @@ export default function AdminCourses() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <CardTitle>All Courses</CardTitle>
-              <CardDescription>You have {courses.length} courses in total</CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">            <div>
+              <CardTitle>{isTeacher ? "My Assigned Courses" : "All Courses"}</CardTitle>
+              <CardDescription>
+                {isTeacher 
+                  ? `You have access to ${courses.length} assigned course${courses.length !== 1 ? 's' : ''}`
+                  : `You have ${courses.length} courses in total`
+                }
+              </CardDescription>
             </div>
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -485,20 +508,23 @@ export default function AdminCourses() {
                               <MoreVertical className="h-4 w-4" />
                               <span className="sr-only">Open menu</span>
                             </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
+                          </DropdownMenuTrigger>                          <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => handleViewCourse(course)}>
                               <Eye className="mr-2 h-4 w-4" />
                               <span>View</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleEditCourse(course)}>
-                              <Edit className="mr-2 h-4 w-4" />
-                              <span>Edit</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDeleteClick(course)}>
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              <span>Delete</span>
-                            </DropdownMenuItem>
+                            {!isTeacher && (
+                              <>
+                                <DropdownMenuItem onClick={() => handleEditCourse(course)}>
+                                  <Edit className="mr-2 h-4 w-4" />
+                                  <span>Edit</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleDeleteClick(course)}>
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  <span>Delete</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

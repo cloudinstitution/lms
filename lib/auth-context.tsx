@@ -1,17 +1,17 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
-import {
-  getAuth,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  type User,
-} from "firebase/auth"
-import { doc, getDoc, setDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { getUserCustomClaims } from "@/lib/firebase-admin-client"
+import {
+    createUserWithEmailAndPassword,
+    signOut as firebaseSignOut,
+    getAuth,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    type User,
+} from "firebase/auth"
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore"
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
 
 interface AuthContextType {
   user: User | null
@@ -43,12 +43,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (userDoc.exists()) {
             setUserProfile(userDoc.data())
           } else {
-            // If not in students collection, might be in admin collection
-            const adminDoc = await getDoc(doc(db, "admin", user.uid))
-            if (adminDoc.exists()) {
-              setUserProfile(adminDoc.data())
+            // If not in students collection, search admin collection by email
+            const adminQuery = query(collection(db, "admin"), where("username", "==", user.email))
+            const adminSnapshot = await getDocs(adminQuery)
+              if (!adminSnapshot.empty) {
+              const adminDoc = adminSnapshot.docs[0]
+              const adminData = adminDoc.data()
+              console.log('Admin document found:', {
+                firestoreDocId: adminDoc.id,
+                authUid: user.uid,
+                adminData: adminData,
+                email: user.email
+              })
+              // Include the Firestore document ID
+              setUserProfile({
+                ...adminData,
+                firestoreId: adminDoc.id // Store the actual Firestore document ID
+              })
             } else {
-              console.log("No user profile found")
+              console.log("No admin profile found for email:", user.email)
             }
           }
           

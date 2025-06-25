@@ -15,9 +15,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useNewAttendance } from "@/hooks/use-new-attendance"
+import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
+import NewAttendanceService from "@/lib/new-attendance-service"
+import { getAdminSession } from "@/lib/session-storage"
 import { cn } from "@/lib/utils"
-import { collection, doc, getDocs, query, Timestamp, writeBatch } from "firebase/firestore"
+import { collection, getDocs, query, where } from "firebase/firestore"
 import { DownloadCloud, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -65,6 +69,8 @@ interface BatchAttendanceState {
 type FilterStatus = "all" | "present" | "absent"
 
 export default function AdminAttendancePage() {
+  const { user, userProfile } = useAuth()
+  const adminSession = getAdminSession() // Get admin session data
   const [date, setDate] = useState<Date | undefined>(new Date())
   const [students, setStudents] = useState<Student[]>([])
   const [courses, setCourses] = useState<{ [key: string]: { id: string; title: string } }>({})
@@ -89,14 +95,39 @@ export default function AdminAttendancePage() {
     submitting: false
   });
 
+  // Use the new attendance hook
+  const {
+    markAttendance,
+    updateAttendance,
+    getCourseAttendance,
+    loading: attendanceLoading,
+    error: attendanceError
+  } = useNewAttendance();
+
+  // Get user authentication data and claims
+  const { userClaims } = useAuth()
+  const adminData = getAdminSession()
+  
+  // Determine if user is teacher and get their assigned courses
+  const isTeacher = userClaims?.role === 'teacher' || adminData?.role === 'teacher'
+  const assignedCourses = userClaims?.assignedCourses || adminData?.assignedCourses || []
+
   // Load courses data on component mount
-  useEffect(() => {
-    const fetchCourses = async (): Promise<void> => {
+  useEffect(() => {    const fetchCourses = async (): Promise<void> => {
       setCoursesLoading(true)
       setCoursesError(null)
       try {
         const coursesCollection = collection(db, "courses")
-        const coursesSnapshot = await getDocs(coursesCollection)
+        let coursesSnapshot
+        
+        // Filter courses for teachers based on their assigned courses
+        if (isTeacher && assignedCourses.length > 0) {
+          const coursesQuery = query(coursesCollection, where("__name__", "in", assignedCourses))
+          coursesSnapshot = await getDocs(coursesQuery)
+        } else {
+          coursesSnapshot = await getDocs(coursesCollection)
+        }
+        
         const courseMapping: { [key: string]: { id: string; title: string } } = {}
 
         coursesSnapshot.docs.forEach(doc => {
@@ -109,6 +140,7 @@ export default function AdminAttendancePage() {
             }
           }
         })
+        
         setCourses(courseMapping)
       } catch (error) {
         console.error("Error fetching courses:", error)
@@ -119,7 +151,7 @@ export default function AdminAttendancePage() {
     }
 
     fetchCourses()
-  }, [])
+  }, [isTeacher, assignedCourses])
 
   // Show error message if courses failed to load
   useEffect(() => {
@@ -203,11 +235,10 @@ export default function AdminAttendancePage() {
         presentStudents,
         percentage: totalStudents > 0 ? (presentStudents / totalStudents) * 100 : 0
       };
-    });
-
-    // Sort courses by name
+    });    // Sort courses by name
     return courseStats.sort((a, b) => a.courseName.localeCompare(b.courseName));
-  }  
+  }
+  
   const fetchStudentsForDate = useCallback(async (showToast = true) => {
     if (!date) return
     
@@ -235,28 +266,68 @@ export default function AdminAttendancePage() {
     setLoading(true)
     setError(null)
     try {
-      const dateString = date.toISOString().split('T')[0]      // Get all students
+      const dateString = NewAttendanceService.formatDate(date)
+      
+      // Get all students
       const studentsQuery = query(collection(db, "students"))
       const studentSnapshot = await getDocs(studentsQuery)
+      
+      // Get attendance data for all courses for this date
+      const attendanceDataByCourse = new Map<string, string[]>()
+      
+      // Get all course IDs from students to check their attendance
+      const allCourseIds = new Set<string>()
+      studentSnapshot.docs.forEach(studentDoc => {
+        const studentData = studentDoc.data()
+        const courseIDs = Array.isArray(studentData.courseID) ? studentData.courseID : [studentData.courseID]
+        courseIDs.forEach((id: string) => {
+          if (id) allCourseIds.add(id.toString())
+        })
+      })
+
+      // Fetch attendance data for each course
+      for (const courseId of allCourseIds) {
+        try {
+          const result = await getCourseAttendance({
+            courseId,
+            date: dateString
+          })
+          
+          if (result.success && result.data?.attendance) {
+            attendanceDataByCourse.set(courseId, result.data.attendance.presentStudents)
+          } else {
+            attendanceDataByCourse.set(courseId, [])
+          }
+        } catch (error) {
+          console.error(`Error fetching attendance for course ${courseId}:`, error)
+          attendanceDataByCourse.set(courseId, [])
+        }
+      }
       
       // Create the students list with attendance status
       const studentsList = studentSnapshot.docs.map(studentDoc => {
         const studentData = studentDoc.data();
         const customId = studentData.studentId || "unknown";
-        const dates = studentData.attendanceDates || [];
-        const isPresent = dates.includes(dateString);
-
+        
         // Handle multiple courses
         const courseIDs = Array.isArray(studentData.courseID) ? studentData.courseID : [studentData.courseID];
         const primaryCourseIndex = studentData.primaryCourseIndex || 0;
-          // Map all courses with their names
+        
+        // Map all courses with their names
         const studentCourses = courseIDs.map((id: string) => {
           const courseId = id ? id.toString() : "0";
           return {
             courseID: courseId,
             courseName: courses[courseId]?.title || "Uncategorized"
           };
-        });        return {
+        });
+
+        // Check if student is present in their primary course
+        const primaryCourseId = studentCourses[primaryCourseIndex]?.courseID || "0"
+        const presentStudentsInCourse = attendanceDataByCourse.get(primaryCourseId) || []
+        const isPresent = presentStudentsInCourse.includes(studentDoc.id)
+
+        return {
           id: studentDoc.id,
           customId: customId,
           name: studentData.name || "Unknown Student",
@@ -293,7 +364,7 @@ export default function AdminAttendancePage() {
     } finally {
       setLoading(false)
     }
-  }, [date, courses])
+  }, [date, courses, getCourseAttendance])
 
   // Load students when date changes
   useEffect(() => {
@@ -409,72 +480,90 @@ export default function AdminAttendancePage() {
       }))
     );
   };
-
-  // Submit all attendance changes  const submitAttendanceChanges = async () => {
-    const submitAttendanceChanges = async (): Promise<void> => {
+  // Submit all attendance changes using the new system
+  const submitAttendanceChanges = async (): Promise<void> => {
     if (!date) return;
 
     setBatchAttendance((prev: BatchAttendanceState) => ({ ...prev, submitting: true }));
-    const dateString = date.toISOString().split('T')[0];
+    const dateString = NewAttendanceService.formatDate(date);
 
     try {
-      const batch = writeBatch(db);
-
-      // First, get all dates when attendance was marked
-      const allAttendanceDates = new Set<string>();
-      const attendanceDatesQuery = await getDocs(collection(db, "attendance-dates"));
-      attendanceDatesQuery.docs.forEach(doc => {
-        allAttendanceDates.add(doc.id);
-      });
+      // Group students by their primary course
+      const courseGroups = new Map<string, string[]>();
       
-      // Add today's date as it's being marked now
-      allAttendanceDates.add(dateString);
-
-      // Get ALL students
-      const studentsQuery = query(collection(db, "students"));
-      const studentSnapshot = await getDocs(studentsQuery);
-      
-      // Process each student
-      for (const studentDoc of studentSnapshot.docs) {
-        const studentId = studentDoc.id;
-        const studentData = studentDoc.data();
-        const currentDates = studentData.attendanceDates || [];
+      // Process each student's attendance change
+      students.forEach(student => {
+        const primaryCourse = student.courses[student.primaryCourseIndex];
+        const courseId = primaryCourse.courseID;
         
-        // Check if student was explicitly marked present
-        const isMarkedPresent = batchAttendance.changes.get(studentId) === true;
-        
-        // Update the dates array based on present/absent status
-        let updatedDates: string[];
-        if (isMarkedPresent) {
-          updatedDates = Array.from(new Set([...currentDates, dateString]));
-        } else {
-          updatedDates = currentDates.filter((date: string) => date !== dateString);
+        if (!courseGroups.has(courseId)) {
+          courseGroups.set(courseId, []);
         }
+        
+        // Check if student should be marked present
+        const isPresent = batchAttendance.changes.has(student.id) 
+          ? batchAttendance.changes.get(student.id) 
+          : student.present;
+          
+        if (isPresent) {
+          courseGroups.get(courseId)!.push(student.id);
+        }
+      });
 
-        // Calculate summary
-        const presentCount = updatedDates.length;
-        const absentCount = allAttendanceDates.size - presentCount;
-
-        // Update student document
-        const studentRef = doc(db, "students", studentId);
-        batch.update(studentRef, {
-          attendanceDates: updatedDates,
-          attendanceSummary: {
-            present: presentCount,
-            absent: Math.max(0, absentCount)
+      // Mark attendance for each course
+      const promises = Array.from(courseGroups.entries()).map(async ([courseId, presentStudents]) => {
+        try {
+          // Check if attendance already exists for this course and date
+          const existingAttendance = await getCourseAttendance({
+            courseId,
+            date: dateString          });          let result;
+          
+          // Use admin session data for proper Firestore document ID
+          const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'admin';
+          const teacherName = adminSession?.role || userProfile?.role || 'admin';
+          
+          console.log('Attendance marking with:', {
+            teacherId,
+            teacherName,
+            adminSessionId: adminSession?.id,
+            adminSessionRole: adminSession?.role,
+            firestoreId: userProfile?.firestoreId,
+            authUid: user?.uid,
+            userProfile: userProfile
+          });
+          
+          if (existingAttendance.success && existingAttendance.data?.attendance) {            // Update existing attendance
+            result = await updateAttendance({
+              courseId,
+              date: dateString,
+              presentStudents,
+              teacherId,
+              teacherName
+            });
+          } else {
+            // Mark new attendance
+            result = await markAttendance({
+              courseId,
+              date: dateString,
+              presentStudents,
+              teacherId,
+              teacherName
+            });
           }
-        });
-      }
 
-      // Add today's date to attendance-dates collection
-      const attendanceDateRef = doc(db, "attendance-dates", dateString);
-      batch.set(attendanceDateRef, {
-        date: dateString,
-        lastUpdated: Timestamp.now()
-      }, { merge: true });
+          if (!result.success) {
+            throw new Error(`Failed to mark attendance for course ${courseId}: ${result.message}`);
+          }
 
-      // Commit all changes
-      await batch.commit();
+          return result;
+        } catch (error) {
+          console.error(`Error marking attendance for course ${courseId}:`, error);
+          throw error;
+        }
+      });
+
+      // Wait for all attendance marking to complete
+      await Promise.all(promises);
 
       // Clear batch state
       setBatchAttendance({
