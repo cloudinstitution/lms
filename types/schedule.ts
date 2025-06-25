@@ -16,6 +16,15 @@ export interface CourseSchedule {
   isRecurring: boolean;
   exceptions?: ScheduleException[];
   color?: string;
+  // Enhanced fields for specific dates
+  specificDate?: string; // ISO date string for one-time events
+  startDate?: string; // Start date for recurring schedules
+  endDate?: string; // End date for recurring schedules
+  title?: string; // Title for calendar display
+  // Role-based access control fields
+  createdBy?: string; // User ID of the creator
+  createdByRole?: string; // Role of the creator (admin/teacher)
+  isGlobal?: boolean; // Whether this is a global schedule (admin-created)
 }
 
 export interface ScheduleException {
@@ -38,6 +47,21 @@ export interface HolidayEvent {
   endDate: string;
   description?: string;
   color: string;
+  // Enhanced fields for calendar
+  allDay?: boolean;
+  location?: string;
+}
+
+// Calendar event interface for unified display
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start: Date;
+  end: Date;
+  allDay?: boolean;
+  resource?: CourseSchedule | HolidayEvent;
+  color?: string;
+  type: 'schedule' | 'holiday' | 'event';
 }
 
 export interface ScheduleViewFilters {
