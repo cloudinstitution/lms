@@ -21,7 +21,7 @@ import { db } from "@/lib/firebase"
 import NewAttendanceService from "@/lib/new-attendance-service"
 import { getAdminSession } from "@/lib/session-storage"
 import { cn } from "@/lib/utils"
-import { collection, getDocs, query, where } from "firebase/firestore"
+import { collection, doc, getDocs, query, Timestamp, writeBatch, where } from "firebase/firestore"
 import { DownloadCloud, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -92,8 +92,7 @@ export default function AdminAttendancePage() {
   const [batchAttendance, setBatchAttendance] = useState<BatchAttendanceState>({
     changes: new Map(),
     modified: false,
-    submitting: false
-  });
+    submitting: false  });
 
   // Use the new attendance hook
   const {
