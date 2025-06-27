@@ -3,9 +3,10 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import NewAttendanceService from "@/lib/new-attendance-service"
+import { db } from "@/lib/firebase"
 import { getAdminSession } from "@/lib/session-storage"
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser"
+import { collection, getDocs, query, where, doc, setDoc, getDoc, Timestamp } from "firebase/firestore"
 import { CheckCircle, Loader2, XCircle } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
@@ -58,12 +59,9 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
 
       const [, studentId] = match;
       const today = new Date();
-      const dateString = NewAttendanceService.formatDate(today);
+      const dateString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
 
       // Query students collection to find the student
-      const { collection, getDocs, query, where } = await import("firebase/firestore");
-      const { db } = await import("@/lib/firebase");
-
       const studentsQuery = query(collection(db, "students"), where("studentId", "==", studentId));
       const studentSnap = await getDocs(studentsQuery);
 
@@ -92,10 +90,11 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       }
 
       // Check if attendance is already marked for this student's primary course today
-      const attendanceService = NewAttendanceService.getInstance();
-      const existingAttendance = await attendanceService.getAttendanceByDate(primaryCourseId, dateString);
+      const attendanceDocRef = doc(db, "attendance", primaryCourseId, "dates", dateString);
+      const attendanceSnap = await getDoc(attendanceDocRef);
+      const existingAttendance = attendanceSnap.exists() ? attendanceSnap.data() : null;
 
-      if (existingAttendance && existingAttendance.presentStudents.includes(studentDoc.id)) {
+      if (existingAttendance && existingAttendance.presentStudents?.includes(studentDoc.id)) {
         return {
           success: false,
           message: `Attendance already marked for ${studentName} today.`,
@@ -107,43 +106,65 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       const currentPresentStudents = existingAttendance?.presentStudents || [];
       
       // Add this student to the present list
-      const updatedPresentStudents = [...currentPresentStudents, studentDoc.id];      // Mark or update attendance
-      let result;
+      const updatedPresentStudents = [...currentPresentStudents, studentDoc.id];
       
       // Use admin session data for proper Firestore document ID
       const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'scanner';
       const teacherName = adminSession?.role || userProfile?.role || 'scanner';
       
-      if (existingAttendance) {        result = await attendanceService.updateAttendance(
-          primaryCourseId,
-          dateString,
-          updatedPresentStudents,
-          teacherId,
-          teacherName
+      // Update attendance document in the same format as main page
+      await setDoc(attendanceDocRef, {
+        presentStudents: updatedPresentStudents,
+        createdBy: teacherId,
+        createdByName: teacherName,
+        timestamp: Timestamp.now(),
+        courseId: primaryCourseId,
+        date: dateString
+      });
+
+      // Update student's attendance summary in the same format as main page
+      const studentDocRef = doc(db, "students", studentDoc.id);
+      const studentDataForUpdate = await getDoc(studentDocRef);
+      
+      if (studentDataForUpdate.exists()) {
+        const currentStudentData = studentDataForUpdate.data();
+        const attendanceByCourse = currentStudentData.attendanceByCourse || {};
+        
+        if (!attendanceByCourse[primaryCourseId]) {
+          attendanceByCourse[primaryCourseId] = {
+            datesPresent: [],
+            summary: { totalClasses: 0, attended: 0, percentage: 0 }
+          };
+        }
+        
+        const courseAttendance = attendanceByCourse[primaryCourseId];
+        
+        // Add the date to present dates if not already there
+        if (!courseAttendance.datesPresent.includes(dateString)) {
+          courseAttendance.datesPresent.push(dateString);
+        }
+        
+        // Update summary
+        courseAttendance.summary.attended = courseAttendance.datesPresent.length;
+        courseAttendance.summary.totalClasses = Math.max(
+          courseAttendance.summary.totalClasses, 
+          courseAttendance.summary.attended
         );
-      } else {
-        result = await attendanceService.markAttendance({
-          courseId: primaryCourseId,
-          date: dateString,
-          presentStudents: updatedPresentStudents,
-          teacherId,
-          teacherName
-        });
+        courseAttendance.summary.percentage = courseAttendance.summary.totalClasses > 0 
+          ? (courseAttendance.summary.attended / courseAttendance.summary.totalClasses) * 100 
+          : 0;
+
+        await setDoc(studentDocRef, {
+          ...currentStudentData,
+          attendanceByCourse
+        }, { merge: true });
       }
 
-      if (result.success) {
-        return {
-          success: true,
-          message: `Attendance marked successfully for ${studentName}`,
-          studentName
-        };
-      } else {
-        return {
-          success: false,
-          message: result.message || "Failed to mark attendance",
-          studentName
-        };
-      }
+      return {
+        success: true,
+        message: `Attendance marked successfully for ${studentName}`,
+        studentName
+      };
 
     } catch (error) {
       console.error("Error processing QR code:", error);

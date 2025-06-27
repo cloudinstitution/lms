@@ -15,15 +15,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useNewAttendance } from "@/hooks/use-new-attendance"
 import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
-import NewAttendanceService from "@/lib/new-attendance-service"
 import { getAdminSession } from "@/lib/session-storage"
 import { cn } from "@/lib/utils"
-import { collection, doc, getDocs, query, Timestamp, writeBatch, where } from "firebase/firestore"
+import { collection, doc, getDocs, query, Timestamp, where, getDoc, setDoc } from "firebase/firestore"
 import { DownloadCloud, Loader2 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import * as XLSX from 'xlsx'
 import AttendanceScanner from "./attendance-scanner"
@@ -94,15 +92,6 @@ export default function AdminAttendancePage() {
     modified: false,
     submitting: false  });
 
-  // Use the new attendance hook
-  const {
-    markAttendance,
-    updateAttendance,
-    getCourseAttendance,
-    loading: attendanceLoading,
-    error: attendanceError
-  } = useNewAttendance();
-
   // Get user authentication data and claims
   const { userClaims } = useAuth()
   const adminData = getAdminSession()
@@ -110,6 +99,10 @@ export default function AdminAttendancePage() {
   // Determine if user is teacher and get their assigned courses
   const isTeacher = userClaims?.role === 'teacher' || adminData?.role === 'teacher'
   const assignedCourses = userClaims?.assignedCourses || adminData?.assignedCourses || []
+
+  const formatDate = (date: Date): string => {
+    return date.toISOString().split('T')[0]
+  }
 
   // Load courses data on component mount
   useEffect(() => {    const fetchCourses = async (): Promise<void> => {
@@ -173,18 +166,18 @@ export default function AdminAttendancePage() {
       <Button
         variant="outline"
         onClick={() => markAllStudents(true)}
-        disabled={batchAttendance.submitting}>
+        disabled={batchAttendance.submitting || loading}>
         Mark All Present
       </Button>
       <Button
         variant="outline"
         onClick={() => markAllStudents(false)}
-        disabled={batchAttendance.submitting}>
+        disabled={batchAttendance.submitting || loading}>
         Mark All Absent
       </Button>
       <Button
         onClick={submitAttendanceChanges}
-        disabled={!batchAttendance.modified || batchAttendance.submitting}>
+        disabled={!batchAttendance.modified || batchAttendance.submitting || loading}>
         {batchAttendance.submitting ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -238,8 +231,13 @@ export default function AdminAttendancePage() {
     return courseStats.sort((a, b) => a.courseName.localeCompare(b.courseName));
   }
   
+  // Use ref to avoid dependency cycles
+  const fetchStudentsRef = useRef<((showToast?: boolean) => Promise<void>) | null>(null);
+
   const fetchStudentsForDate = useCallback(async (showToast = true) => {
     if (!date) return
+    
+    console.log('fetchStudentsForDate called with showToast:', showToast, 'date:', date);
     
     if (showToast) {
       toast.info("Loading students", {
@@ -265,13 +263,13 @@ export default function AdminAttendancePage() {
     setLoading(true)
     setError(null)
     try {
-      const dateString = NewAttendanceService.formatDate(date)
+      const dateString = formatDate(date)
       
       // Get all students
       const studentsQuery = query(collection(db, "students"))
       const studentSnapshot = await getDocs(studentsQuery)
       
-      // Get attendance data for all courses for this date
+      // Get attendance data for all courses for this date in a single batch
       const attendanceDataByCourse = new Map<string, string[]>()
       
       // Get all course IDs from students to check their attendance
@@ -284,24 +282,38 @@ export default function AdminAttendancePage() {
         })
       })
 
-      // Fetch attendance data for each course
-      for (const courseId of allCourseIds) {
+      // Fetch attendance data for all courses using direct Firebase operations
+      console.log(`Fetching attendance for ${allCourseIds.size} courses on ${dateString}`)
+      const attendancePromises = Array.from(allCourseIds).map(async (courseId) => {
         try {
-          const result = await getCourseAttendance({
+          const attendanceDocRef = doc(db, "attendance", courseId, "dates", dateString)
+          const attendanceDoc = await getDoc(attendanceDocRef)
+          const presentStudents = attendanceDoc.exists() ? (attendanceDoc.data().presentStudents || []) : []
+          return {
             courseId,
-            date: dateString
-          })
-          
-          if (result.success && result.data?.attendance) {
-            attendanceDataByCourse.set(courseId, result.data.attendance.presentStudents)
-          } else {
-            attendanceDataByCourse.set(courseId, [])
+            data: presentStudents,
+            exists: attendanceDoc.exists()
           }
         } catch (error) {
           console.error(`Error fetching attendance for course ${courseId}:`, error)
-          attendanceDataByCourse.set(courseId, [])
+          return {
+            courseId,
+            data: [],
+            exists: false
+          }
         }
-      }
+      })
+
+      const attendanceResults = await Promise.all(attendancePromises)
+      console.log(`Attendance results:`, attendanceResults.map(r => ({ 
+        courseId: r.courseId, 
+        presentCount: r.data.length,
+        exists: r.exists 
+      })))
+      
+      attendanceResults.forEach(({ courseId, data }) => {
+        attendanceDataByCourse.set(courseId, data)
+      })
       
       // Create the students list with attendance status
       const studentsList = studentSnapshot.docs.map(studentDoc => {
@@ -363,18 +375,27 @@ export default function AdminAttendancePage() {
     } finally {
       setLoading(false)
     }
-  }, [date, courses, getCourseAttendance])
+  }, [date, courses])
+
+  // Store the function in ref to avoid dependency cycles
+  useEffect(() => {
+    fetchStudentsRef.current = fetchStudentsForDate
+  }, [fetchStudentsForDate])
 
   // Load students when date changes
   useEffect(() => {
-    if (date) {
-      fetchStudentsForDate(true) // Show toast on initial date load
-    }  }, [date, fetchStudentsForDate])
-    // Callback for when attendance is marked via scanner
+    if (date && fetchStudentsRef.current) {
+      fetchStudentsRef.current(true) // Show toast on initial date load
+    }
+  }, [date]) // Clean dependency array
+  
+  // Callback for when attendance is marked via scanner
   const handleAttendanceMarked = useCallback(() => {
-    fetchStudentsForDate(false) // Refresh the student list without showing toast
+    if (fetchStudentsRef.current) {
+      fetchStudentsRef.current(false) // Refresh the student list without showing toast
+    }
     setScannerRefreshKey(prev => prev + 1) // Reset scanner
-  }, [fetchStudentsForDate])
+  }, []) // No dependencies needed
   const downloadAttendance = (format: 'csv' | 'xlsx', groupBy?: 'course' | 'none') => {
     if (!date || !students.length) return;
 
@@ -479,12 +500,12 @@ export default function AdminAttendancePage() {
       }))
     );
   };
-  // Submit all attendance changes using the new system
+  // Submit all attendance changes using direct Firebase operations
   const submitAttendanceChanges = async (): Promise<void> => {
     if (!date) return;
 
     setBatchAttendance((prev: BatchAttendanceState) => ({ ...prev, submitting: true }));
-    const dateString = NewAttendanceService.formatDate(date);
+    const dateString = formatDate(date);
 
     try {
       // Group students by their primary course
@@ -509,52 +530,66 @@ export default function AdminAttendancePage() {
         }
       });
 
-      // Mark attendance for each course
+      // Mark attendance for each course using direct Firebase operations
       const promises = Array.from(courseGroups.entries()).map(async ([courseId, presentStudents]) => {
         try {
-          // Check if attendance already exists for this course and date
-          const existingAttendance = await getCourseAttendance({
-            courseId,
-            date: dateString          });          let result;
-          
           // Use admin session data for proper Firestore document ID
           const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'admin';
           const teacherName = adminSession?.role || userProfile?.role || 'admin';
           
-          console.log('Attendance marking with:', {
-            teacherId,
-            teacherName,
-            adminSessionId: adminSession?.id,
-            adminSessionRole: adminSession?.role,
-            firestoreId: userProfile?.firestoreId,
-            authUid: user?.uid,
-            userProfile: userProfile
+          // Save to attendance collection
+          const attendanceDocRef = doc(db, "attendance", courseId, "dates", dateString);
+          await setDoc(attendanceDocRef, {
+            presentStudents,
+            createdBy: teacherId,
+            createdByName: teacherName,
+            timestamp: Timestamp.now(),
+            courseId,
+            date: dateString
           });
-          
-          if (existingAttendance.success && existingAttendance.data?.attendance) {            // Update existing attendance
-            result = await updateAttendance({
-              courseId,
-              date: dateString,
-              presentStudents,
-              teacherId,
-              teacherName
-            });
-          } else {
-            // Mark new attendance
-            result = await markAttendance({
-              courseId,
-              date: dateString,
-              presentStudents,
-              teacherId,
-              teacherName
-            });
-          }
 
-          if (!result.success) {
-            throw new Error(`Failed to mark attendance for course ${courseId}: ${result.message}`);
-          }
+          // Update student attendance summaries
+          const studentUpdatePromises = presentStudents.map(async (studentId) => {
+            const studentDocRef = doc(db, "students", studentId);
+            const studentDoc = await getDoc(studentDocRef);
+            
+            if (studentDoc.exists()) {
+              const studentData = studentDoc.data();
+              const attendanceByCourse = studentData.attendanceByCourse || {};
+              
+              if (!attendanceByCourse[courseId]) {
+                attendanceByCourse[courseId] = {
+                  datesPresent: [],
+                  summary: { totalClasses: 0, attended: 0, percentage: 0 }
+                };
+              }
+              
+              const courseAttendance = attendanceByCourse[courseId];
+              
+              // Add the date to present dates if not already there
+              if (!courseAttendance.datesPresent.includes(dateString)) {
+                courseAttendance.datesPresent.push(dateString);
+              }
+              
+              // Update summary
+              courseAttendance.summary.attended = courseAttendance.datesPresent.length;
+              courseAttendance.summary.totalClasses = Math.max(
+                courseAttendance.summary.totalClasses, 
+                courseAttendance.summary.attended
+              );
+              courseAttendance.summary.percentage = courseAttendance.summary.totalClasses > 0 
+                ? (courseAttendance.summary.attended / courseAttendance.summary.totalClasses) * 100 
+                : 0;
 
-          return result;
+              await setDoc(studentDocRef, {
+                ...studentData,
+                attendanceByCourse
+              }, { merge: true });
+            }
+          });
+
+          await Promise.all(studentUpdatePromises);
+          return { success: true };
         } catch (error) {
           console.error(`Error marking attendance for course ${courseId}:`, error);
           throw error;
@@ -578,7 +613,9 @@ export default function AdminAttendancePage() {
       });
 
       // Refresh the student list
-      await fetchStudentsForDate(false);
+      if (fetchStudentsRef.current) {
+        await fetchStudentsRef.current(false);
+      }
 
     } catch (error) {
       console.error("Error submitting attendance:", error);
@@ -680,9 +717,10 @@ export default function AdminAttendancePage() {
                       key={`course-stat-${course.courseID}-${index}`}
                       className="flex items-center justify-between p-4 border rounded-lg bg-muted/30"
                     >
-                      <div className="space-y-1">                        <p className="font-medium text-foreground">
-                        {course.courseName}
-                      </p>
+                      <div className="space-y-1">
+                        <p className="font-medium text-foreground">
+                          {course.courseName}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                           {course.presentStudents} / {course.totalStudents} students present
                         </p>
@@ -938,7 +976,8 @@ export default function AdminAttendancePage() {
                               <SelectValue placeholder={coursesLoading ? "Loading..." : "Select course"} />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="all">All Courses</SelectItem>                              {!coursesLoading && Object.entries(courses).map(([courseID, course]) => (
+                              <SelectItem value="all">All Courses</SelectItem>
+                              {!coursesLoading && Object.entries(courses).map(([courseID, course]) => (
                                 <SelectItem
                                   key={`course-select-${courseID}`}
                                   value={courseID}
@@ -947,7 +986,7 @@ export default function AdminAttendancePage() {
                                 </SelectItem>
                               ))}
                               {coursesLoading && (
-                                <SelectItem value="" disabled>
+                                <SelectItem value="loading" disabled>
                                   Loading courses...
                                 </SelectItem>
                               )}
@@ -980,13 +1019,16 @@ export default function AdminAttendancePage() {
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>                      <BatchControls />
+                      </div>
+                      
+                      <BatchControls />
                       <div className="space-y-4">
                         {filteredStudents.map((student) => (
-                          <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:bg-muted/50 transition-colors">                            <div>
+                          <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:bg-muted/50 transition-colors">
+                            <div>
                               <p className="font-medium text-foreground">{student.name}</p>
                               <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
-                              <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p>                              
+                              <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p>
                             </div>
                             <div className="flex gap-2">
                               <Button
