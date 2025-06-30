@@ -1,16 +1,17 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import KPICards from "./components/KPICards"
-import RecentActivity from "./components/RecentActivity"
-import CoursePerformance from "./components/CoursePerformance"
-import UpcomingEvents from "./components/UpcomingEvents"
-import SystemNotifications from "./components/SystemNotifications"
-import QuickActions from "./components/QuickActions"
+import AdminCreationForm from "@/components/forms/AdminCreationForm"
 import StudentCreationForm from "@/components/forms/StudentCreationForm"
 import TeacherCreationForm from "@/components/forms/TeacherCreationForm"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getAdminSession } from "@/lib/session-storage"
+import { useEffect, useState } from "react"
+import CoursePerformance from "./components/CoursePerformance"
+import KPICards from "./components/KPICards"
+import QuickActions from "./components/QuickActions"
+import RecentActivity from "./components/RecentActivity"
+import SystemNotifications from "./components/SystemNotifications"
+import UpcomingEvents from "./components/UpcomingEvents"
 
 export default function AdminDashboard() {
   const [adminData, setAdminData] = useState<any>(null)
@@ -33,11 +34,12 @@ export default function AdminDashboard() {
 
       <Tabs defaultValue="overview" className="w-full">        <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          {/* Only show Create Student and Teacher tabs for admins */}
+          {/* Only show Create Student, Teacher, and Admin tabs for admins */}
           {adminData?.role === 'admin' && (
             <>
               <TabsTrigger value="createStudent">Create Student</TabsTrigger>
               <TabsTrigger value="createTeacher">Create Teacher</TabsTrigger>
+              <TabsTrigger value="createAdmin">Create Admin</TabsTrigger>
             </>
           )}
         </TabsList>
@@ -77,6 +79,13 @@ export default function AdminDashboard() {
         <TabsContent value="createTeacher" className="space-y-6">
           <div className="max-w-3xl mx-auto">
             <TeacherCreationForm />
+          </div>
+        </TabsContent>
+
+        {/* Create Admin Tab - only for admin users */}
+        <TabsContent value="createAdmin" className="space-y-6">
+          <div className="max-w-3xl mx-auto">
+            <AdminCreationForm />
           </div>
         </TabsContent>
       </Tabs>
