@@ -1,84 +1,80 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { endOfMonth, format, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import Link from 'next/link';
-import { format, subDays, subMonths, startOfMonth, endOfMonth, parseISO } from 'date-fns';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 // UI components
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger
-} from '@/components/ui/tabs';
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle
+} from '@/components/ui/card';
 import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
+    Pagination,
+    PaginationContent,
+    PaginationEllipsis,
+    PaginationItem,
+    PaginationLink,
+    PaginationNext,
+    PaginationPrevious,
 } from '@/components/ui/pagination';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue
+} from '@/components/ui/select';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow
+} from '@/components/ui/table';
+import {
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger
+} from '@/components/ui/tabs';
 
 // Icons
 import {
-  ArrowLeft,
-  Calendar as CalendarIcon,
-  ChevronDown,
-  Download,
-  FileText,
-  Filter,
-  Loader2,
-  Printer,
-  User,
+    ArrowLeft,
+    Calendar as CalendarIcon,
+    ChevronDown,
+    Download,
+    FileText,
+    Loader2,
+    Printer,
+    User
 } from 'lucide-react';
 
 // Chart Components
 import { Chart } from '@/components/ui/chart';
 
 // Services
-import { getStudentAttendanceRecords, getStudentAttendanceSummary, AttendanceQueryParams } from '@/lib/attendance-query-service';
-import { fetchStudents } from '@/lib/student-service';
 import { toast } from '@/components/ui/use-toast';
+import { AttendanceQueryParams, getStudentAttendanceRecords, getStudentAttendanceSummary } from '@/lib/attendance-query-service';
+import { fetchStudents } from '@/lib/student-service';
 
 // Types
 import type { AttendanceRecord } from '@/lib/attendance-service';
@@ -592,7 +588,6 @@ export default function StudentAttendancePage() {
 
     // Handle missing data cases
     if (!attendanceSummary || !attendanceSummary.monthlySummary || attendanceSummary.monthlySummary.length === 0) {
-      console.log('Monthly trend: No attendance summary data available');
       return emptyChartData;
     }
 
@@ -604,7 +599,6 @@ export default function StudentAttendancePage() {
         
       // If array is still empty after validation, return empty chart
       if (monthlySummaryArray.length === 0) {
-        console.log('Monthly trend: Empty monthly summary array');
         return emptyChartData;
       }
 

@@ -2,31 +2,31 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import { Plus, Search, MoreVertical, Edit, Trash2, Eye } from "lucide-react"
-import { toast } from "sonner"
-import Link from "next/link"
-import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore"
-import { db } from "@/lib/firebase"
 import { useAuth } from "@/lib/auth-context"
+import { db } from "@/lib/firebase"
 import { getAdminSession } from "@/lib/session-storage"
+import { addDoc, collection, deleteDoc, doc, getDocs, updateDoc } from "firebase/firestore"
+import { Edit, Eye, MoreVertical, Plus, Search, Trash2 } from "lucide-react"
+import Link from "next/link"
+import { useEffect, useState } from "react"
+import { toast } from "sonner"
 
 interface Course {
   id: string
@@ -75,7 +75,6 @@ export default function AdminCourses() {
   const fetchCourses = async () => {
     try {
       setLoading(true)
-      console.log("Fetching courses from Firebase...")
       const coursesCollection = collection(db, "courses")
       const coursesSnapshot = await getDocs(coursesCollection)
       let coursesList = coursesSnapshot.docs.map((doc) => ({
@@ -86,10 +85,8 @@ export default function AdminCourses() {
       // Filter courses for teachers - only show assigned courses
       if (isTeacher && assignedCourses.length > 0) {
         coursesList = coursesList.filter(course => assignedCourses.includes(course.id))
-        console.log("Filtered courses for teacher:", coursesList)
       }
 
-      console.log("Courses fetched successfully:", coursesList)
       setCourses(coursesList)
     } catch (error) {
       console.error("Error fetching courses:", error)
@@ -218,7 +215,6 @@ export default function AdminCourses() {
 
     try {
       setSubmitting(true)
-      console.log("Creating new course with data:", courseForm)
 
       const newCourse = {
         title: courseForm.title,
