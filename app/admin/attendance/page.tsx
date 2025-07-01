@@ -19,7 +19,7 @@ import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import { getAdminSession } from "@/lib/session-storage"
 import { cn } from "@/lib/utils"
-import { collection, doc, getDocs, query, Timestamp, where, getDoc, setDoc } from "firebase/firestore"
+import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, Timestamp, where } from "firebase/firestore"
 import { DownloadCloud, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -74,6 +74,7 @@ export default function AdminAttendancePage() {
   const [courses, setCourses] = useState<{ [key: string]: { id: string; title: string } }>({})
   const [coursesLoading, setCoursesLoading] = useState(true)
   const [coursesError, setCoursesError] = useState<string | null>(null)
+  const [courseNamesUpdated, setCourseNamesUpdated] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedStatus, setSelectedStatus] = useState<FilterStatus>("all")
@@ -87,27 +88,62 @@ export default function AdminAttendancePage() {
     attendancePercentage: 0,
     courseStats: []
   })
+  
   const [batchAttendance, setBatchAttendance] = useState<BatchAttendanceState>({
     changes: new Map(),
     modified: false,
-    submitting: false  });
+    submitting: false
+  });
 
-  // Get user authentication data and claims
+  const [isThrottling, setIsThrottling] = useState(false);
+
+  // Throttle function to prevent rapid clicks
+  const throttleAction = useCallback(async (action: () => void | Promise<void>) => {
+    if (isThrottling) return;
+    
+    setIsThrottling(true);
+    try {
+      await action();
+    } finally {
+      setTimeout(() => setIsThrottling(false), 500); // 500ms throttle
+    }
+  }, [isThrottling]);
+
+  // Get user authentication data and claims (memoized to prevent frequent updates)
   const { userClaims } = useAuth()
   const adminData = getAdminSession()
   
-  // Determine if user is teacher and get their assigned courses
-  const isTeacher = userClaims?.role === 'teacher' || adminData?.role === 'teacher'
-  const assignedCourses = userClaims?.assignedCourses || adminData?.assignedCourses || []
+  // Determine if user is teacher and get their assigned courses (memoized)
+  const isTeacher = useMemo(() => 
+    userClaims?.role === 'teacher' || adminData?.role === 'teacher',
+    [userClaims?.role, adminData?.role]
+  )
+  
+  const assignedCourses = useMemo(() => 
+    userClaims?.assignedCourses || adminData?.assignedCourses || [],
+    [userClaims?.assignedCourses, adminData?.assignedCourses]
+  )
 
   const formatDate = (date: Date): string => {
     return date.toISOString().split('T')[0]
   }
 
-  // Load courses data on component mount
-  useEffect(() => {    const fetchCourses = async (): Promise<void> => {
+  // Stable stringified version of assigned courses to prevent frequent re-fetches
+  const assignedCoursesString = useMemo(() => 
+    JSON.stringify(assignedCourses.sort()),
+    [assignedCourses]
+  )
+
+  // Load courses data on component mount (only when auth stabilizes)
+  useEffect(() => {
+    // Only prevent fetch if already in progress or already fetched successfully
+    if (coursesFetchedRef.current && !coursesError) return;
+    
+    const fetchCourses = async (): Promise<void> => {
       setCoursesLoading(true)
       setCoursesError(null)
+      coursesFetchedRef.current = true // Mark as fetched to prevent multiple calls
+      
       try {
         const coursesCollection = collection(db, "courses")
         let coursesSnapshot
@@ -137,13 +173,14 @@ export default function AdminAttendancePage() {
       } catch (error) {
         console.error("Error fetching courses:", error)
         setCoursesError("Failed to load courses. Please refresh the page.")
+        coursesFetchedRef.current = false // Reset flag on error so user can retry
       } finally {
         setCoursesLoading(false)
       }
     }
 
     fetchCourses()
-  }, [isTeacher, assignedCourses])
+  }, [isTeacher, assignedCoursesString])
 
   // Show error message if courses failed to load
   useEffect(() => {
@@ -165,19 +202,23 @@ export default function AdminAttendancePage() {
     <div className="flex items-center gap-4 my-4">
       <Button
         variant="outline"
-        onClick={() => markAllStudents(true)}
-        disabled={batchAttendance.submitting || loading}>
+        onClick={() => throttleAction(() => markAllStudents(true))}
+        className="hover:bg-emerald-500 hover:text-white hover:border-emerald-500"
+        disabled={batchAttendance.submitting || loading || isThrottling}>
         Mark All Present
       </Button>
       <Button
         variant="outline"
-        onClick={() => markAllStudents(false)}
-        disabled={batchAttendance.submitting || loading}>
+        onClick={() => throttleAction(() => markAllStudents(false))}
+        className="hover:bg-emerald-500 hover:text-white hover:border-emerald-500"
+        disabled={batchAttendance.submitting || loading || isThrottling}>
         Mark All Absent
       </Button>
       <Button
-        onClick={submitAttendanceChanges}
-        disabled={!batchAttendance.modified || batchAttendance.submitting || loading}>
+        variant="outline"
+        onClick={() => throttleAction(submitAttendanceChanges)}
+        className="hover:bg-emerald-500 hover:text-white hover:border-emerald-500"
+        disabled={!batchAttendance.modified || batchAttendance.submitting || loading || isThrottling}>
         {batchAttendance.submitting ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -202,7 +243,7 @@ export default function AdminAttendancePage() {
     });
   }, [students, selectedCourse, selectedStatus, searchQuery]);
   
-  const calculateCourseStats = (studentsList: Student[]): CourseStats[] => {
+  const calculateCourseStats = useCallback((studentsList: Student[]): CourseStats[] => {
     // Group students by their primary course
     const courseGroups = new Map<string, Student[]>();
 
@@ -216,28 +257,28 @@ export default function AdminAttendancePage() {
 
     // Calculate stats for each course
     const courseStats = Array.from(courseGroups.entries()).map(([courseID, students]) => {
-      const primaryCourse = students[0].courses[students[0].primaryCourseIndex];
       const totalStudents = students.length;
       const presentStudents = students.filter(s => s.present).length;
 
       return {
         courseID,
-        courseName: primaryCourse.courseName,
+        courseName: courses[courseID]?.title || "Uncategorized", // Use courses state directly
         totalStudents,
         presentStudents,
         percentage: totalStudents > 0 ? (presentStudents / totalStudents) * 100 : 0
       };
-    });    // Sort courses by name
+    });    
+    
+    // Sort courses by name
     return courseStats.sort((a, b) => a.courseName.localeCompare(b.courseName));
-  }
+  }, [courses]) // Add courses as dependency
   
   // Use ref to avoid dependency cycles
   const fetchStudentsRef = useRef<((showToast?: boolean) => Promise<void>) | null>(null);
+  const coursesFetchedRef = useRef(false);
 
   const fetchStudentsForDate = useCallback(async (showToast = true) => {
     if (!date) return
-    
-    console.log('fetchStudentsForDate called with showToast:', showToast, 'date:', date);
     
     if (showToast) {
       toast.info("Loading students", {
@@ -283,7 +324,6 @@ export default function AdminAttendancePage() {
       })
 
       // Fetch attendance data for all courses using direct Firebase operations
-      console.log(`Fetching attendance for ${allCourseIds.size} courses on ${dateString}`)
       const attendancePromises = Array.from(allCourseIds).map(async (courseId) => {
         try {
           const attendanceDocRef = doc(db, "attendance", courseId, "dates", dateString)
@@ -305,11 +345,6 @@ export default function AdminAttendancePage() {
       })
 
       const attendanceResults = await Promise.all(attendancePromises)
-      console.log(`Attendance results:`, attendanceResults.map(r => ({ 
-        courseId: r.courseId, 
-        presentCount: r.data.length,
-        exists: r.exists 
-      })))
       
       attendanceResults.forEach(({ courseId, data }) => {
         attendanceDataByCourse.set(courseId, data)
@@ -324,12 +359,13 @@ export default function AdminAttendancePage() {
         const courseIDs = Array.isArray(studentData.courseID) ? studentData.courseID : [studentData.courseID];
         const primaryCourseIndex = studentData.primaryCourseIndex || 0;
         
-        // Map all courses with their names
+        // Map all courses with their names - use current courses state
         const studentCourses = courseIDs.map((id: string) => {
           const courseId = id ? id.toString() : "0";
+          const courseName = courses[courseId]?.title || "Uncategorized";
           return {
             courseID: courseId,
-            courseName: courses[courseId]?.title || "Uncategorized"
+            courseName: courseName
           };
         });
 
@@ -375,19 +411,36 @@ export default function AdminAttendancePage() {
     } finally {
       setLoading(false)
     }
-  }, [date, courses])
+  }, [date, courses]) // Include courses to ensure proper course names
 
   // Store the function in ref to avoid dependency cycles
   useEffect(() => {
     fetchStudentsRef.current = fetchStudentsForDate
   }, [fetchStudentsForDate])
 
-  // Load students when date changes
+  // Load students when date changes AND courses are loaded
   useEffect(() => {
-    if (date && fetchStudentsRef.current) {
+    if (date && fetchStudentsRef.current && !coursesLoading && Object.keys(courses).length > 0) {
+      setCourseNamesUpdated(false); // Reset flag when date changes
       fetchStudentsRef.current(true) // Show toast on initial date load
     }
-  }, [date]) // Clean dependency array
+  }, [date, coursesLoading, courses]) // Include courses in dependency array
+
+  // Update student course names when courses are loaded (simplified since fetchStudentsForDate now depends on courses)
+  useEffect(() => {
+    if (!coursesLoading && Object.keys(courses).length > 0 && students.length > 0 && !courseNamesUpdated) {
+      setStudents(prevStudents => 
+        prevStudents.map(student => ({
+          ...student,
+          courses: student.courses.map(course => ({
+            ...course,
+            courseName: courses[course.courseID]?.title || "Uncategorized"
+          }))
+        }))
+      );
+      setCourseNamesUpdated(true);
+    }
+  }, [courses, coursesLoading, courseNamesUpdated, students.length]) // Add students.length to dependency
   
   // Callback for when attendance is marked via scanner
   const handleAttendanceMarked = useCallback(() => {
@@ -464,7 +517,7 @@ export default function AdminAttendancePage() {
   };
 
   // Update the attendance change in local state
-  const handleAttendanceChange = (studentId: string, customId: string, name: string, present: boolean) => {
+  const handleAttendanceChange = useCallback((studentId: string, customId: string, name: string, present: boolean) => {
     setBatchAttendance((prev: BatchAttendanceState) => ({
       ...prev,
       changes: new Map(prev.changes).set(studentId, present),
@@ -472,15 +525,34 @@ export default function AdminAttendancePage() {
     }));
     
     // Update UI immediately
-    setStudents((prevStudents: Student[]) =>
-      prevStudents.map(student =>
+    setStudents((prevStudents: Student[]) => {
+      const updatedStudents = prevStudents.map(student =>
         student.id === studentId ? { ...student, present } : student
-      )
-    );
-  };
+      );
+      
+      return updatedStudents;
+    });
+  }, []);
+
+  // Separate effect to recalculate stats when students change
+  useEffect(() => {
+    const totalStudents = students.length;
+    const presentCount = students.filter(s => s.present).length;
+    const absentCount = totalStudents - presentCount;
+    const attendancePercentage = totalStudents > 0 ? (presentCount / totalStudents) * 100 : 0;
+    const courseStats = calculateCourseStats(students);
+
+    setStats({
+      totalStudents,
+      presentStudents: presentCount,
+      absentStudents: absentCount,
+      attendancePercentage,
+      courseStats
+    });
+  }, [students]);
 
   // Mark all students present/absent
-  const markAllStudents = (present: boolean) => {
+  const markAllStudents = useCallback((present: boolean) => {
     const newChanges = new Map();
     filteredStudents.forEach(student => {
       newChanges.set(student.id, present);
@@ -488,28 +560,31 @@ export default function AdminAttendancePage() {
 
     setBatchAttendance((prev: BatchAttendanceState) => ({
       ...prev,
-      changes: newChanges,
+      changes: new Map([...prev.changes, ...newChanges]),
       modified: true
     }));
 
     // Update UI immediately
-    setStudents((prevStudents: Student[]) =>
-      prevStudents.map(student => ({
-        ...student,
-        present: filteredStudents.some(fs => fs.id === student.id) ? present : student.present
-      }))
-    );
-  };
+    setStudents((prevStudents: Student[]) => {
+      const updatedStudents = prevStudents.map(student => {
+        // Only update students that are in the filtered list
+        const shouldUpdate = filteredStudents.some(fs => fs.id === student.id);
+        return shouldUpdate ? { ...student, present } : student;
+      });
+      
+      return updatedStudents;
+    });
+  }, [filteredStudents]);
   // Submit all attendance changes using direct Firebase operations
-  const submitAttendanceChanges = async (): Promise<void> => {
+  const submitAttendanceChanges = useCallback(async (): Promise<void> => {
     if (!date) return;
 
     setBatchAttendance((prev: BatchAttendanceState) => ({ ...prev, submitting: true }));
     const dateString = formatDate(date);
 
     try {
-      // Group students by their primary course
-      const courseGroups = new Map<string, string[]>();
+      // Group students by their primary course with both present and absent lists
+      const courseGroups = new Map<string, { presentStudents: string[], absentStudents: string[], allStudentsInCourse: string[] }>();
       
       // Process each student's attendance change
       students.forEach(student => {
@@ -517,39 +592,66 @@ export default function AdminAttendancePage() {
         const courseId = primaryCourse.courseID;
         
         if (!courseGroups.has(courseId)) {
-          courseGroups.set(courseId, []);
+          courseGroups.set(courseId, { 
+            presentStudents: [], 
+            absentStudents: [], 
+            allStudentsInCourse: [] 
+          });
         }
         
-        // Check if student should be marked present
+        const courseGroup = courseGroups.get(courseId)!;
+        courseGroup.allStudentsInCourse.push(student.id);
+        
+        // Check if student should be marked present (use batch changes if available, otherwise current state)
         const isPresent = batchAttendance.changes.has(student.id) 
           ? batchAttendance.changes.get(student.id) 
           : student.present;
           
         if (isPresent) {
-          courseGroups.get(courseId)!.push(student.id);
+          courseGroup.presentStudents.push(student.id);
+        } else {
+          courseGroup.absentStudents.push(student.id);
         }
       });
 
+      // Filter out courses that have no students at all
+      const coursesWithStudents = Array.from(courseGroups.entries()).filter(([courseId, { allStudentsInCourse }]) => 
+        allStudentsInCourse.length > 0
+      );
+
       // Mark attendance for each course using direct Firebase operations
-      const promises = Array.from(courseGroups.entries()).map(async ([courseId, presentStudents]) => {
+      const promises = coursesWithStudents.map(async ([courseId, { presentStudents, absentStudents, allStudentsInCourse }]) => {
         try {
           // Use admin session data for proper Firestore document ID
           const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'admin';
           const teacherName = adminSession?.role || userProfile?.role || 'admin';
           
-          // Save to attendance collection
           const attendanceDocRef = doc(db, "attendance", courseId, "dates", dateString);
-          await setDoc(attendanceDocRef, {
-            presentStudents,
-            createdBy: teacherId,
-            createdByName: teacherName,
-            timestamp: Timestamp.now(),
-            courseId,
-            date: dateString
-          });
+          
+          // Only create/update attendance document if there are present students
+          if (presentStudents.length > 0) {
+            await setDoc(attendanceDocRef, {
+              presentStudents,
+              createdBy: teacherId,
+              createdByName: teacherName,
+              timestamp: Timestamp.now(),
+              courseId,
+              date: dateString
+            });
+          } else {
+            // If no students are present, delete the attendance document if it exists
+            try {
+              const existingDoc = await getDoc(attendanceDocRef);
+              if (existingDoc.exists()) {
+                await deleteDoc(attendanceDocRef);
+              }
+            } catch (error) {
+              // Document doesn't exist, which is fine
+            }
+          }
 
-          // Update student attendance summaries
-          const studentUpdatePromises = presentStudents.map(async (studentId) => {
+          // Update student attendance summaries for present students
+          const presentStudentPromises = presentStudents.map(async (studentId) => {
             const studentDocRef = doc(db, "students", studentId);
             const studentDoc = await getDoc(studentDocRef);
             
@@ -588,7 +690,41 @@ export default function AdminAttendancePage() {
             }
           });
 
-          await Promise.all(studentUpdatePromises);
+          // Update student attendance summaries for absent students - remove this date from their present dates
+          const absentStudentPromises = absentStudents.map(async (studentId) => {
+            const studentDocRef = doc(db, "students", studentId);
+            const studentDoc = await getDoc(studentDocRef);
+            
+            if (studentDoc.exists()) {
+              const studentData = studentDoc.data();
+              const attendanceByCourse = studentData.attendanceByCourse || {};
+              
+              if (attendanceByCourse[courseId]) {
+                const courseAttendance = attendanceByCourse[courseId];
+                
+                // Remove the date from present dates if it exists
+                courseAttendance.datesPresent = courseAttendance.datesPresent.filter((date: string) => date !== dateString);
+                
+                // Update summary
+                courseAttendance.summary.attended = courseAttendance.datesPresent.length;
+                // Keep totalClasses as is or increment if this date was new
+                courseAttendance.summary.totalClasses = Math.max(
+                  courseAttendance.summary.totalClasses, 
+                  courseAttendance.summary.attended + 1 // +1 because they were absent today
+                );
+                courseAttendance.summary.percentage = courseAttendance.summary.totalClasses > 0 
+                  ? (courseAttendance.summary.attended / courseAttendance.summary.totalClasses) * 100 
+                  : 0;
+
+                await setDoc(studentDocRef, {
+                  ...studentData,
+                  attendanceByCourse
+                }, { merge: true });
+              }
+            }
+          });
+
+          await Promise.all([...presentStudentPromises, ...absentStudentPromises]);
           return { success: true };
         } catch (error) {
           console.error(`Error marking attendance for course ${courseId}:`, error);
@@ -626,7 +762,7 @@ export default function AdminAttendancePage() {
     } finally {
       setBatchAttendance(prev => ({ ...prev, submitting: false }));
     }
-  };
+  }, [date, students, batchAttendance.changes, adminSession, userProfile, user, fetchStudentsRef]);
 
   // Reset batch state when date changes
   useEffect(() => {
@@ -645,6 +781,21 @@ export default function AdminAttendancePage() {
       });
     };
   }, [date]);
+
+  // Manual refresh function for courses
+  const refreshCourses = useCallback(() => {
+    coursesFetchedRef.current = false;
+    setCoursesLoading(true);
+    setCourses({});
+    setCourseNamesUpdated(false);
+    
+    // Trigger re-fetch by updating a dummy state
+    const timer = setTimeout(() => {
+      // The useEffect will run again because coursesFetchedRef.current is now false
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div className="container mx-auto py-10">
@@ -753,10 +904,10 @@ export default function AdminAttendancePage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="ml-2 bg-primary hover:bg-primary/90 text-primary-foreground hover:text-primary-foreground/90 shadow-sm transition-all duration-200 ease-in-out hover:shadow-md disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
+                          className="ml-2 bg-primary text-primary-foreground shadow-sm !transition-none disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
                           disabled={!date || !students.length}
                         >
-                          <DownloadCloud className="h-4 w-4 mr-1.5 animate-pulse" />
+                          <DownloadCloud className="h-4 w-4 mr-1.5" />
                           <span className="font-medium">Export</span>
                         </Button>
                       </DropdownMenuTrigger>
@@ -1024,7 +1175,7 @@ export default function AdminAttendancePage() {
                       <BatchControls />
                       <div className="space-y-4">
                         {filteredStudents.map((student) => (
-                          <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card hover:bg-muted/50 transition-colors">
+                          <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card">
                             <div>
                               <p className="font-medium text-foreground">{student.name}</p>
                               <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
@@ -1034,28 +1185,28 @@ export default function AdminAttendancePage() {
                               <Button
                                 size="sm"
                                 variant={student.present ? "default" : "outline"}
-                                onClick={() => handleAttendanceChange(student.id, student.customId, student.name, true)}
+                                onClick={() => throttleAction(() => handleAttendanceChange(student.id, student.customId, student.name, true))}
                                 className={cn(
-                                  "text-white",
+                                  "text-white !transition-none",
                                   student.present 
-                                    ? "bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700" 
-                                    : "bg-muted hover:bg-emerald-500/90 dark:hover:bg-emerald-600"
+                                    ? "bg-emerald-500 dark:bg-emerald-600" 
+                                    : "bg-muted"
                                 )}
-                                disabled={batchAttendance.submitting}
+                                disabled={batchAttendance.submitting || isThrottling}
                               >
                                 Present
                               </Button>
                               <Button
                                 size="sm"
                                 variant={!student.present ? "destructive" : "outline"}
-                                onClick={() => handleAttendanceChange(student.id, student.customId, student.name, false)}
+                                onClick={() => throttleAction(() => handleAttendanceChange(student.id, student.customId, student.name, false))}
                                 className={cn(
-                                  "text-white",
+                                  "text-white !transition-none",
                                   !student.present 
-                                    ? "bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700" 
-                                    : "bg-muted hover:bg-red-500/90 dark:hover:bg-red-600"
+                                    ? "bg-red-500 dark:bg-red-600" 
+                                    : "bg-muted"
                                 )}
-                                disabled={batchAttendance.submitting}
+                                disabled={batchAttendance.submitting || isThrottling}
                               >
                                 Absent
                               </Button>

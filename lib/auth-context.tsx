@@ -49,19 +49,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (!adminSnapshot.empty) {
               const adminDoc = adminSnapshot.docs[0]
               const adminData = adminDoc.data()
-              console.log('Admin document found:', {
-                firestoreDocId: adminDoc.id,
-                authUid: user.uid,
-                adminData: adminData,
-                email: user.email
-              })
               // Include the Firestore document ID
               setUserProfile({
                 ...adminData,
                 firestoreId: adminDoc.id // Store the actual Firestore document ID
               })
             } else {
-              console.log("No admin profile found for email:", user.email)
+              // No admin profile found - this is expected for student users
             }
           }
           

@@ -6,9 +6,10 @@ import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import { getAdminSession } from "@/lib/session-storage"
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser"
-import { collection, getDocs, query, where, doc, setDoc, getDoc, Timestamp } from "firebase/firestore"
+import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp, where } from "firebase/firestore"
 import { CheckCircle, Loader2, XCircle } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 
 interface AttendanceScannerProps {
   onAttendanceMarked?: () => void
@@ -17,6 +18,15 @@ interface AttendanceScannerProps {
 interface VideoDevice {
   deviceId: string;
   label: string;
+}
+
+interface ScannedStudent {
+  id: string;
+  studentId: string;
+  name: string;
+  primaryCourseId: string;
+  courseName: string;
+  scannedAt: Date;
 }
 
 const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
@@ -33,12 +43,16 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [devices, setDevices] = useState<VideoDevice[]>([])
   const [selectedCamera, setSelectedCamera] = useState<string>("")
+  const [scannedStudents, setScannedStudents] = useState<ScannedStudent[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [isAlreadyMarked, setIsAlreadyMarked] = useState(false)
 
-  // Function to process QR code using the new attendance system
-  const processAttendanceQRCode = async (qrData: string): Promise<{
+  // Function to validate and extract student info from QR code without marking attendance
+  const validateStudentQRCode = async (qrData: string): Promise<{
     success: boolean;
     message: string;
-    studentName?: string;
+    student?: ScannedStudent;
+    alreadyMarked?: boolean;
   }> => {
     try {
       if (!qrData || typeof qrData !== "string") {
@@ -58,8 +72,6 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       }
 
       const [, studentId] = match;
-      const today = new Date();
-      const dateString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
 
       // Query students collection to find the student
       const studentsQuery = query(collection(db, "students"), where("studentId", "==", studentId));
@@ -84,12 +96,21 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       if (!primaryCourseId) {
         return {
           success: false,
-          message: `No course found for student ${studentName}.`,
-          studentName
+          message: `No course found for student ${studentName}.`
+        };
+      }
+
+      // Check if student is already in scanned list
+      if (scannedStudents.some(s => s.id === studentDoc.id)) {
+        return {
+          success: false,
+          message: `${studentName} has already been scanned.`
         };
       }
 
       // Check if attendance is already marked for this student's primary course today
+      const today = new Date();
+      const dateString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
       const attendanceDocRef = doc(db, "attendance", primaryCourseId, "dates", dateString);
       const attendanceSnap = await getDoc(attendanceDocRef);
       const existingAttendance = attendanceSnap.exists() ? attendanceSnap.data() : null;
@@ -97,80 +118,43 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       if (existingAttendance && existingAttendance.presentStudents?.includes(studentDoc.id)) {
         return {
           success: false,
-          message: `Attendance already marked for ${studentName} today.`,
-          studentName
+          message: `${studentName} is already marked present for today.`,
+          alreadyMarked: true,
+          student: {
+            id: studentDoc.id,
+            studentId: studentId,
+            name: studentName,
+            primaryCourseId: primaryCourseId,
+            courseName: `Course ${primaryCourseId}`,
+            scannedAt: new Date()
+          }
         };
       }
 
-      // Get current present students for this course and date, or start with empty array
-      const currentPresentStudents = existingAttendance?.presentStudents || [];
-      
-      // Add this student to the present list
-      const updatedPresentStudents = [...currentPresentStudents, studentDoc.id];
-      
-      // Use admin session data for proper Firestore document ID
-      const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'scanner';
-      const teacherName = adminSession?.role || userProfile?.role || 'scanner';
-      
-      // Update attendance document in the same format as main page
-      await setDoc(attendanceDocRef, {
-        presentStudents: updatedPresentStudents,
-        createdBy: teacherId,
-        createdByName: teacherName,
-        timestamp: Timestamp.now(),
-        courseId: primaryCourseId,
-        date: dateString
-      });
+      // Get course name from courses (assuming we have access to courses data)
+      // For now, we'll use the course ID as the course name
+      const courseName = `Course ${primaryCourseId}`;
 
-      // Update student's attendance summary in the same format as main page
-      const studentDocRef = doc(db, "students", studentDoc.id);
-      const studentDataForUpdate = await getDoc(studentDocRef);
-      
-      if (studentDataForUpdate.exists()) {
-        const currentStudentData = studentDataForUpdate.data();
-        const attendanceByCourse = currentStudentData.attendanceByCourse || {};
-        
-        if (!attendanceByCourse[primaryCourseId]) {
-          attendanceByCourse[primaryCourseId] = {
-            datesPresent: [],
-            summary: { totalClasses: 0, attended: 0, percentage: 0 }
-          };
-        }
-        
-        const courseAttendance = attendanceByCourse[primaryCourseId];
-        
-        // Add the date to present dates if not already there
-        if (!courseAttendance.datesPresent.includes(dateString)) {
-          courseAttendance.datesPresent.push(dateString);
-        }
-        
-        // Update summary
-        courseAttendance.summary.attended = courseAttendance.datesPresent.length;
-        courseAttendance.summary.totalClasses = Math.max(
-          courseAttendance.summary.totalClasses, 
-          courseAttendance.summary.attended
-        );
-        courseAttendance.summary.percentage = courseAttendance.summary.totalClasses > 0 
-          ? (courseAttendance.summary.attended / courseAttendance.summary.totalClasses) * 100 
-          : 0;
-
-        await setDoc(studentDocRef, {
-          ...currentStudentData,
-          attendanceByCourse
-        }, { merge: true });
-      }
+      const scannedStudent: ScannedStudent = {
+        id: studentDoc.id,
+        studentId: studentId,
+        name: studentName,
+        primaryCourseId: primaryCourseId,
+        courseName: courseName,
+        scannedAt: new Date()
+      };
 
       return {
         success: true,
-        message: `Attendance marked successfully for ${studentName}`,
-        studentName
+        message: `${studentName} added to scan list.`,
+        student: scannedStudent
       };
 
     } catch (error) {
-      console.error("Error processing QR code:", error);
+      console.error("Error validating QR code:", error);
       return {
         success: false,
-        message: `Error marking attendance: ${error instanceof Error ? error.message : "Unknown error"}`
+        message: `Error validating QR code: ${error instanceof Error ? error.message : "Unknown error"}`
       };
     }
   };
@@ -230,6 +214,12 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
         setCameraError("Camera access denied. Please grant camera permissions and try again.")
         setStatus("error")
         setScanning(false)
+        
+        // Show error toast for camera permission issues
+        toast.error("Camera Access Denied", {
+          description: "Please grant camera permissions and try again",
+          duration: 5000
+        })
         return
       }
 
@@ -241,6 +231,12 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
           setScanning(false)
           return
         }        setMessage("Camera initialized. Ready to scan QR code...")
+        
+        // Show info toast when scanner is ready
+        toast.info("Scanner Ready", {
+          description: "Point your camera at a student QR code to scan",
+          duration: 2000
+        })
 
         if (videoRef.current) {
           controlsRef.current = await codeReader.decodeFromVideoDevice(
@@ -253,30 +249,61 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
                 setScanned(true)
 
                 try {
-                  console.log("Processing QR code:", qrData)
-                  const response = await processAttendanceQRCode(qrData)
-                  console.log("QR code processing response:", response)
+                  const response = await validateStudentQRCode(qrData)
 
-                  if (response.success) {
+                  if (response.success && response.student) {
                     setStatus("success")
                     setMessage(response.message)
-                    if (response.studentName) {
-                      setStudentName(response.studentName)
-                    }
-                    if (onAttendanceMarked) {
-                      onAttendanceMarked()
-                    }
+                    setStudentName(response.student.name)
+                    setIsAlreadyMarked(false)
+                    
+                    // Show success toast for student scanned
+                    toast.success("Student Scanned Successfully", {
+                      description: `${response.student.name} added to attendance list`,
+                      duration: 3000
+                    })
+                    
+                    // Add student to scanned list
+                    setScannedStudents(prev => [...prev, response.student!])
+                    
+                    // Reset scanner for next scan
+                    setTimeout(() => {
+                      resetScanner()
+                    }, 1500)
                   } else {
                     setStatus("error")
                     setMessage(response.message)
-                    if (response.studentName) {
-                      setStudentName(response.studentName)
+                    setIsAlreadyMarked(response.alreadyMarked || false)
+                    
+                    // Set student name if available (for already marked students)
+                    if (response.student) {
+                      setStudentName(response.student.name);
+                    }
+                    
+                    // Show appropriate toast based on error type
+                    if (response.alreadyMarked) {
+                      toast.warning("Student Already Present", {
+                        description: `${response.student?.name || 'This student'} is already marked present for today`,
+                        duration: 4000
+                      })
+                    } else {
+                      toast.error("Scan Failed", {
+                        description: response.message,
+                        duration: 4000
+                      })
                     }
                   }
                 } catch (error) {
                   console.error("Error processing QR code:", error)
                   setStatus("error")
                   setMessage(`Error processing QR code: ${error instanceof Error ? error.message : "Unknown error"}`)
+                  setIsAlreadyMarked(false)
+                  
+                  // Show error toast for processing errors
+                  toast.error("QR Code Processing Error", {
+                    description: error instanceof Error ? error.message : "Failed to process QR code",
+                    duration: 4000
+                  })
                 }
                 stopScanning()
               }
@@ -288,12 +315,24 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
         setCameraError(`Error initializing camera: ${error instanceof Error ? error.message : "Unknown error"}`)
         setStatus("error")
         setScanning(false)
+        
+        // Show error toast for camera initialization issues
+        toast.error("Camera Initialization Failed", {
+          description: error instanceof Error ? error.message : "Failed to initialize camera",
+          duration: 5000
+        })
       }
     } catch (error) {
       console.error("Error starting scanner:", error)
       setCameraError(`Error accessing camera: ${error instanceof Error ? error.message : "Unknown error"}`)
       setStatus("error")
       setScanning(false)
+      
+      // Show error toast for general scanner errors
+      toast.error("Scanner Error", {
+        description: error instanceof Error ? error.message : "Failed to start scanner",
+        duration: 5000
+      })
     }
   }
   const stopScanning = () => {
@@ -309,6 +348,14 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
     setScanning(false)
     setStatus("idle")
     setMessage("")
+    
+    // Show info toast when scanner is manually stopped
+    if (scanning) {
+      toast.info("Scanner Stopped", {
+        description: "Camera has been turned off",
+        duration: 2000
+      })
+    }
   }
 
   const resetScanner = () => {
@@ -319,7 +366,149 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
     setStudentName(null)
     setMessage("")
     setCameraError(null)
+    setIsAlreadyMarked(false)
+    // Don't clear scanned students here - they should persist until submitted or manually cleared
   }
+
+  // Function to submit attendance for all scanned students
+  const submitAllAttendance = async () => {
+    if (scannedStudents.length === 0) return;
+    
+    setSubmitting(true);
+    try {
+      const today = new Date();
+      const dateString = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+      
+      // Group students by course
+      const courseGroups = new Map<string, ScannedStudent[]>();
+      scannedStudents.forEach(student => {
+        if (!courseGroups.has(student.primaryCourseId)) {
+          courseGroups.set(student.primaryCourseId, []);
+        }
+        courseGroups.get(student.primaryCourseId)!.push(student);
+      });
+
+      // Process attendance for each course
+      const promises = Array.from(courseGroups.entries()).map(async ([courseId, students]) => {
+        try {
+          const attendanceDocRef = doc(db, "attendance", courseId, "dates", dateString);
+          const attendanceSnap = await getDoc(attendanceDocRef);
+          const existingAttendance = attendanceSnap.exists() ? attendanceSnap.data() : null;
+          
+          // Get current present students for this course and date
+          const currentPresentStudents = existingAttendance?.presentStudents || [];
+          
+          // Add new students to the present list (avoid duplicates)
+          const newStudentIds = students.map(s => s.id);
+          const updatedPresentStudents = [...new Set([...currentPresentStudents, ...newStudentIds])];
+          
+          // Use admin session data for proper Firestore document ID
+          const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'scanner';
+          const teacherName = adminSession?.role || userProfile?.role || 'scanner';
+          
+          // Update attendance document
+          await setDoc(attendanceDocRef, {
+            presentStudents: updatedPresentStudents,
+            createdBy: teacherId,
+            createdByName: teacherName,
+            timestamp: Timestamp.now(),
+            courseId: courseId,
+            date: dateString
+          });
+
+          // Update each student's attendance summary
+          const studentPromises = students.map(async (student) => {
+            const studentDocRef = doc(db, "students", student.id);
+            const studentDoc = await getDoc(studentDocRef);
+            
+            if (studentDoc.exists()) {
+              const studentData = studentDoc.data();
+              const attendanceByCourse = studentData.attendanceByCourse || {};
+              
+              if (!attendanceByCourse[courseId]) {
+                attendanceByCourse[courseId] = {
+                  datesPresent: [],
+                  summary: { totalClasses: 0, attended: 0, percentage: 0 }
+                };
+              }
+              
+              const courseAttendance = attendanceByCourse[courseId];
+              
+              // Add the date to present dates if not already there
+              if (!courseAttendance.datesPresent.includes(dateString)) {
+                courseAttendance.datesPresent.push(dateString);
+              }
+              
+              // Update summary
+              courseAttendance.summary.attended = courseAttendance.datesPresent.length;
+              courseAttendance.summary.totalClasses = Math.max(
+                courseAttendance.summary.totalClasses, 
+                courseAttendance.summary.attended
+              );
+              courseAttendance.summary.percentage = courseAttendance.summary.totalClasses > 0 
+                ? (courseAttendance.summary.attended / courseAttendance.summary.totalClasses) * 100 
+                : 0;
+
+              await setDoc(studentDocRef, {
+                ...studentData,
+                attendanceByCourse
+              }, { merge: true });
+            }
+          });
+
+          await Promise.all(studentPromises);
+        } catch (error) {
+          console.error(`Error processing course ${courseId}:`, error);
+          throw error;
+        }
+      });
+
+      await Promise.all(promises);
+      
+      // Store count before clearing for toast message
+      const submittedCount = scannedStudents.length;
+      
+      // Clear scanned students and show success
+      setScannedStudents([]);
+      setStatus("success");
+      setMessage(`Attendance marked successfully for ${submittedCount} student(s)`);
+      
+      // Show success toast for attendance submission
+      toast.success("Attendance Submitted Successfully", {
+        description: `Marked ${submittedCount} student(s) as present`,
+        duration: 4000
+      });
+      
+      // Call the callback to refresh the main attendance page
+      if (onAttendanceMarked) {
+        onAttendanceMarked();
+      }
+      
+    } catch (error) {
+      console.error("Error submitting attendance:", error);
+      setStatus("error");
+      setMessage(`Error submitting attendance: ${error instanceof Error ? error.message : "Unknown error"}`);
+      
+      // Show error toast for submission failure
+      toast.error("Failed to Submit Attendance", {
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+        duration: 5000
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Function to remove a student from the scanned list
+  const removeScannedStudent = (studentId: string) => {
+    setScannedStudents(prev => prev.filter(s => s.id !== studentId));
+  };
+
+  // Function to clear all scanned students
+  const clearAllScanned = () => {
+    setScannedStudents([]);
+  };
+
   return (
     <div className="flex flex-col items-center space-y-4">
       {devices.length > 1 && (
@@ -368,17 +557,29 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       )}
 
       {(status === "success" || status === "error" || scanning) && (
-        <Alert className="bg-card border-muted-foreground/20">
+        <Alert className={`max-w-md ${isAlreadyMarked ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20' : 'bg-card border-muted-foreground/20'}`}>
           {scanning && <Loader2 className="h-4 w-4 animate-spin" />}
           {status === "success" && <CheckCircle className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />}
-          {status === "error" && <XCircle className="h-4 w-4 text-red-500 dark:text-red-400" />}
+          {status === "error" && !isAlreadyMarked && <XCircle className="h-4 w-4 text-red-500 dark:text-red-400" />}
+          {status === "error" && isAlreadyMarked && (
+            <svg className="h-4 w-4 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.464 0L4.35 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          )}
           <AlertTitle className="text-foreground">
-            {status === "success" ? "Success" : status === "error" ? "Error" : "Scanning"}
+            {status === "success" ? "Student Added" : 
+             status === "error" && isAlreadyMarked ? "Already Present" : 
+             status === "error" ? "Error" : "Scanning"}
           </AlertTitle>
-          <AlertDescription className="text-muted-foreground">
+          <AlertDescription className={`${isAlreadyMarked ? 'text-yellow-700 dark:text-yellow-300' : 'text-muted-foreground'}`}>
             {message}
             {studentName && (status === "success" || status === "error") && (
               <p className="font-medium mt-1 text-foreground">Student: {studentName}</p>
+            )}
+            {isAlreadyMarked && (
+              <p className="text-xs mt-1 text-yellow-600 dark:text-yellow-400">
+                This student's attendance for today has already been recorded.
+              </p>
             )}
           </AlertDescription>
         </Alert>
@@ -399,10 +600,66 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
 
         {(status === "success" || status === "error") && (
           <Button variant="outline" onClick={resetScanner}>
-            Reset
+            {scannedStudents.length > 0 ? "Scan Next" : "Reset"}
           </Button>
         )}
       </div>
+
+      {/* Scanned Students List */}
+      {scannedStudents.length > 0 && (
+        <div className="w-full max-w-md mt-6">
+          <div className="bg-card border rounded-lg p-4">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-semibold text-foreground">Scanned Students ({scannedStudents.length})</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearAllScanned}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Clear All
+              </Button>
+            </div>
+            
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {scannedStudents.map((student) => (
+                <div key={student.id} className="flex items-center justify-between p-2 bg-muted/30 rounded">
+                  <div className="flex-1">
+                    <p className="font-medium text-sm text-foreground">{student.name}</p>
+                    <p className="text-xs text-muted-foreground">ID: {student.studentId}</p>
+                    <p className="text-xs text-muted-foreground">Scanned: {student.scannedAt.toLocaleTimeString()}</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeScannedStudent(student.id)}
+                    className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              ))}
+            </div>
+            
+            <div className="mt-4 space-y-2">
+              <Button
+                onClick={submitAllAttendance}
+                disabled={submitting || scannedStudents.length === 0}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  `Mark ${scannedStudents.length} Student(s) Present`
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
