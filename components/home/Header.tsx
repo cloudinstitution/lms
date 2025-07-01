@@ -1,21 +1,40 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { GraduationCap, Mail, MapPin, Phone, Moon, Sun, Menu, X } from "lucide-react"
+import { AnimatePresence, motion } from "framer-motion"
+import { GraduationCap, Menu, Moon, Sun, X } from "lucide-react"
 import { useTheme } from "next-themes"
 import Link from "next/link"
-import { useState, useEffect } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { usePathname } from "next/navigation"
+import { useEffect, useState } from "react"
 
 export default function Header() {
   const { theme, setTheme } = useTheme()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const pathname = usePathname()
 
   // Fix hydration error by waiting for component to mount
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Helper function to check if a link is active
+  const isActive = (path: string) => {
+    if (path === "/") {
+      return pathname === "/"
+    }
+    return pathname.startsWith(path)
+  }
+
+  // Helper function to get link classes with active state
+  const getLinkClasses = (path: string) => {
+    const baseClasses = "text-sm font-medium transition-colors"
+    const activeClasses = "text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-600 dark:border-emerald-400 pb-1"
+    const inactiveClasses = "hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400"
+    
+    return `${baseClasses} ${isActive(path) ? activeClasses : inactiveClasses}`
+  }
 
   return (
     <header className="bg-white/95 dark:bg-slate-950/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-800 sticky top-0 z-50 shadow-sm">
@@ -27,19 +46,19 @@ export default function Header() {
         
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-8">
-          <Link href="/" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
-            Home
-          </Link>
-          <Link href="/courses" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
+          <Link href="/courses" className={getLinkClasses("/courses")}>
             Courses
           </Link>
-          <Link href="/about" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
+          <Link href="/about" className={getLinkClasses("/about")}>
             About Us
+          </Link>
+          <Link href="/" className={getLinkClasses("/")}>
+            Home
           </Link>
           <Link href="#testimonials" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
             Testimonials
           </Link>
-          <Link href="/contact" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
+          <Link href="/contact" className={getLinkClasses("/contact")}>
             Contact
           </Link>
         </nav>          
@@ -86,19 +105,19 @@ export default function Header() {
             className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"
           >
             <nav className="container mx-auto px-4 py-4 flex flex-col space-y-4">
-              <Link href="/" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
-                Home
-              </Link>
-              <Link href="/courses" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
+              <Link href="/courses" className={`${getLinkClasses("/courses")} block`}>
                 Courses
               </Link>
-              <Link href="/about" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
+              <Link href="/about" className={`${getLinkClasses("/about")} block`}>
                 About Us
               </Link>
-              <Link href="#testimonials" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
+              <Link href="/" className={`${getLinkClasses("/")} block`}>
+                Home
+              </Link>
+              <Link href="#testimonials" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors block">
                 Testimonials
               </Link>
-              <Link href="/contact" className="text-sm font-medium hover:text-emerald-600 dark:text-slate-300 dark:hover:text-emerald-400 transition-colors">
+              <Link href="/contact" className={`${getLinkClasses("/contact")} block`}>
                 Contact
               </Link>
               <Link href="/login">
