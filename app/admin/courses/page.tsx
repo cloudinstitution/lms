@@ -5,13 +5,13 @@ import type React from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
@@ -20,10 +20,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth-context"
+import { convertCoursesToCSV, downloadCSV, exportCoursesToExcel } from "@/lib/course-export-utils"
 import { db } from "@/lib/firebase"
 import { getAdminSession } from "@/lib/session-storage"
 import { addDoc, collection, deleteDoc, doc, getDocs, updateDoc } from "firebase/firestore"
-import { Edit, Eye, MoreVertical, Plus, Search, Trash2 } from "lucide-react"
+import { Download, Edit, Eye, MoreVertical, Plus, Search, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
@@ -58,6 +59,18 @@ export default function AdminCourses() {
     status: "active",
     description: "",
   })
+
+  // Function to generate unique 3-digit course ID
+  const generateUniqueCourseID = (): number => {
+    const existingIDs = courses.map(course => course.courseID).filter(id => id !== undefined) as number[]
+    let newID: number
+    
+    do {
+      newID = Math.floor(Math.random() * 900) + 100 // Generate random 3-digit number (100-999)
+    } while (existingIDs.includes(newID))
+    
+    return newID
+  }
 
   const [courses, setCourses] = useState<Course[]>([])
   
@@ -109,11 +122,13 @@ export default function AdminCourses() {
 
   const handleEditCourse = (course: Course) => {
     setSelectedCourse(course)
+    // Extract numeric value from duration if it contains "weeks"
+    const durationValue = course.duration.replace(' weeks', '').replace(/\D/g, '')
     setCourseForm({
       title: course.title,
       category: getCategoryValue(course.category),
       price: course.price.replace("₹", ""),
-      duration: course.duration,
+      duration: durationValue ? `${durationValue} weeks` : course.duration,
       courseID: course.courseID?.toString() || "", // Handle potentially undefined courseID
       status: course.status.toLowerCase(),
       description: course.description || "",
@@ -172,10 +187,21 @@ export default function AdminCourses() {
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { id, value } = e.target
-    setCourseForm((prev) => ({
-      ...prev,
-      [id]: value,
-    }))
+    
+    if (id === "duration") {
+      // Only allow numeric input and automatically append "weeks"
+      const numericValue = value.replace(/\D/g, "") // Remove all non-digit characters
+      const formattedValue = numericValue ? `${numericValue} weeks` : ""
+      setCourseForm((prev) => ({
+        ...prev,
+        [id]: formattedValue,
+      }))
+    } else {
+      setCourseForm((prev) => ({
+        ...prev,
+        [id]: value,
+      }))
+    }
   }
 
   const handleSelectChange = (value: string, field: string) => {
@@ -186,12 +212,13 @@ export default function AdminCourses() {
   }
 
   const resetForm = () => {
+    const newCourseID = generateUniqueCourseID().toString()
     setCourseForm({
       title: "",
       category: "",
       price: "",
       duration: "",
-      courseID: "",
+      courseID: newCourseID,
       status: "active",
       description: "",
     })
@@ -202,7 +229,31 @@ export default function AdminCourses() {
     return !isNaN(courseIDNum) && courseIDNum >= 0
   }
 
+  const handleExportCSV = () => {
+    if (courses.length === 0) {
+      toast.error("No courses data to export")
+      return
+    }
+    
+    const csvData = convertCoursesToCSV(courses)
+    const timestamp = new Date().toISOString().split('T')[0]
+    const filename = `courses_export_${timestamp}.csv`
+    downloadCSV(csvData, filename)
+  }
+
+  const handleExportExcel = () => {
+    if (courses.length === 0) {
+      toast.error("No courses data to export")
+      return
+    }
+    
+    const timestamp = new Date().toISOString().split('T')[0]
+    const filename = `courses_export_${timestamp}.xlsx`
+    exportCoursesToExcel(courses, filename)
+  }
+
   const handleAddCourseSubmit = async () => {
+    // Check if all required fields are filled
     if (!courseForm.title || !courseForm.category || !courseForm.price || !courseForm.duration || !courseForm.status) {
       toast.error("Please fill in all required fields.")
       return
@@ -254,6 +305,7 @@ export default function AdminCourses() {
   const handleEditCourseSubmit = async () => {
     if (!selectedCourse) return
 
+    // Check if all required fields are filled
     if (!courseForm.title || !courseForm.category || !courseForm.price || !courseForm.duration || !courseForm.status) {
       toast.error("Please fill in all required fields.")
       return
@@ -315,38 +367,63 @@ export default function AdminCourses() {
             {isTeacher ? "Manage your assigned courses" : "Manage your course offerings"}
           </p>
         </div>
-        {!isTeacher && (
-          <Dialog
-            open={isAddCourseOpen}
-            onOpenChange={(open) => {
-              setIsAddCourseOpen(open)
-              if (open) resetForm()
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button className="gap-1">
-                <Plus className="h-4 w-4" /> Add Course
-              </Button>
-            </DialogTrigger>
+        <div className="flex flex-col sm:flex-row gap-2">
+          {courses.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="gap-2 bg-purple-600 hover:bg-purple-700 text-white hover:text-white shadow-sm transition-all duration-200 ease-in-out hover:shadow-md"
+                >
+                  <Download className="h-4 w-4" />
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportCSV}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export as CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportExcel}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export as Excel
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {!isTeacher && (
+            <Dialog
+              open={isAddCourseOpen}
+              onOpenChange={(open) => {
+                setIsAddCourseOpen(open)
+                if (open) resetForm()
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button className="gap-1">
+                  <Plus className="h-4 w-4" /> Add Course
+                </Button>
+              </DialogTrigger>
           <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
               <DialogTitle>Add New Course</DialogTitle>
-              <DialogDescription>Create a new course to offer to your students.</DialogDescription>
+              <DialogDescription>Create a new course to offer to your students. All fields are required except description.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="title">Course Title</Label>
+                <Label htmlFor="title">Course Title <span className="text-red-500">*</span></Label>
                 <Input
                   id="title"
                   placeholder="Enter course title"
                   value={courseForm.title}
                   onChange={handleFormChange}
+                  required
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select value={courseForm.category} onValueChange={(value) => handleSelectChange(value, "category")}>
+                  <Label htmlFor="category">Category <span className="text-red-500">*</span></Label>
+                  <Select value={courseForm.category} onValueChange={(value) => handleSelectChange(value, "category")} required>
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
@@ -359,35 +436,36 @@ export default function AdminCourses() {
                   </Select>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="price">Price (₹)</Label>
-                  <Input id="price" placeholder="Enter price" value={courseForm.price} onChange={handleFormChange} />
+                  <Label htmlFor="price">Price (₹) <span className="text-red-500">*</span></Label>
+                  <Input id="price" placeholder="Enter price" value={courseForm.price} onChange={handleFormChange} required />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="duration">Duration</Label>
+                  <Label htmlFor="duration">Duration <span className="text-red-500">*</span></Label>
                   <Input
                     id="duration"
-                    placeholder="e.g., 12 weeks"
+                    placeholder="Enter number (weeks will be added automatically)"
                     value={courseForm.duration}
                     onChange={handleFormChange}
+                    required
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="courseID">Course ID</Label>
+                  <Label htmlFor="courseID">Course ID <span className="text-red-500">*</span></Label>
                   <Input
                     id="courseID"
-                    placeholder="Enter unique course ID"
+                    placeholder="Auto-generated course ID"
                     value={courseForm.courseID}
-                    onChange={handleFormChange}
-                    type="number"
-                    min="0"
+                    readOnly
+                    className="bg-muted text-muted-foreground"
+                    type="text"
                   />
                 </div>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="status">Status</Label>
-                <Select value={courseForm.status} onValueChange={(value) => handleSelectChange(value, "status")}>
+                <Label htmlFor="status">Status <span className="text-red-500">*</span></Label>
+                <Select value={courseForm.status} onValueChange={(value) => handleSelectChange(value, "status")} required>
                   <SelectTrigger>
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
@@ -399,7 +477,7 @@ export default function AdminCourses() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">Description (Optional)</Label>
                 <Textarea
                   id="description"
                   placeholder="Enter course description"
@@ -427,7 +505,8 @@ export default function AdminCourses() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        )}
+          )}
+        </div>
       </div>
 
       <Card>
@@ -601,17 +680,17 @@ export default function AdminCourses() {
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Edit Course</DialogTitle>
-            <DialogDescription>Update course information</DialogDescription>
+            <DialogDescription>Update course information. All fields are required except description.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="title">Course Title</Label>
-              <Input id="title" placeholder="Enter course title" value={courseForm.title} onChange={handleFormChange} />
+              <Label htmlFor="title">Course Title <span className="text-red-500">*</span></Label>
+              <Input id="title" placeholder="Enter course title" value={courseForm.title} onChange={handleFormChange} required />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="category">Category</Label>
-                <Select value={courseForm.category} onValueChange={(value) => handleSelectChange(value, "category")}>
+                <Label htmlFor="category">Category <span className="text-red-500">*</span></Label>
+                <Select value={courseForm.category} onValueChange={(value) => handleSelectChange(value, "category")} required>
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
@@ -624,22 +703,23 @@ export default function AdminCourses() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="price">Price (₹)</Label>
-                <Input id="price" placeholder="Enter price" value={courseForm.price} onChange={handleFormChange} />
+                <Label htmlFor="price">Price (₹) <span className="text-red-500">*</span></Label>
+                <Input id="price" placeholder="Enter price" value={courseForm.price} onChange={handleFormChange} required />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="duration">Duration</Label>
+                <Label htmlFor="duration">Duration <span className="text-red-500">*</span></Label>
                 <Input
                   id="duration"
-                  placeholder="e.g., 12 weeks"
+                  placeholder="Enter number (weeks will be added automatically)"
                   value={courseForm.duration}
                   onChange={handleFormChange}
+                  required
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="courseID">Course ID</Label>
+                <Label htmlFor="courseID">Course ID <span className="text-red-500">*</span></Label>
                 <Input
                   id="courseID"
                   placeholder="Enter unique course ID"
@@ -647,12 +727,13 @@ export default function AdminCourses() {
                   onChange={handleFormChange}
                   type="number"
                   min="0"
+                  required
                 />
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="status">Status</Label>
-              <Select value={courseForm.status} onValueChange={(value) => handleSelectChange(value, "status")}>
+              <Label htmlFor="status">Status <span className="text-red-500">*</span></Label>
+              <Select value={courseForm.status} onValueChange={(value) => handleSelectChange(value, "status")} required>
                 <SelectTrigger>
                   <SelectValue placeholder="Select status" />
                 </SelectTrigger>
