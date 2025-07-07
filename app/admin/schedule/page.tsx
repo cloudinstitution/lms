@@ -3,15 +3,15 @@
 import { CalendarView } from "@/components/schedule/CalendarView"
 import { CourseSchedules } from "@/components/schedule/CourseSchedules"
 import { HolidaysEvents } from "@/components/schedule/HolidaysEvents"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useAuth } from "@/lib/auth-context"
 import { getAllScheduleEvents } from "@/lib/schedule-service"
 import { getAdminSession } from "@/lib/session-storage"
-import { useAuth } from "@/lib/auth-context"
 import { CourseSchedule, HolidayEvent } from "@/types/schedule"
+import { Calendar, CalendarDays, Clock, Users } from "lucide-react"
 import { useEffect, useState } from "react"
-import { CalendarDays, Users, Calendar, Clock } from "lucide-react"
 
 export default function SchedulePage() {
   const [schedules, setSchedules] = useState<CourseSchedule[]>([])
@@ -32,23 +32,14 @@ export default function SchedulePage() {
   const fetchAllEvents = async () => {
     setLoading(true)
     try {
-      console.log("Fetching all schedule events...")
-      console.log("User role:", userClaims?.role)
-      console.log("User ID:", user?.uid)
-      
       const events = await getAllScheduleEvents(userClaims?.role, user?.uid)
-      console.log("Raw events fetched:", events)
       
       // Separate schedules and holidays
       const courseSchedules = events.filter((event): event is CourseSchedule => 'courseId' in event)
       const holidayEvents = events.filter((event): event is HolidayEvent => 'type' in event)
       
-      console.log("Filtered course schedules:", courseSchedules)
-      console.log("Filtered holiday events:", holidayEvents)
-      
       setSchedules(courseSchedules)
       setHolidays(holidayEvents)
-      console.log("Events fetched successfully:", { schedules: courseSchedules.length, holidays: holidayEvents.length })
     } catch (error) {
       console.error("Error fetching schedules and events:", error)
     } finally {
