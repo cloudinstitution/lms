@@ -76,7 +76,13 @@ import {
 import { Chart } from '@/components/ui/chart';
 
 // Services
-import { getStudentAttendanceRecords, getStudentAttendanceSummary, AttendanceQueryParams } from '@/lib/attendance-query-service';
+import { 
+  getStudentAttendanceRecords, 
+  getStudentAttendanceSummary, 
+  getStudentAttendanceWithCourses,
+  getStudentCoursesData,
+  AttendanceQueryParams 
+} from '@/lib/attendance-query-service';
 import { fetchStudents } from '@/lib/student-service';
 import { toast } from '@/components/ui/use-toast';
 
@@ -159,6 +165,10 @@ export default function StudentAttendancePage() {
   // State for course list (for filtering)
   const [courses, setCourses] = useState<{ id: string; name: string }[]>([]);
   
+  // State for comprehensive course details
+  const [courseDetails, setCourseDetails] = useState<any[]>([]);
+  const [loadingCourseDetails, setLoadingCourseDetails] = useState<boolean>(true);
+  
   // State to track export operations
   const [isExporting, setIsExporting] = useState<boolean>(false);
   
@@ -188,13 +198,26 @@ export default function StudentAttendancePage() {
         if (foundStudent) {
           setStudent(foundStudent);
           
-          // Extract courses for filtering
-          if (foundStudent.courseID && foundStudent.courseName) {
-            const studentCourses = foundStudent.courseID.map((id, index) => ({
-              id: id.toString(),
-              name: foundStudent.courseName?.[index] || 'Unknown Course'
-            }));
-            setCourses(studentCourses);
+          // Load comprehensive course data instead of just using student's course names
+          if (foundStudent.courseID) {
+            try {
+              const coursesData = await getStudentCoursesData(studentId);
+              const studentCourses = coursesData.courses.map((course: any) => ({
+                id: course.id,
+                name: course.title || course.name || `Course ${course.id}`
+              }));
+              setCourses(studentCourses);
+            } catch (error) {
+              console.error("Error loading course data:", error);
+              // Fallback to student's course names if available
+              if (foundStudent.courseName) {
+                const studentCourses = foundStudent.courseID.map((id, index) => ({
+                  id: id.toString(),
+                  name: foundStudent.courseName?.[index] || `Course ${id}`
+                }));
+                setCourses(studentCourses);
+              }
+            }
           }
         } else {
           toast({
@@ -295,6 +318,42 @@ export default function StudentAttendancePage() {
       loadAttendanceSummary();
     }
   }, [studentId, filters.startDate, filters.endDate, filters.courseId]);
+
+  // Load course details for cards
+  useEffect(() => {
+    const loadCourseDetails = async () => {
+      try {
+        setLoadingCourseDetails(true);
+        const coursesData = await getStudentCoursesData(studentId);
+        const formattedCourses = coursesData.courses.map((course: any) => ({
+          ...course,
+          // Format course data for display
+          formattedStartDate: course.startDate ? course.startDate.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          }) : 'Not set',
+          formattedEndDate: course.endDate ? course.endDate.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          }) : 'Not set',
+          formattedPrice: course.price ? (course.price.startsWith('₹') ? course.price : `₹${course.price}`) : 'Free',
+          attendancePercentage: course.attendanceData?.summary ? 
+            Math.round((course.attendanceData.summary.attended / course.attendanceData.summary.totalClasses) * 100) : 0
+        }));
+        setCourseDetails(formattedCourses);
+      } catch (error) {
+        console.error("Error loading course details:", error);
+      } finally {
+        setLoadingCourseDetails(false);
+      }
+    };
+    
+    if (studentId) {
+      loadCourseDetails();
+    }
+  }, [studentId]);
 
   // Handle filter changes
   const handleFilterChange = (newFilters: Partial<AttendanceQueryParams>) => {
@@ -656,42 +715,45 @@ export default function StudentAttendancePage() {
       console.error('Error generating trend chart data:', error);      return emptyChartData;
     }
   };
-  // Course breakdown chart data
+  // Course breakdown chart data - comparing to 100%
   const getCourseChartData = () => {
     if (!attendanceSummary?.courseBreakdown) return {
       labels: [],
       datasets: [
         {
-          label: 'Attendance %',
+          label: 'Attended %',
           data: [],
-          backgroundColor: [
-            'rgba(34, 197, 94, 0.7)',
-            'rgba(59, 130, 246, 0.7)',
-            'rgba(249, 115, 22, 0.7)',
-            'rgba(139, 92, 246, 0.7)',
-            'rgba(236, 72, 153, 0.7)'
-          ],
+          backgroundColor: 'rgba(34, 197, 94, 0.7)',
+          borderWidth: 1
+        },
+        {
+          label: 'Missed %',
+          data: [],
+          backgroundColor: 'rgba(239, 68, 68, 0.7)',
           borderWidth: 1
         }
       ]
     };
     
     const labels = attendanceSummary.courseBreakdown.map((course: any) => course.courseName);
-    const presentData = attendanceSummary.courseBreakdown.map((course: any) => course.presentPercentage);
+    const attendedData = attendanceSummary.courseBreakdown.map((course: any) => course.presentPercentage || 0);
+    const missedData = attendanceSummary.courseBreakdown.map((course: any) => 100 - (course.presentPercentage || 0));
     
     return {
       labels,
       datasets: [
         {
-          label: 'Attendance %',
-          data: presentData,
-          backgroundColor: [
-            'rgba(34, 197, 94, 0.7)',
-            'rgba(59, 130, 246, 0.7)',
-            'rgba(249, 115, 22, 0.7)',
-            'rgba(139, 92, 246, 0.7)',
-            'rgba(236, 72, 153, 0.7)'
-          ],
+          label: 'Attended %',
+          data: attendedData,
+          backgroundColor: 'rgba(34, 197, 94, 0.7)',
+          borderColor: 'rgb(34, 197, 94)',
+          borderWidth: 1
+        },
+        {
+          label: 'Missed %',
+          data: missedData,
+          backgroundColor: 'rgba(239, 68, 68, 0.7)',
+          borderColor: 'rgb(239, 68, 68)',
           borderWidth: 1
         }
       ]
@@ -1180,51 +1242,90 @@ export default function StudentAttendancePage() {
         </TabsContent>
         
         {/* Calendar Tab */}
-        <TabsContent value="calendar">          <Card>
+        <TabsContent value="calendar">
+          <Card className="border-none shadow-md">
             <CardHeader>
-              <CardTitle>Attendance Calendar</CardTitle>
-              <CardDescription>Color-coded dates based on attendance status</CardDescription>
+              <CardTitle className="text-foreground font-semibold">Attendance Calendar</CardTitle>
+              <CardDescription className="text-muted-foreground">
+                Color-coded dates based on attendance status
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Calendar Legend */}
-              <div className="flex flex-wrap gap-4 mb-4 justify-center">
+              {/* Enhanced Calendar Legend */}
+              <div className="flex flex-wrap gap-4 mb-6 justify-center p-4 bg-muted/30 dark:bg-muted/20 rounded-lg">
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full bg-green-500" />
-                  <span className="text-sm">Present</span>
+                  <div className="w-4 h-4 rounded-full bg-emerald-500 dark:bg-emerald-400 shadow-sm" />
+                  <span className="text-sm font-medium">Present</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full bg-red-500" />
-                  <span className="text-sm">Absent</span>
+                  <div className="w-4 h-4 rounded-full bg-red-500 dark:bg-red-400 shadow-sm" />
+                  <span className="text-sm font-medium">Absent</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full bg-yellow-500" />
-                  <span className="text-sm">Late</span>
+                  <div className="w-4 h-4 rounded-full bg-yellow-500 dark:bg-yellow-400 shadow-sm" />
+                  <span className="text-sm font-medium">Late</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full bg-blue-500" />
-                  <span className="text-sm">Excused</span>
+                  <div className="w-4 h-4 rounded-full bg-blue-500 dark:bg-blue-400 shadow-sm" />
+                  <span className="text-sm font-medium">Excused</span>
                 </div>
               </div>
               
-              <div className="flex justify-center">
+              <div className="flex justify-center mb-6">
                 <Calendar
                   mode="multiple"
                   selected={[]}
-                  className="rounded-md border"
+                  className="rounded-md border border-border bg-card dark:bg-card shadow-sm"
                   modifiers={{
                     present: calendarDates.present || [],
                     absent: calendarDates.absent || [],
                     late: calendarDates.late || [],
                     excused: calendarDates.excused || []
                   }}
-                  modifiersStyles={{
-                    present: { backgroundColor: 'rgba(34, 197, 94, 0.5)', color: 'white' },
-                    absent: { backgroundColor: 'rgba(239, 68, 68, 0.5)', color: 'white' },
-                    late: { backgroundColor: 'rgba(234, 179, 8, 0.5)', color: 'white' },
-                    excused: { backgroundColor: 'rgba(59, 130, 246, 0.5)', color: 'white' }
+                  modifiersClassNames={{
+                    present: 'bg-emerald-500 text-white font-bold hover:bg-emerald-600',
+                    absent: 'bg-red-500 text-white font-bold hover:bg-red-600',
+                    late: 'bg-yellow-500 text-white font-bold hover:bg-yellow-600',
+                    excused: 'bg-blue-500 text-white font-bold hover:bg-blue-600'
                   }}
                   disabled
                 />
+              </div>
+
+              {/* Enhanced Summary Statistics */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                <div className="text-center p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                  <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                    {calendarDates.present?.length || 0}
+                  </div>
+                  <div className="text-sm text-emerald-700 dark:text-emerald-300 font-medium">
+                    Present Days
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                  <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                    {calendarDates.absent?.length || 0}
+                  </div>
+                  <div className="text-sm text-red-700 dark:text-red-300 font-medium">
+                    Absent Days
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                  <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                    {calendarDates.late?.length || 0}
+                  </div>
+                  <div className="text-sm text-yellow-700 dark:text-yellow-300 font-medium">
+                    Late Days
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                    {calendarDates.excused?.length || 0}
+                  </div>
+                  <div className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+                    Excused Days
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1427,18 +1528,39 @@ export default function StudentAttendancePage() {
                         responsive: true,
                         maintainAspectRatio: false,
                         scales: {
+                          x: {
+                            stacked: true,
+                            title: {
+                              display: true,
+                              text: 'Courses'
+                            }
+                          },
                           y: {
+                            stacked: true,
                             beginAtZero: true,
                             max: 100,
                             title: {
                               display: true,
-                              text: 'Attendance Percentage'
+                              text: 'Attendance Percentage (%)'
+                            },
+                            ticks: {
+                              callback: function(value: any) {
+                                return value + '%';
+                              }
                             }
                           }
                         },
                         plugins: {
                           legend: {
-                            display: false,
+                            display: true,
+                            position: 'top',
+                          },
+                          tooltip: {
+                            callbacks: {
+                              label: function(context: any) {
+                                return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}%`;
+                              }
+                            }
                           }
                         }
                       }}
@@ -1472,6 +1594,107 @@ export default function StudentAttendancePage() {
         </TabsContent>
       </Tabs>
       
+      {/* Course Information Cards */}
+      {!loadingCourseDetails && courseDetails.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle>Course Information</CardTitle>
+            <CardDescription>
+              Details about enrolled courses with attendance data
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {courseDetails.map((course) => (
+                <div
+                  key={course.id}
+                  className="p-4 border rounded-lg bg-card hover:bg-accent/50 transition-colors"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h3 className="font-semibold text-base mb-1">
+                        {course.title || course.name}
+                      </h3>
+                      <Badge 
+                        variant={course.status === 'Active' ? 'default' : 'secondary'}
+                        className="text-xs"
+                      >
+                        {course.status || 'Active'}
+                      </Badge>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-2xl font-bold ${
+                        course.attendancePercentage >= 75 
+                          ? 'text-green-600 dark:text-green-400' 
+                          : course.attendancePercentage >= 50 
+                          ? 'text-yellow-600 dark:text-yellow-400' 
+                          : 'text-red-600 dark:text-red-400'
+                      }`}>
+                        {course.attendancePercentage}%
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Attendance
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Category:</span>
+                      <span className="font-medium">{course.category || 'General'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Start Date:</span>
+                      <span className="font-medium">{course.formattedStartDate}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">End Date:</span>
+                      <span className="font-medium">{course.formattedEndDate}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Duration:</span>
+                      <span className="font-medium">{course.duration || 'Not specified'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Price:</span>
+                      <span className="font-medium">{course.formattedPrice}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Classes Attended:</span>
+                      <span className="font-medium">
+                        {course.attendanceData?.summary?.attended || 0} / {course.attendanceData?.summary?.totalClasses || 0}
+                      </span>
+                    </div>
+                  </div>
+
+                  {course.description && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs text-muted-foreground line-clamp-2">
+                        {course.description}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {loadingCourseDetails && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle>Course Information</CardTitle>
+            <CardDescription>Loading course details...</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Print view - only shown when printing */}
       <div className="hidden print:block mt-6">
         <h2 className="text-2xl font-bold mb-4">Attendance Summary</h2>
