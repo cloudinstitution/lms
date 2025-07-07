@@ -7,6 +7,7 @@ import { useTheme } from "next-themes"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
+import Image from "next/image"
 
 export default function Header() {
   const { theme, setTheme } = useTheme()
@@ -40,7 +41,13 @@ export default function Header() {
     <header className="bg-white/95 dark:bg-slate-950/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-800 sticky top-0 z-50 shadow-sm">
       <div className="container mx-auto px-4 py-3 flex justify-between items-center">
         <Link href="/" className="flex items-center gap-2">
-          <GraduationCap className="h-8 w-8 text-emerald-600 dark:text-emerald-500" />
+          <Image 
+            src="/cloudinstitution_logo.png" 
+            alt="Cloud Institution Logo"
+            width={40}
+            height={40}
+            className="object-contain"
+          />
           <span className="font-bold text-xl text-emerald-800 dark:text-emerald-400">Cloud Institution</span>
         </Link>
         
