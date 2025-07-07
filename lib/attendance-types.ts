@@ -30,6 +30,14 @@ export interface AttendanceSummaryResponse {
     presentDays: number;
     absentDays: number;
     presentPercentage: number;
+    totalClasses?: number;
+    startDate?: Date;
+    endDate?: Date;
+    duration?: string;
+    category?: string;
+    description?: string;
+    price?: string;
+    status?: string;
   }[];
   records?: AttendanceRecord[]; // Optional records for detailed processing
 }
