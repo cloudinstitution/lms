@@ -1,6 +1,5 @@
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/lib/auth-context"
-import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import type React from "react"
 import { Toaster } from "sonner"
@@ -8,9 +7,16 @@ import "./globals.css"
 
 const inter = Inter({ subsets: ["latin"] })
 
-export const metadata: Metadata = {
-  title: "LMS Platform",
-  description: "Learning Management System",
+export const metadata = {
+  title: "Cloud Institution - LMS Platform",
+  description: "Cloud Institution Learning Management System - Empowering Your Future with Quality Education",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/cloudinstitution_logo.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: "/cloudinstitution_logo.png",
+  },
 }
 
 export default function RootLayout({

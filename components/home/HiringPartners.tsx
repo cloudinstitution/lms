@@ -3,32 +3,34 @@
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { motion } from "framer-motion"
+import Image from "next/image"
 
 const hiringPartners = [
-  { name: "TCS", logo: "/placeholder.svg?height=60&width=120&text=TCS" },
-  { name: "Infosys", logo: "/placeholder.svg?height=60&width=120&text=Infosys" },
-  { name: "Wipro", logo: "/placeholder.svg?height=60&width=120&text=Wipro" },
-  { name: "Amazon", logo: "/placeholder.svg?height=60&width=120&text=Amazon" },
-  { name: "Microsoft", logo: "/placeholder.svg?height=60&width=120&text=Microsoft" },
-  { name: "Google", logo: "/placeholder.svg?height=60&width=120&text=Google" },
-  { name: "Accenture", logo: "/placeholder.svg?height=60&width=120&text=Accenture" },
-  { name: "IBM", logo: "/placeholder.svg?height=60&width=120&text=IBM" },
-  { name: "Oracle", logo: "/placeholder.svg?height=60&width=120&text=Oracle" },
-  { name: "Dell", logo: "/placeholder.svg?height=60&width=120&text=Dell" },
-  { name: "HP", logo: "/placeholder.svg?height=60&width=120&text=HP" },
-  { name: "Cognizant", logo: "/placeholder.svg?height=60&width=120&text=Cognizant" },
-  { name: "HCL", logo: "/placeholder.svg?height=60&width=120&text=HCL" },
-  { name: "Tech Mahindra", logo: "/placeholder.svg?height=60&width=120&text=Tech+Mahindra" },
-  { name: "Capgemini", logo: "/placeholder.svg?height=60&width=120&text=Capgemini" },
-  { name: "Deloitte", logo: "/placeholder.svg?height=60&width=120&text=Deloitte" },
-  { name: "Salesforce", logo: "/placeholder.svg?height=60&width=120&text=Salesforce" },
-  { name: "Adobe", logo: "/placeholder.svg?height=60&width=120&text=Adobe" },
-  { name: "Cisco", logo: "/placeholder.svg?height=60&width=120&text=Cisco" },
-  { name: "Intel", logo: "/placeholder.svg?height=60&width=120&text=Intel" },
-  { name: "Nvidia", logo: "/placeholder.svg?height=60&width=120&text=Nvidia" },
-  { name: "VMware", logo: "/placeholder.svg?height=60&width=120&text=VMware" },
-  { name: "ServiceNow", logo: "/placeholder.svg?height=60&width=120&text=ServiceNow" },
-  { name: "Snowflake", logo: "/placeholder.svg?height=60&width=120&text=Snowflake" }
+  { name: "Infosys", logo: "/companies/infosys.webp" },
+  { name: "Cognizant", logo: "/companies/cognizant.webp" },
+  { name: "Amazon", logo: "/companies/amazon.webp" },
+  { name: "Accenture", logo: "/companies/accenture.webp" },
+  { name: "Capgemini", logo: "/companies/capgemini.webp" },
+  { name: "Tech Mahindra", logo: "/companies/tech-mahindra.webp" },
+  { name: "LTIMindtree", logo: "/companies/ltimindtree.webp" },
+  { name: "Zoho", logo: "/companies/zoho.webp" },
+  { name: "Solera", logo: "/companies/solera.webp" },
+  { name: "Synchronoss", logo: "/companies/synchronoss.webp" },
+  { name: "Glider AI", logo: "/companies/glider-ai.webp" },
+  { name: "Glass Beam", logo: "/companies/glass-beam.webp" },
+  { name: "Pro Buddy", logo: "/companies/pro-buddy.webp" },
+  { name: "Inito", logo: "/companies/inito.webp" },
+  { name: "Avin Systems", logo: "/companies/avin-systems.webp" },
+  { name: "Athmin Technologies", logo: "/companies/athmin-technologies.webp" },
+  { name: "Centelon", logo: "/companies/centelon.webp" },
+  { name: "Ada", logo: "/companies/ada.webp" },
+  { name: "Appscrip", logo: "/companies/appscrip.webp" },
+  // Adding some additional entries with AWS and Azure logos from public directory
+  { name: "AWS", logo: "/AWS.png" },
+  { name: "Azure", logo: "/Azure.png" },
+  { name: "Java", logo: "/Java.png" },
+  { name: "Data Analytics", logo: "/data_analytics.png" },
+  { name: "DevOps", logo: "/DevOps.png" }
 ]
 
 export default function HiringPartners() {
@@ -43,7 +45,7 @@ export default function HiringPartners() {
             Our 300+ Hiring Partners
           </h2>
           <p className="text-gray-600 dark:text-slate-300 max-w-2xl mx-auto">
-            Get Closer to Your Dream Company. Our Graduates are working with leading tech partners.
+            Get Closer to Your Dream Company. Our Graduates are working with leading tech companies and innovative startups.
           </p>
         </div>            
         
@@ -62,10 +64,13 @@ export default function HiringPartners() {
                   >
                     <div className="text-center w-full">
                       <div className="w-full h-16 mx-auto mb-2 bg-gradient-to-r from-emerald-100 to-emerald-200 dark:from-emerald-900 dark:to-emerald-800 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform overflow-hidden">
-                        <img
+                        <Image
                           src={partner.logo}
-                          alt={partner.name}
+                          alt={`${partner.name} logo`}
+                          width={120}
+                          height={60}
                           className="max-w-full max-h-full object-contain"
+                          priority={index < 12}
                         />
                       </div>
                       <p className="text-sm font-medium text-gray-700 dark:text-slate-300">{partner.name}</p>
@@ -90,10 +95,13 @@ export default function HiringPartners() {
                   >
                     <div className="text-center w-full">
                       <div className="w-full h-16 mx-auto mb-2 bg-gradient-to-r from-emerald-100 to-emerald-200 dark:from-emerald-900 dark:to-emerald-800 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform overflow-hidden">
-                        <img
+                        <Image
                           src={partner.logo}
-                          alt={partner.name}
+                          alt={`${partner.name} logo`}
+                          width={120}
+                          height={60}
                           className="max-w-full max-h-full object-contain"
+                          priority={index < 12}
                         />
                       </div>
                       <p className="text-sm font-medium text-gray-700 dark:text-slate-300">{partner.name}</p>
