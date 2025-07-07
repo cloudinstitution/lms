@@ -73,7 +73,7 @@ import { Chart } from '@/components/ui/chart';
 
 // Services
 import { toast } from '@/components/ui/use-toast';
-import { AttendanceQueryParams, getStudentAttendanceRecords, getStudentAttendanceSummary } from '@/lib/attendance-query-service';
+import { AttendanceQueryParams, getStudentAttendanceRecords, getStudentAttendanceSummary, getStudentCoursesData } from '@/lib/attendance-query-service';
 import { fetchStudents } from '@/lib/student-service';
 
 // Types
@@ -98,15 +98,13 @@ const getStatusColor = (status: string) => {
   }
 };
 
-// Helper function to format date
-const formatDate = (dateString: string) => {
-  if (!dateString) return "N/A";
-
+// Helper function to format date for display
+const formatDate = (date: string) => {
+  if (!date) return "N/A";
   try {
-    const date = new Date(dateString);
-    return format(date, 'dd MMM yyyy');
+    return format(parseISO(date), 'PPP');
   } catch (error) {
-    return dateString;
+    return date;
   }
 };
 
