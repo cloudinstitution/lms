@@ -2,6 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getAuth } from "firebase/auth";
 
 // Setup Firebase configuration with safeguards
 function getFirebaseConfig() {
@@ -50,3 +51,4 @@ export const app = initializeApp(firebaseConfig);
 // Exports for Firestore and Storage
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const auth = getAuth(app);
