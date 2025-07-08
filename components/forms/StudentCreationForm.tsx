@@ -1,20 +1,14 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { addDoc, collection, getDocs, query, where } from "firebase/firestore"
+import { collection, getDocs, query, where } from "firebase/firestore"
 import { db } from "@/lib/firebase"
-import emailjs from "@emailjs/browser"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { X } from "lucide-react"
 import { toast } from "sonner"
 import UserFormBase, { BaseUserData } from "@/components/forms/UserFormBase"
-
-// EmailJS Config
-const SERVICE_ID = "service_0wpennn"
-const TEMPLATE_ID = "template_zly25zz"
-const PUBLIC_KEY = "f_2D0VC3LQZjhZDMC"
 
 interface Course {
   id: string;
@@ -39,11 +33,6 @@ export default function StudentCreationForm() {
   const [courseMode, setCourseMode] = useState<"Online" | "Offline">("Online");
   const [studentId, setStudentId] = useState("");
   const [error, setError] = useState("");
-  
-  // Initialize EmailJS
-  useEffect(() => {
-    emailjs.init(PUBLIC_KEY);
-  }, []);
   
   // Fetch courses
   useEffect(() => {
@@ -173,83 +162,9 @@ export default function StudentCreationForm() {
     return selectedPassword;
   };
   
-  // Check if username exists
-  const checkUsernameExists = async (email: string): Promise<boolean> => {
+  // Function to get next student ID
+  const getNextStudentId = async () => {
     try {
-      const q = query(collection(db, "students"), where("username", "==", email));
-      const querySnapshot = await getDocs(q);
-      return !querySnapshot.empty;
-    } catch (error) {
-      console.error("Error checking email existence:", error);
-      return false;
-    }
-  };
-  
-  // Handle form submission
-  const handleCreateStudent = async (userData: BaseUserData): Promise<void> => {
-    try {
-      setIsCreatingStudent(true);
-      setError("");
-      
-      // Check if username already exists
-      const usernameExists = await checkUsernameExists(userData.username);
-      if (usernameExists) {
-        setError("A student with this email already exists");
-        setIsCreatingStudent(false);
-        return;
-      }
-        // Extract primary course
-      const calculatedPrimaryIndex = Math.min(primaryCourseIndex, selectedCourses.length - 1);
-      const primaryCourse = selectedCourses[calculatedPrimaryIndex >= 0 ? calculatedPrimaryIndex : 0];
-      
-      // Create student document
-      const studentData = {
-        ...userData,
-        studentId,
-        coursesEnrolled: selectedCourses.length,
-        courseName: selectedCourses.map(c => c.title),
-        courseID: selectedCourses.map(c => c.courseID),
-        primaryCourseIndex: calculatedPrimaryIndex,
-        courseMode,
-        // If there are selected courses, add primary course info
-        ...(selectedCourses.length > 0 ? {
-          primaryCourseId: primaryCourse.id,
-          primaryCourseTitle: primaryCourse.title,
-          primaryCourseCode: primaryCourse.courseID,
-        } : {}),
-        joinedDate: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-      };
-      
-      await addDoc(collection(db, "students"), studentData);
-      
-      // Send welcome email if email is provided
-      if (userData.username) {
-        try {
-          await emailjs.send(SERVICE_ID, TEMPLATE_ID, {
-            to_name: userData.name,
-            to_email: userData.username,
-            from_name: "LMS Portal Admin",
-            student_id: studentId,
-            password: userData.password,
-            courses: selectedCourses.map(c => c.title).join(", "),
-            message: `Welcome to the LMS Portal! You have been registered for ${selectedCourses.length} course(s).`
-          });
-          
-          toast.success("Welcome email sent successfully");
-        } catch (emailError) {
-          console.error("Error sending email:", emailError);
-          toast.error("Failed to send welcome email");
-        }
-      }
-      
-      toast.success("Student created successfully");
-      
-      // Reset form state
-      setSelectedCourses([]);
-      setPrimaryCourseIndex(0);
-      setCourseMode("Online");
-      // Get next student ID
       const snapshot = await getDocs(collection(db, "students"));
       let maxNumber = 0;
       const currentYear = new Date().getFullYear();
@@ -268,6 +183,76 @@ export default function StudentCreationForm() {
       
       const nextNumber = (maxNumber + 1).toString().padStart(3, "0");
       setStudentId(`${prefix}${nextNumber}`);
+    } catch (error) {
+      console.error("Error generating student ID:", error);
+    }
+  };
+
+  // Handle form submission
+  const handleCreateStudent = async (userData: BaseUserData): Promise<void> => {
+    try {
+      setIsCreatingStudent(true);
+      setError("");
+      
+      // Extract primary course
+      const calculatedPrimaryIndex = Math.min(primaryCourseIndex, selectedCourses.length - 1);
+      const primaryCourse = selectedCourses[calculatedPrimaryIndex >= 0 ? calculatedPrimaryIndex : 0];
+      
+      // Prepare student data for API call
+      const studentData = {
+        ...userData,
+        studentId,
+        coursesEnrolled: selectedCourses.length,
+        courseName: selectedCourses.map(c => c.title),
+        courseID: selectedCourses.map(c => c.courseID),
+        primaryCourseIndex: calculatedPrimaryIndex,
+        courseMode,
+        // If there are selected courses, add primary course info
+        ...(selectedCourses.length > 0 ? {
+          primaryCourseId: primaryCourse.id,
+          primaryCourseTitle: primaryCourse.title,
+          primaryCourseCode: primaryCourse.courseID,
+        } : {}),
+      };
+      
+      // Call the API endpoint
+      const response = await fetch('/api/students/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(studentData)
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Show success message based on email status
+        const emailStatus = result.emailStatus;
+        const emailMethod = result.emailMethod;
+        
+        if (emailStatus === 'sent') {
+          toast.success(`Student created successfully! Welcome email sent via ${emailMethod}.`);
+        } else if (emailStatus === 'queued') {
+          toast.success("Student created successfully! Welcome email has been queued for delivery.");
+        } else if (emailStatus === 'failed') {
+          toast.success("Student created successfully! Welcome email failed to send - please check manually.");
+        } else {
+          toast.success("Student created successfully!");
+        }
+        
+        // Reset form state
+        setSelectedCourses([]);
+        setPrimaryCourseIndex(0);
+        setCourseMode("Online");
+        
+        // Generate next student ID
+        await getNextStudentId();
+        
+      } else {
+        setError(result.error || "Failed to create student");
+        toast.error(result.error || "Failed to create student");
+      }
       
     } catch (error) {
       console.error("Error creating student:", error);
