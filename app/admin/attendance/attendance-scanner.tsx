@@ -2,6 +2,7 @@
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { updateStudentAttendanceSummary } from "@/lib/attendance-total-classes-service"
 import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import { getAdminSession } from "@/lib/session-storage"
@@ -423,35 +424,16 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
             
             if (studentDoc.exists()) {
               const studentData = studentDoc.data();
-              const attendanceByCourse = studentData.attendanceByCourse || {};
-              
-              if (!attendanceByCourse[courseId]) {
-                attendanceByCourse[courseId] = {
-                  datesPresent: [],
-                  summary: { totalClasses: 0, attended: 0, percentage: 0 }
-                };
-              }
-              
-              const courseAttendance = attendanceByCourse[courseId];
-              
-              // Add the date to present dates if not already there
-              if (!courseAttendance.datesPresent.includes(dateString)) {
-                courseAttendance.datesPresent.push(dateString);
-              }
-              
-              // Update summary
-              courseAttendance.summary.attended = courseAttendance.datesPresent.length;
-              courseAttendance.summary.totalClasses = Math.max(
-                courseAttendance.summary.totalClasses, 
-                courseAttendance.summary.attended
+              const updatedAttendanceByCourse = await updateStudentAttendanceSummary(
+                studentData,
+                courseId,
+                dateString,
+                true // student is present (scanned)
               );
-              courseAttendance.summary.percentage = courseAttendance.summary.totalClasses > 0 
-                ? (courseAttendance.summary.attended / courseAttendance.summary.totalClasses) * 100 
-                : 0;
 
               await setDoc(studentDocRef, {
                 ...studentData,
-                attendanceByCourse
+                attendanceByCourse: updatedAttendanceByCourse
               }, { merge: true });
             }
           });
