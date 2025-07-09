@@ -8,7 +8,7 @@ import { ArrowLeft, GraduationCap, Lock, Mail, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { toast } from "sonner"
 
 export default function ForgotPasswordPage() {
@@ -18,6 +18,9 @@ export default function ForgotPasswordPage() {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong'>('weak')
+  const [countdownTime, setCountdownTime] = useState(0)
+  const [canResendOTP, setCanResendOTP] = useState(false)
+  const [userType, setUserType] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     email: "",
     otp: "",
@@ -55,6 +58,106 @@ export default function ForgotPasswordPage() {
     }
   }
 
+  // Countdown timer effect
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (countdownTime > 0) {
+      console.log('Starting countdown timer, current time:', countdownTime);
+      timer = setInterval(() => {
+        setCountdownTime(prev => {
+          const newTime = prev - 1;
+          console.log('Countdown tick:', newTime);
+          // Allow resend after 30 seconds (when countdown drops to 270 seconds or less)
+          // This means resend is available after 30 seconds of the 5-minute countdown
+          if (newTime <= 270) {
+            console.log('30 seconds passed, enabling resend');
+            setCanResendOTP(true);
+          }
+          if (newTime <= 0) {
+            console.log('Countdown finished');
+            return 0;
+          }
+          return newTime;
+        });
+      }, 1000);
+    } else {
+      console.log('Countdown not active, current time:', countdownTime);
+    }
+    return () => {
+      if (timer) {
+        console.log('Clearing countdown timer');
+        clearInterval(timer);
+      }
+    };
+  }, [countdownTime]);
+
+  // Format countdown time
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Start countdown timer
+  const startCountdown = (expiresAt?: string) => {
+    console.log('startCountdown called with:', expiresAt);
+    if (expiresAt) {
+      const expiryTime = new Date(expiresAt);
+      const now = new Date();
+      const timeLeft = Math.max(0, Math.floor((expiryTime.getTime() - now.getTime()) / 1000));
+      console.log('Calculated time left:', timeLeft, 'seconds');
+      setCountdownTime(timeLeft);
+      // Allow resend if more than 30 seconds have passed (timeLeft <= 270)
+      setCanResendOTP(timeLeft <= 270);
+    } else {
+      // Default 5 minutes countdown if no expiry time provided
+      console.log('No expiry time provided, using default 5 minutes');
+      setCountdownTime(300);
+      setCanResendOTP(false);
+    }
+  };
+
+  // Handle resend OTP
+  const handleResendOTP = async () => {
+    if (!canResendOTP || isLoading) return;
+    
+    setIsLoading(true);
+    setError("");
+    
+    // Immediately expire the current OTP and reset the timer
+    setCountdownTime(300); // Reset to 5 minutes
+    setCanResendOTP(false); // Disable resend button for next 30 seconds
+    
+    try {
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          email: formData.email,
+          step: 'resend-otp'
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast.success("New OTP sent! Please check your email.");
+        setUserType(result.userType);
+        console.log('Resend: Starting countdown with expiry:', result.expiresAt)
+        startCountdown(result.expiresAt);
+      } else {
+        setError(result.error || "Failed to resend OTP");
+      }
+    } catch (error) {
+      console.error("Resend OTP error:", error);
+      setError("Failed to resend OTP");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handlePasswordReset = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -78,7 +181,10 @@ export default function ForgotPasswordPage() {
 
         if (result.success) {
           toast.success("OTP sent to your email! Please check your inbox.")
+          setUserType(result.userType)
           setResetStep('otp')
+          console.log('Starting countdown with expiry:', result.expiresAt)
+          startCountdown(result.expiresAt)
         } else {
           setError(result.error || "Failed to send OTP")
         }
@@ -101,6 +207,7 @@ export default function ForgotPasswordPage() {
 
         if (result.success) {
           toast.success("OTP verified! Now set your new password.")
+          setUserType(result.userType)
           setResetStep('newPassword')
         } else {
           setError(result.error || "Invalid OTP")
@@ -189,8 +296,8 @@ export default function ForgotPasswordPage() {
             {resetStep === 'email' 
               ? "Enter your email to receive an OTP code"
               : resetStep === 'otp' 
-                ? "Enter the 6-digit OTP code sent to your email"
-                : "Create a new secure password for your account"
+                ? `Enter the 6-digit OTP code sent to your email${userType ? ` (${userType} account)` : ''}`
+                : `Create a new secure password for your ${userType || 'account'}`
             }
           </CardDescription>
         </CardHeader>
@@ -246,16 +353,58 @@ export default function ForgotPasswordPage() {
                 <p className="text-sm text-slate-400">
                   Check your email <strong>{formData.email}</strong> for the OTP code.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setResetStep('email');
-                    setFormData(prev => ({ ...prev, otp: '' }));
-                  }}
-                  className="text-sm text-emerald-400 hover:text-emerald-300 hover:underline"
-                >
-                  Didn't receive OTP? Change email
-                </button>
+                
+                {/* Countdown Timer */}
+                {countdownTime > 0 && (
+                  <div className="text-sm text-slate-300 flex items-center justify-center gap-2 bg-slate-700/50 p-3 rounded-md">
+                    <span>⏰ OTP expires in: </span>
+                    <span className="font-mono text-emerald-400 font-bold text-lg">{formatTime(countdownTime)}</span>
+                  </div>
+                )}
+                
+                {/* Status Message */}
+                {countdownTime <= 0 && canResendOTP && (
+                  <div className="text-sm text-slate-300 text-center bg-amber-900/30 p-3 rounded-md">
+                    ⚠️ OTP has expired. You can now request a new one.
+                  </div>
+                )}
+                
+                {/* Resend available after 30 seconds */}
+                {countdownTime > 0 && countdownTime <= 270 && canResendOTP && (
+                  <div className="text-sm text-slate-300 text-center bg-emerald-900/30 p-3 rounded-md">
+                    ✅ You can now resend OTP (30 seconds have passed)
+                  </div>
+                )}
+                
+                {/* Resend not yet available */}
+                {countdownTime > 270 && !canResendOTP && (
+                  <div className="text-sm text-slate-400 text-center bg-slate-700/30 p-3 rounded-md">
+                    📱 Resend OTP will be available in {Math.ceil((countdownTime - 270) / 1)} seconds
+                  </div>
+                )}
+                
+                {/* Resend OTP Button */}
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetStep('email');
+                      setFormData(prev => ({ ...prev, otp: '' }));
+                    }}
+                    className="text-sm text-emerald-400 hover:text-emerald-300 hover:underline"
+                  >
+                    Change email
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={handleResendOTP}
+                    disabled={!canResendOTP || isLoading}
+                    className="text-sm text-emerald-400 hover:text-emerald-300 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? "Sending..." : "Resend OTP"}
+                  </button>
+                </div>
               </div>
             )}
 

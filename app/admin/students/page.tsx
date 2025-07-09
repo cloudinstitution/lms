@@ -109,7 +109,13 @@ export default function AdminStudents() {
     open: false,
     student: null
   });
-  const [emailDialog, setEmailDialog] = React.useState(false);
+  const [emailDialog, setEmailDialog] = React.useState<{
+    open: boolean;
+    singleStudent: Student | null;
+  }>({
+    open: false,
+    singleStudent: null
+  });
   const [deleteDialog, setDeleteDialog] = React.useState(false);
   const [viewDetailsDialog, setViewDetailsDialog] = React.useState<{
     open: boolean;
@@ -260,12 +266,68 @@ export default function AdminStudents() {
 
   // Email handler
   const handleSendEmail = async (subject: string, message: string) => {
-    // Implement email sending logic here
-    setEmailDialog(false);
-    toast({
-      title: 'Success',
-      description: 'Emails sent successfully',
-    });
+    try {
+      setEmailDialog({ open: false, singleStudent: null });
+      
+      // Determine which students to email
+      const targetStudents = emailDialog.singleStudent 
+        ? [emailDialog.singleStudent.id]
+        : selectedStudents;
+      
+      if (targetStudents.length === 0) {
+        toast({
+          title: 'Error',
+          description: 'No students selected for email',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Show loading toast
+      toast({
+        title: 'Sending emails...',
+        description: `Sending to ${targetStudents.length} student${targetStudents.length > 1 ? 's' : ''}`,
+      });
+
+      const response = await fetch('/api/students/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          studentIds: targetStudents,
+          subject,
+          message,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast({
+          title: 'Success',
+          description: result.message || 'Emails sent successfully',
+        });
+        
+        // Clear selected students after successful bulk email
+        if (!emailDialog.singleStudent) {
+          setSelectedStudents([]);
+        }
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error || 'Failed to send emails',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error sending emails:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send emails. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   // Format date for display
@@ -476,7 +538,7 @@ export default function AdminStudents() {
               selectedCount={selectedStudents.length}
               onBulkDelete={() => setDeleteDialog(true)}
               onBulkStatusChange={handleBulkStatusChange}
-              onEmailSelected={() => setEmailDialog(true)}
+              onEmailSelected={() => setEmailDialog({ open: true, singleStudent: null })}
             />
           </div>
         )}
@@ -509,7 +571,7 @@ export default function AdminStudents() {
             onSort={handleSort}
             onEdit={(student: Student) => setEditDialog({ open: true, student })}
             onDelete={(studentId: string) => handleSelectStudent(studentId)}
-            onEmail={(student: Student) => setEmailDialog(true)}
+            onEmail={(student: Student) => setEmailDialog({ open: true, singleStudent: student })}
             onViewDetails={(student: Student) => setViewDetailsDialog({ open: true, student })}
             isTeacher={isTeacher}
           />
@@ -585,9 +647,9 @@ export default function AdminStudents() {
       />
 
       <EmailStudentDialog
-        recipientCount={selectedStudents.length}
-        open={emailDialog}
-        onClose={() => setEmailDialog(false)}
+        recipientCount={emailDialog.singleStudent ? 1 : selectedStudents.length}
+        open={emailDialog.open}
+        onClose={() => setEmailDialog({ open: false, singleStudent: null })}
         onSend={handleSendEmail}
       />
 
