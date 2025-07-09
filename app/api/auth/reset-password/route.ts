@@ -114,7 +114,7 @@ async function sendOTPEmail(email: string, otp: string, userName: string) {
                   <div class="otp-box">
                       <h3>Your OTP Code</h3>
                       <div class="otp-code">${otp}</div>
-                      <p>This code will expire in <strong>10 minutes</strong></p>
+                      <p>This code will expire in <strong>5 minutes</strong></p>
                   </div>
                   
                   <p>Please enter this OTP code on the password reset page to continue with resetting your password.</p>
@@ -123,7 +123,7 @@ async function sendOTPEmail(email: string, otp: string, userName: string) {
                       <h4>⚠️ Security Notice:</h4>
                       <ul>
                           <li>Never share this OTP with anyone</li>
-                          <li>This code is valid for 10 minutes only</li>
+                          <li>This code is valid for 5 minutes only</li>
                           <li>If you didn't request this reset, please ignore this email</li>
                           <li>Contact support if you have concerns about your account security</li>
                       </ul>
@@ -153,13 +153,13 @@ We received a request to reset your password for your Cloud Institution LMS acco
 
 Your OTP Code: ${otp}
 
-This code will expire in 10 minutes.
+This code will expire in 5 minutes.
 
 Please enter this OTP code on the password reset page to continue with resetting your password.
 
 SECURITY NOTICE:
 - Never share this OTP with anyone
-- This code is valid for 10 minutes only
+- This code is valid for 5 minutes only
 - If you didn't request this reset, please ignore this email
 - Contact support if you have concerns about your account security
 
@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (step === 'send-otp') {
+    if (step === 'send-otp' || step === 'resend-otp') {
       // Step 1: Send OTP
       if (!email) {
         return NextResponse.json(
@@ -235,31 +235,52 @@ export async function POST(request: NextRequest) {
       );
       const studentsSnapshot = await getDocs(studentsQuery);
       
-      if (studentsSnapshot.empty) {
+      let userDoc = null;
+      let userData = null;
+      let userType = null;
+      
+      if (!studentsSnapshot.empty) {
+        userDoc = studentsSnapshot.docs[0];
+        userData = userDoc.data();
+        userType = "student";
+      } else {
+        // Check if user exists in admin collection (teachers and admins)
+        const adminQuery = query(
+          collection(db, "admin"),
+          where("username", "==", email)
+        );
+        const adminSnapshot = await getDocs(adminQuery);
+        
+        if (!adminSnapshot.empty) {
+          userDoc = adminSnapshot.docs[0];
+          userData = userDoc.data();
+          userType = userData.role === "admin" ? "admin" : "teacher";
+        }
+      }
+      
+      if (!userDoc || !userData) {
         return NextResponse.json(
           { error: "No account found with this email address" },
           { status: 404 }
         );
       }
-
-      const studentDoc = studentsSnapshot.docs[0];
-      const studentData = studentDoc.data();
       
       // Generate OTP
       const otpCode = generateOTP();
-      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
+      const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
       
-      // Store OTP in Firestore
+      // Store OTP in Firestore with user type
       await addDoc(collection(db, "password_reset_otps"), {
         email: email,
         otp: otpCode,
         expiresAt: otpExpiry.toISOString(),
         used: false,
+        userType: userType,
         createdAt: new Date().toISOString()
       });
 
       // Send OTP email
-      await sendOTPEmail(email, otpCode, studentData.name);
+      await sendOTPEmail(email, otpCode, userData.name);
 
       // Log OTP generation
       await addDoc(collection(db, "email_logs"), {
@@ -267,16 +288,19 @@ export async function POST(request: NextRequest) {
         recipient: email,
         status: 'sent',
         sentAt: new Date().toISOString(),
+        userType: userType,
         emailData: {
           subject: "Password Reset OTP - Cloud Institution LMS",
           otp: otpCode,
-          studentName: studentData.name
+          userName: userData.name
         }
       });
 
       return NextResponse.json({
         success: true,
-        message: "OTP sent successfully to your email"
+        message: step === 'resend-otp' ? "New OTP sent successfully to your email" : "OTP sent successfully to your email",
+        userType: userType,
+        expiresAt: otpExpiry.toISOString()
       });
 
     } else if (step === 'verify-otp') {
@@ -320,7 +344,9 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: "OTP verified successfully"
+        message: "OTP verified successfully",
+        expiresAt: otpData.expiresAt,
+        userType: otpData.userType
       });
 
     } else if (step === 'reset-password') {
@@ -370,25 +396,50 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Update student password
-      const studentsQuery = query(
-        collection(db, "students"),
-        where("username", "==", email)
-      );
-      const studentsSnapshot = await getDocs(studentsQuery);
+      // Update user password based on user type
+      const userType = otpData.userType;
       
-      if (studentsSnapshot.empty) {
-        return NextResponse.json(
-          { error: "Student account not found" },
-          { status: 404 }
+      if (userType === "student") {
+        // Update student password
+        const studentsQuery = query(
+          collection(db, "students"),
+          where("username", "==", email)
         );
-      }
+        const studentsSnapshot = await getDocs(studentsQuery);
+        
+        if (studentsSnapshot.empty) {
+          return NextResponse.json(
+            { error: "Student account not found" },
+            { status: 404 }
+          );
+        }
 
-      const studentDoc = studentsSnapshot.docs[0];
-      await updateDoc(doc(db, "students", studentDoc.id), {
-        password: newPassword,
-        updatedAt: new Date().toISOString()
-      });
+        const studentDoc = studentsSnapshot.docs[0];
+        await updateDoc(doc(db, "students", studentDoc.id), {
+          password: newPassword,
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        // Update admin/teacher password
+        const adminQuery = query(
+          collection(db, "admin"),
+          where("username", "==", email)
+        );
+        const adminSnapshot = await getDocs(adminQuery);
+        
+        if (adminSnapshot.empty) {
+          return NextResponse.json(
+            { error: "Admin/Teacher account not found" },
+            { status: 404 }
+          );
+        }
+
+        const adminDoc = adminSnapshot.docs[0];
+        await updateDoc(doc(db, "admin", adminDoc.id), {
+          password: newPassword,
+          updatedAt: new Date().toISOString()
+        });
+      }
 
       // Mark OTP as used
       await updateDoc(doc(db, "password_reset_otps", otpDoc.id), {
@@ -402,13 +453,14 @@ export async function POST(request: NextRequest) {
         recipient: email,
         status: 'completed',
         completedAt: new Date().toISOString(),
+        userType: userType,
         emailData: {
           subject: "Password Reset Completed",
-          studentName: studentDoc.data().name
+          userType: userType
         }
       });
 
-      console.log('Password reset completed for:', email);
+      console.log('Password reset completed for:', email, 'UserType:', userType);
 
       return NextResponse.json({
         success: true,
