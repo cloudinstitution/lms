@@ -2,10 +2,10 @@
 
 import MainLayout from "@/components/main-layout"
 import {
-    Accordion,
-    AccordionContent,
-    AccordionItem,
-    AccordionTrigger,
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,20 +16,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import "@/styles/phone-input.css"
 import {
-    Award,
-    BookOpen,
-    CheckCircle,
-    ChevronRight,
-    Clock,
-    Download,
-    Globe,
-    Home,
-    MessageSquare,
-    PlayCircle,
-    Star,
-    TrendingUp,
-    Users,
-    X
+  Award,
+  BookOpen,
+  CheckCircle,
+  ChevronRight,
+  Clock,
+  Download,
+  Globe,
+  Home,
+  MessageSquare,
+  PlayCircle,
+  Star,
+  TrendingUp,
+  Users,
+  X
 } from "lucide-react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
