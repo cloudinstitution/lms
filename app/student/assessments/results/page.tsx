@@ -1,13 +1,13 @@
 "use client";
 
 import StudentLayout from "@/components/student-layout";
-import { useEffect, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useRouter } from "next/navigation";
-import { AlertCircle, Clock, FileText, Loader2 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { QuizService, type QuizResult } from "@/lib/quiz-service";
 import { getStudentSession } from "@/lib/session-storage";
+import { AlertCircle, Clock, FileText, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export default function QuizResults() {
   const [results, setResults] = useState<QuizResult[]>([]);
@@ -70,7 +70,7 @@ export default function QuizResults() {
   if (error) {
     return (
       <div className="p-4 max-w-4xl mx-auto">
-        <div className="p-4 bg-red-50 border border-red-200 rounded text-red-600 flex items-start gap-2">
+        <div className="p-4 bg-destructive/15 border border-destructive/20 rounded text-destructive flex items-start gap-2">
           <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
           <span>{error}</span>
         </div>
@@ -90,9 +90,9 @@ export default function QuizResults() {
         <Card>
           <CardContent className="pt-6">
             <div className="text-center py-8">
-              <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+              <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
               <h3 className="text-xl font-medium mb-2">No Quiz Results Yet</h3>
-              <p className="text-gray-500 mb-6">
+              <p className="text-muted-foreground mb-6">
                 You haven't completed any quizzes yet.
               </p>
               <Button onClick={() => router.push("/student/assessments")}>
@@ -141,7 +141,7 @@ export default function QuizResults() {
                     <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                       <div>
                         <h4 className="font-semibold text-lg">{result.topic}</h4>
-                        <div className="flex items-center text-gray-500 text-sm mt-1">
+                        <div className="flex items-center text-muted-foreground text-sm mt-1">
                           <Clock className="h-4 w-4 mr-1" />
                           <span>
                             {result.submittedAt instanceof Date
