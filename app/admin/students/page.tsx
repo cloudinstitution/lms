@@ -6,8 +6,9 @@ import { StudentFilters } from './components/StudentFilters';
 import { StudentActions } from './components/StudentActions';
 import { EditStudentDialog } from './components/EditStudentDialog';
 import { EmailStudentDialog } from './components/EmailStudentDialog';
+import { BulkEmailDialog } from './components/BulkEmailDialog';
 import { DeleteStudentDialog } from './components/DeleteStudentDialog';
-import { useToast } from '@/components/ui/use-toast';
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import {
   fetchStudents,
@@ -69,7 +70,6 @@ const sortStudents = (students: Student[], field: SortField, direction: 'asc' | 
 };
 
 export default function AdminStudents() {
-  const { toast } = useToast();
   const [students, setStudents] = React.useState<Student[]>([]);
   const [selectedStudents, setSelectedStudents] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -116,6 +116,7 @@ export default function AdminStudents() {
     open: false,
     singleStudent: null
   });
+  const [bulkEmailDialog, setBulkEmailDialog] = React.useState(false);
   const [deleteDialog, setDeleteDialog] = React.useState(false);
   const [viewDetailsDialog, setViewDetailsDialog] = React.useState<{
     open: boolean;
@@ -136,10 +137,8 @@ export default function AdminStudents() {
       const data = await fetchStudents(userRole, assignedCourses);
       setStudents(data);
     } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to load students',
-        variant: 'destructive',
+      toast.error('Failed to load students', {
+        description: 'Please try again later',
       });
     } finally {
       setLoading(false);
@@ -209,16 +208,11 @@ export default function AdminStudents() {
         await updateStudent(editDialog.student.id, studentData);
         await loadStudents();
         setEditDialog({ open: false, student: null });
-        toast({
-          title: 'Success',
-          description: 'Student updated successfully',
-        });
+        toast.success('Student updated successfully');
       }
     } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to update student',
-        variant: 'destructive',
+      toast.error('Failed to update student', {
+        description: 'Please try again later',
       });
     }
   };
@@ -230,15 +224,10 @@ export default function AdminStudents() {
       await loadStudents();
       setSelectedStudents([]);
       setDeleteDialog(false);
-      toast({
-        title: 'Success',
-        description: 'Students deleted successfully',
-      });
+      toast.success('Students deleted successfully');
     } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to delete students',
-        variant: 'destructive',
+      toast.error('Failed to delete students', {
+        description: 'Please try again later',
       });
     }
   };
@@ -250,16 +239,11 @@ export default function AdminStudents() {
         await bulkUpdateStudentStatus(selectedStudents, status);
         await loadStudents();
         setSelectedStudents([]);
-        toast({
-          title: 'Success',
-          description: 'Student status updated successfully',
-        });
+        toast.success('Student status updated successfully');
       }
     } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to update student status',
-        variant: 'destructive',
+      toast.error('Failed to update student status', {
+        description: 'Please try again later',
       });
     }
   };
@@ -275,18 +259,15 @@ export default function AdminStudents() {
         : selectedStudents;
       
       if (targetStudents.length === 0) {
-        toast({
-          title: 'Error',
-          description: 'No students selected for email',
-          variant: 'destructive',
+        toast.error('No students selected', {
+          description: 'Please select at least one student to send emails to.',
         });
         return;
       }
 
-      // Show loading toast
-      toast({
-        title: 'Sending emails...',
-        description: `Sending to ${targetStudents.length} student${targetStudents.length > 1 ? 's' : ''}`,
+      // Show enhanced loading toast
+      toast.info('📤 Sending Emails...', {
+        description: `Preparing to send emails to ${targetStudents.length} student${targetStudents.length > 1 ? 's' : ''}...`,
       });
 
       const response = await fetch('/api/students/email', {
@@ -298,15 +279,25 @@ export default function AdminStudents() {
           studentIds: targetStudents,
           subject,
           message,
+          recipientType: 'selected'
         }),
       });
 
       const result = await response.json();
 
       if (result.success) {
-        toast({
-          title: 'Success',
-          description: result.message || 'Emails sent successfully',
+        // Enhanced success toast with detailed information
+        const emailCount = targetStudents.length;
+        const successCount = result.results?.successful || emailCount;
+        const failedCount = result.results?.failed || 0;
+        
+        let successMessage = result.message || `Successfully sent ${successCount} email${successCount > 1 ? 's' : ''}`;
+        if (failedCount > 0) {
+          successMessage += ` (${failedCount} failed)`;
+        }
+        
+        toast.success('📧 Email Sent Successfully', {
+          description: successMessage,
         });
         
         // Clear selected students after successful bulk email
@@ -314,18 +305,75 @@ export default function AdminStudents() {
           setSelectedStudents([]);
         }
       } else {
-        toast({
-          title: 'Error',
-          description: result.error || 'Failed to send emails',
-          variant: 'destructive',
+        toast.error('❌ Email Failed', {
+          description: result.error || 'Failed to send emails. Please try again.',
         });
       }
     } catch (error) {
       console.error('Error sending emails:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to send emails. Please try again.',
-        variant: 'destructive',
+      toast.error('❌ Email Error', {
+        description: 'Failed to send emails. Please check your connection and try again.',
+      });
+    }
+  };
+
+  // Bulk email handler
+  const handleBulkEmail = async (emailData: {
+    subject: string;
+    message: string;
+    recipientType: 'selected';
+  }) => {
+    try {
+      setBulkEmailDialog(false);
+
+      // Show enhanced loading toast
+      toast.info('📤 Sending Bulk Emails...', {
+        description: `Preparing to send emails to ${selectedStudents.length} selected students...`,
+      });
+
+      const requestBody = {
+        subject: emailData.subject,
+        message: emailData.message,
+        recipientType: 'selected',
+        studentIds: selectedStudents
+      };
+
+      const response = await fetch('/api/students/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Enhanced success toast with detailed information
+        const emailCount = selectedStudents.length;
+        const successCount = result.results?.successful || emailCount;
+        const failedCount = result.results?.failed || 0;
+        
+        let successMessage = result.message || `Successfully sent ${successCount} email${successCount > 1 ? 's' : ''}`;
+        if (failedCount > 0) {
+          successMessage += ` (${failedCount} failed)`;
+        }
+        
+        toast.success('📧 Bulk Email Sent Successfully', {
+          description: successMessage,
+        });
+        
+        // Clear selected students after successful email
+        setSelectedStudents([]);
+      } else {
+        toast.error('❌ Bulk Email Failed', {
+          description: result.error || 'Failed to send bulk emails. Please try again.',
+        });
+      }
+    } catch (error) {
+      console.error('Error sending emails:', error);
+      toast.error('❌ Bulk Email Error', {
+        description: 'Failed to send bulk emails. Please check your connection and try again.',
       });
     }
   };
@@ -351,6 +399,18 @@ export default function AdminStudents() {
     setFilters(prev => ({ ...prev, ...newFilters }));
     // Reset to first page when filters change
     setPagination(prev => ({ ...prev, currentPage: 1 }));
+  };
+  
+  // Helper function to check if there are active filters
+  const hasActiveFilters = () => {
+    return (
+      filters.status.length > 0 ||
+      !!filters.courseID ||
+      !!filters.courseName ||
+      !!filters.coursesEnrolled ||
+      !!filters.dateRange.from ||
+      !!filters.dateRange.to
+    );
   };
 
   // Also reset pagination when search changes
@@ -379,10 +439,8 @@ export default function AdminStudents() {
       : filteredStudents;
     
     if (studentsToExport.length === 0) {
-      toast({
-        title: 'No students to export',
+      toast.error('No students to export', {
         description: 'Please select at least one student or ensure your filters return results.',
-        variant: 'destructive',
       });
       return;
     }
@@ -397,6 +455,11 @@ export default function AdminStudents() {
       exportStudentsToExcel(studentsToExport, filename);
     }
   };
+
+  // Helper function to get selected students' data
+  const getSelectedStudentData = React.useMemo(() => {
+    return students.filter(student => selectedStudents.includes(student.id));
+  }, [students, selectedStudents]);
 
   if (loading) {
     return <div>Loading...</div>;
@@ -531,17 +594,20 @@ export default function AdminStudents() {
           </div>
         </div>
 
-        {selectedStudents.length > 0 && (
-          <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
+          {selectedStudents.length > 0 && (
             <div className="text-sm text-muted-foreground">{selectedStudents.length} students selected</div>
-            <StudentActions
-              selectedCount={selectedStudents.length}
-              onBulkDelete={() => setDeleteDialog(true)}
-              onBulkStatusChange={handleBulkStatusChange}
-              onEmailSelected={() => setEmailDialog({ open: true, singleStudent: null })}
-            />
-          </div>
-        )}
+          )}
+          <StudentActions
+            selectedCount={selectedStudents.length}
+            filteredCount={filteredStudents.length}
+            totalCount={students.length}
+            hasActiveFilters={hasActiveFilters()}
+            onBulkDelete={() => setDeleteDialog(true)}
+            onBulkStatusChange={handleBulkStatusChange}
+            onBulkEmail={() => setBulkEmailDialog(true)}
+          />
+        </div>
       </div>
 
       <div className="rounded-md border mt-4">
@@ -658,6 +724,15 @@ export default function AdminStudents() {
         open={deleteDialog}
         onClose={() => setDeleteDialog(false)}
         onConfirm={handleDeleteConfirm}
+      />
+      
+      <BulkEmailDialog
+        open={bulkEmailDialog}
+        onClose={() => setBulkEmailDialog(false)}
+        onSend={handleBulkEmail}
+        selectedCount={selectedStudents.length}
+        selectedStudents={getSelectedStudentData}
+        currentFilters={filters}
       />
       <Dialog
         open={viewDetailsDialog.open}

@@ -7,21 +7,29 @@ import {
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
 import { Student } from '@/types/student';
+import { Mail, Users, Filter } from 'lucide-react';
 
 interface StudentActionsProps {
-  selectedCount: number;  onBulkDelete: () => void;
+  selectedCount: number;
+  filteredCount: number;
+  totalCount: number;
+  hasActiveFilters: boolean;
+  onBulkDelete: () => void;
   onBulkStatusChange: (status: Student['status']) => void;
-  onEmailSelected: () => void;
+  onBulkEmail: () => void;
 }
 
 export function StudentActions({
-  selectedCount,  onBulkDelete,
+  selectedCount,
+  filteredCount,
+  totalCount,
+  hasActiveFilters,
+  onBulkDelete,
   onBulkStatusChange,
-  onEmailSelected,
+  onBulkEmail,
 }: StudentActionsProps) {
   return (
     <div className="flex gap-4 mb-6">
-      
       {selectedCount > 0 && (
         <>
           <Button
@@ -46,14 +54,20 @@ export function StudentActions({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button
-            variant="outline"
-            onClick={onEmailSelected}
-          >
-            Email Selected ({selectedCount})
-          </Button>
         </>
+      )}
+
+      {/* Email Button */}
+      {selectedCount > 0 && (
+        <Button 
+          variant="outline" 
+          className="flex items-center gap-2"
+          onClick={onBulkEmail}
+          disabled={selectedCount === 0}
+        >
+          <Mail className="h-4 w-4" />
+          Send Email ({selectedCount})
+        </Button>
       )}
     </div>
   );

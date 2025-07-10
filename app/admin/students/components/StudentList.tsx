@@ -109,7 +109,8 @@ export function StudentList({
               >
                 Joined Date {getSortIcon('joinedDate')}
               </div>
-            </TableHead>            <TableHead className="text-right">Actions</TableHead>
+            </TableHead>
+            <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

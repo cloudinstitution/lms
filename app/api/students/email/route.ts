@@ -81,19 +81,33 @@ This email was sent from Cloud Institution LMS
 
 export async function POST(request: NextRequest) {
   try {
-    const { studentIds, subject, message } = await request.json();
+    const { 
+      studentIds, 
+      subject, 
+      message, 
+      filters, 
+      recipientType = 'selected' 
+    } = await request.json();
 
     // Validate required fields
-    if (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0) {
+    if (!subject || !message) {
       return NextResponse.json(
-        { success: false, error: 'Student IDs are required' },
+        { success: false, error: 'Subject and message are required' },
         { status: 400 }
       );
     }
 
-    if (!subject || !message) {
+    // Validate recipient type and required data
+    if (recipientType === 'selected' && (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0)) {
       return NextResponse.json(
-        { success: false, error: 'Subject and message are required' },
+        { success: false, error: 'Student IDs are required for selected recipients' },
+        { status: 400 }
+      );
+    }
+
+    if (recipientType === 'filtered' && !filters) {
+      return NextResponse.json(
+        { success: false, error: 'Filters are required for filtered recipients' },
         { status: 400 }
       );
     }
@@ -113,22 +127,120 @@ export async function POST(request: NextRequest) {
     const studentsRef = db.collection('students');
     const studentEmails: { email: string; name: string; id: string }[] = [];
 
-    // Get student details for each ID
-    for (const studentId of studentIds) {
+    if (recipientType === 'selected') {
+      // Get student details for selected IDs
+      for (const studentId of studentIds) {
+        try {
+          const studentDoc = await studentsRef.doc(studentId).get();
+          if (studentDoc.exists) {
+            const studentData = studentDoc.data();
+            if (studentData?.username && studentData?.name) {
+              studentEmails.push({
+                email: studentData.username,
+                name: studentData.name,
+                id: studentId
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching student ${studentId}:`, error);
+        }
+      }
+    } else if (recipientType === 'filtered') {
+      // Get all students and apply filters
       try {
-        const studentDoc = await studentsRef.doc(studentId).get();
-        if (studentDoc.exists) {
-          const studentData = studentDoc.data();
+        const allStudentsSnapshot = await studentsRef.get();
+        const allStudents = allStudentsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as any[];
+
+        // Apply filters
+        let filteredStudents = allStudents;
+
+        // Filter by status
+        if (filters.status && filters.status.length > 0) {
+          filteredStudents = filteredStudents.filter((student: any) => 
+            filters.status.includes(student.status)
+          );
+        }
+
+        // Filter by course name
+        if (filters.courseName) {
+          filteredStudents = filteredStudents.filter((student: any) => 
+            student.courseName && student.courseName.some((course: string) => 
+              course.toLowerCase().includes(filters.courseName.toLowerCase())
+            )
+          );
+        }
+
+        // Filter by course ID
+        if (filters.courseID) {
+          filteredStudents = filteredStudents.filter((student: any) => 
+            student.courseID && student.courseID.includes(filters.courseID)
+          );
+        }
+
+        // Filter by courses enrolled count
+        if (filters.coursesEnrolled) {
+          filteredStudents = filteredStudents.filter((student: any) => 
+            student.coursesEnrolled >= filters.coursesEnrolled
+          );
+        }
+
+        // Filter by date range
+        if (filters.dateRange?.from || filters.dateRange?.to) {
+          filteredStudents = filteredStudents.filter((student: any) => {
+            if (!student.joinedDate) return false;
+            
+            const joinedDate = new Date(student.joinedDate);
+            const fromDate = filters.dateRange.from ? new Date(filters.dateRange.from) : null;
+            const toDate = filters.dateRange.to ? new Date(filters.dateRange.to) : null;
+            
+            if (fromDate && joinedDate < fromDate) return false;
+            if (toDate && joinedDate > toDate) return false;
+            
+            return true;
+          });
+        }
+
+        // Extract email information
+        filteredStudents.forEach((student: any) => {
+          if (student.username && student.name) {
+            studentEmails.push({
+              email: student.username,
+              name: student.name,
+              id: student.id
+            });
+          }
+        });
+      } catch (error) {
+        console.error('Error fetching filtered students:', error);
+        return NextResponse.json(
+          { success: false, error: 'Failed to fetch filtered students' },
+          { status: 500 }
+        );
+      }
+    } else if (recipientType === 'all') {
+      // Get all active students
+      try {
+        const allStudentsSnapshot = await studentsRef.where('status', '==', 'Active').get();
+        allStudentsSnapshot.docs.forEach(doc => {
+          const studentData = doc.data();
           if (studentData?.username && studentData?.name) {
             studentEmails.push({
               email: studentData.username,
               name: studentData.name,
-              id: studentId
+              id: doc.id
             });
           }
-        }
+        });
       } catch (error) {
-        console.error(`Error fetching student ${studentId}:`, error);
+        console.error('Error fetching all students:', error);
+        return NextResponse.json(
+          { success: false, error: 'Failed to fetch all students' },
+          { status: 500 }
+        );
       }
     }
 
