@@ -29,6 +29,15 @@ export function CalendarView({ schedules = [], holidays = [] }: CalendarViewProp
   const [showFilters, setShowFilters] = useState(false);
   const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
 
+  // Helper function to convert day of week string to number
+  const getDayOfWeekNumber = (dayOfWeek: string): number => {
+    const days = {
+      sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+      thursday: 4, friday: 5, saturday: 6
+    };
+    return days[dayOfWeek as keyof typeof days] || 0;
+  };
+
   // Debug logging
   console.log('CalendarView props:', { 
     schedulesCount: schedules.length, 
@@ -200,13 +209,7 @@ export function CalendarView({ schedules = [], holidays = [] }: CalendarViewProp
     });
     return Array.from(courseMap.entries()).map(([id, name]) => ({ id, name }));
   }, [schedules]);
-  const getDayOfWeekNumber = (dayOfWeek: string): number => {
-    const days = {
-      sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
-      thursday: 4, friday: 5, saturday: 6
-    };
-    return days[dayOfWeek as keyof typeof days] || 0;
-  };
+
   // Handle event click to switch to agenda view and highlight the event
   const handleEventClick = (event: CalendarEvent) => {
     setCurrentView(Views.AGENDA);
