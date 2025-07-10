@@ -22,6 +22,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   // Helper function to check if a link is active
   const isActive = (path: string) => {
+    if (!mounted) return false // Return false during SSR
     if (path === "/") {
       return pathname === "/"
     }
