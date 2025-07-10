@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { updateStudentAttendanceSummary } from "@/lib/attendance-total-classes-service"
 import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import { getAdminSession } from "@/lib/session-storage"
@@ -657,35 +658,16 @@ export default function AdminAttendancePage() {
             
             if (studentDoc.exists()) {
               const studentData = studentDoc.data();
-              const attendanceByCourse = studentData.attendanceByCourse || {};
-              
-              if (!attendanceByCourse[courseId]) {
-                attendanceByCourse[courseId] = {
-                  datesPresent: [],
-                  summary: { totalClasses: 0, attended: 0, percentage: 0 }
-                };
-              }
-              
-              const courseAttendance = attendanceByCourse[courseId];
-              
-              // Add the date to present dates if not already there
-              if (!courseAttendance.datesPresent.includes(dateString)) {
-                courseAttendance.datesPresent.push(dateString);
-              }
-              
-              // Update summary
-              courseAttendance.summary.attended = courseAttendance.datesPresent.length;
-              courseAttendance.summary.totalClasses = Math.max(
-                courseAttendance.summary.totalClasses, 
-                courseAttendance.summary.attended
+              const updatedAttendanceByCourse = await updateStudentAttendanceSummary(
+                studentData,
+                courseId,
+                dateString,
+                true // student is present
               );
-              courseAttendance.summary.percentage = courseAttendance.summary.totalClasses > 0 
-                ? (courseAttendance.summary.attended / courseAttendance.summary.totalClasses) * 100 
-                : 0;
 
               await setDoc(studentDocRef, {
                 ...studentData,
-                attendanceByCourse
+                attendanceByCourse: updatedAttendanceByCourse
               }, { merge: true });
             }
           });
@@ -697,30 +679,17 @@ export default function AdminAttendancePage() {
             
             if (studentDoc.exists()) {
               const studentData = studentDoc.data();
-              const attendanceByCourse = studentData.attendanceByCourse || {};
-              
-              if (attendanceByCourse[courseId]) {
-                const courseAttendance = attendanceByCourse[courseId];
-                
-                // Remove the date from present dates if it exists
-                courseAttendance.datesPresent = courseAttendance.datesPresent.filter((date: string) => date !== dateString);
-                
-                // Update summary
-                courseAttendance.summary.attended = courseAttendance.datesPresent.length;
-                // Keep totalClasses as is or increment if this date was new
-                courseAttendance.summary.totalClasses = Math.max(
-                  courseAttendance.summary.totalClasses, 
-                  courseAttendance.summary.attended + 1 // +1 because they were absent today
-                );
-                courseAttendance.summary.percentage = courseAttendance.summary.totalClasses > 0 
-                  ? (courseAttendance.summary.attended / courseAttendance.summary.totalClasses) * 100 
-                  : 0;
+              const updatedAttendanceByCourse = await updateStudentAttendanceSummary(
+                studentData,
+                courseId,
+                dateString,
+                false // student is absent
+              );
 
-                await setDoc(studentDocRef, {
-                  ...studentData,
-                  attendanceByCourse
-                }, { merge: true });
-              }
+              await setDoc(studentDocRef, {
+                ...studentData,
+                attendanceByCourse: updatedAttendanceByCourse
+              }, { merge: true });
             }
           });
 
