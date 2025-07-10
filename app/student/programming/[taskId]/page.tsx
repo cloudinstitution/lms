@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { AlertCircle, ArrowLeft, Clock } from "lucide-react"
+import { AlertCircle, ArrowLeft, Clock, Cloud, GraduationCap } from "lucide-react"
 import { doc, getDoc, updateDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -15,6 +15,7 @@ import MonacoEditor from "@/components/monaco-editor"
 import { v4 as uuidv4 } from "uuid"
 import { storeTaskStatus, getTaskStatus } from "@/lib/task-status-service"
 import { getStudentId, getStudentName } from "@/lib/session-storage"
+import { isStudentInAWSCourse, getStudentAWSCourses } from "@/lib/course-utils"
 
 interface TestCase {
   input: string
@@ -48,6 +49,7 @@ export default function StudentProgrammingTaskPage() {
   const taskId = params?.taskId as string
 
   const [task, setTask] = useState<ProgrammingTask | null>(null)
+  const [isAWSStudent, setIsAWSStudent] = useState<boolean>(false)
   const [code, setCode] = useState("")
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -65,6 +67,16 @@ export default function StudentProgrammingTaskPage() {
   const [studentName, setStudentName] = useState<string | null>(null)
 
   useEffect(() => {
+    // Check if student is in AWS course
+    const awsStudent = isStudentInAWSCourse()
+    setIsAWSStudent(awsStudent)
+    
+    // If AWS student, redirect to programming main page
+    if (awsStudent) {
+      router.push('/student/programming')
+      return
+    }
+    
     // Get student info from localStorage
     const id = getStudentId()
     const name = getStudentName()

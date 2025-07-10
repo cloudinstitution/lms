@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { db } from "@/lib/firebase"
 import { clearSession, getStudentName } from "@/lib/session-storage"
+import { isStudentInAWSCourse } from "@/lib/course-utils"
 import { collection, DocumentData, onSnapshot, query } from "firebase/firestore"
 import {
   Bell,
@@ -46,6 +47,7 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
   const [isMounted, setIsMounted] = useState(false)
   const [notificationCount, setNotificationCount] = useState<number>(0)
   const [studentName, setStudentName] = useState<string | null>(null)
+  const [isAWSStudent, setIsAWSStudent] = useState<boolean>(false)
   const { theme, setTheme } = useTheme()
 
   useEffect(() => {
@@ -53,6 +55,9 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
     // Get student name from localStorage
     const name = getStudentName();
     setStudentName(name || 'Student');
+    
+    // Check if student is in AWS course
+    setIsAWSStudent(isStudentInAWSCourse());
 
     // Subscribe to unread notifications count
     const notificationsCollection = collection(db, "notifications");

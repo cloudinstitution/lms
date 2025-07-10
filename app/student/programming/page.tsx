@@ -8,9 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { db } from "@/lib/firebase"
 import { getStudentSession } from "@/lib/session-storage"
+import { isStudentInAWSCourse, getStudentAWSCourses } from "@/lib/course-utils"
 import { getTaskStatus } from "@/lib/task-status-service"
 import { collection, getDocs } from "firebase/firestore"
-import { AlertCircle, Clock, FileCode } from "lucide-react"
+import { AlertCircle, Clock, FileCode, GraduationCap, BookOpen, Cloud } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 
@@ -40,8 +41,20 @@ export default function StudentProgrammingPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [apiStatus, setApiStatus] = useState<"unknown" | "ok" | "error">("unknown")
+  const [isAWSStudent, setIsAWSStudent] = useState<boolean>(false)
+  const [awsCourses, setAWSCourses] = useState<string[]>([])
 
   useEffect(() => {
+    // Check if student is in AWS course
+    const awsStudent = isStudentInAWSCourse()
+    setIsAWSStudent(awsStudent)
+    
+    if (awsStudent) {
+      setAWSCourses(getStudentAWSCourses())
+      setLoading(false)
+      return
+    }
+    
     const init = async () => {
       try {
         // Get student ID from session storage
@@ -64,7 +77,10 @@ export default function StudentProgrammingPage() {
       }
     }
     
-    init()
+    // Only initialize for non-AWS students
+    if (!awsStudent) {
+      init()
+    }
   }, [router])
 
   const checkApiStatus = async () => {
@@ -159,29 +175,96 @@ export default function StudentProgrammingPage() {
           <p className="text-muted-foreground mt-1">Complete programming challenges to improve your coding skills</p>
         </div>
 
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+        {/* AWS Student Message */}
+        {isAWSStudent ? (
+          <div className="space-y-4">
+            <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+              <Cloud className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <AlertTitle className="text-blue-800 dark:text-blue-200">Programming Not Available for AWS Students</AlertTitle>
+              <AlertDescription className="text-blue-700 dark:text-blue-300">
+                As a student enrolled in AWS courses, programming tasks are not required for your curriculum. 
+                Your learning path focuses on cloud computing concepts, AWS services, and cloud architecture.
+              </AlertDescription>
+            </Alert>
+            
+            <Card className="border-blue-200 dark:border-blue-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-800 dark:text-blue-200">
+                  <GraduationCap className="h-5 w-5" />
+                  Your AWS Learning Path
+                </CardTitle>
+                <CardDescription>
+                  You are enrolled in the following AWS courses:
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {awsCourses.map((course, index) => (
+                    <div key={index} className="flex items-center gap-2 p-2 bg-blue-100 dark:bg-blue-900 rounded">
+                      <Cloud className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      <span className="font-medium text-blue-800 dark:text-blue-200">{course}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 pt-4 border-t border-blue-200 dark:border-blue-700">
+                  <p className="text-sm text-blue-700 dark:text-blue-300 mb-3">
+                    Focus on these areas instead:
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                      <BookOpen className="h-4 w-4" />
+                      Course Materials & Labs
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                      <FileCode className="h-4 w-4" />
+                      AWS Hands-on Projects
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                      <GraduationCap className="h-4 w-4" />
+                      Certification Preparation
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                      <Cloud className="h-4 w-4" />
+                      Cloud Architecture Design
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <Button 
+                    onClick={() => router.push('/student/courses')}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Go to Courses
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        ) : (
+          <>
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-        {apiStatus === "error" && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Judge0 API Error</AlertTitle>
-            <AlertDescription>
-              The code execution API is not available. Please check your environment variables and configuration.
-            </AlertDescription>
-          </Alert>
-        )}
+            {apiStatus === "error" && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Judge0 API Error</AlertTitle>
+                <AlertDescription>
+                  The code execution API is not available. Please check your environment variables and configuration.
+                </AlertDescription>
+              </Alert>
+            )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Available Tasks</CardTitle>
-            <CardDescription>Programming tasks assigned to you</CardDescription>
-          </CardHeader>
+            <Card>
+              <CardHeader>
+                <CardTitle>Available Tasks</CardTitle>
+                <CardDescription>Programming tasks assigned to you</CardDescription>
+              </CardHeader>
           <CardContent>
             {loading ? (
               <div className="flex justify-center py-6">Loading tasks...</div>
@@ -251,6 +334,8 @@ export default function StudentProgrammingPage() {
             )}
           </CardContent>
         </Card>
+        </>
+        )}
       </div>
     </StudentLayout>
   )
