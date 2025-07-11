@@ -16,15 +16,34 @@ if (!admin.apps.length) {
 // Get Firestore instance
 const db = admin.firestore();
 
-// Create transporter for email sending
+// Create transporter for email sending with proper fallback logic
 const createTransporter = () => {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-  });
+  // Check for Gmail configuration first
+  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
+    });
+  }
+  // Check for custom SMTP configuration
+  else if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD,
+      },
+    });
+  }
+  // If no configuration is found, throw an error
+  else {
+    throw new Error('No email configuration found. Please set up Gmail or SMTP credentials.');
+  }
 };
 
 // Email template for student notifications
@@ -112,15 +131,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if email configuration is available
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    // Check if email configuration is available (supports both Gmail and SMTP)
+    if (!((process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || 
+          (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD))) {
       return NextResponse.json(
-        { success: false, error: 'Email configuration is not available' },
+        { success: false, error: 'Email configuration is not available. Please configure Gmail or SMTP settings.' },
         { status: 500 }
       );
     }
 
-    // Create email transporter
+    // Create email transporter with fallback logic
     const transporter = createTransporter();
 
     // Fetch student data from Firestore
@@ -257,7 +277,7 @@ export async function POST(request: NextRequest) {
         const emailTemplate = createEmailTemplate(subject, message, student.name);
         
         const mailOptions = {
-          from: `"Cloud Institution LMS" <${process.env.GMAIL_USER}>`,
+          from: `"Cloud Institution LMS" <${process.env.GMAIL_USER || process.env.SMTP_USER}>`,
           to: student.email,
           subject: subject,
           html: emailTemplate.html,
@@ -277,7 +297,7 @@ export async function POST(request: NextRequest) {
           messageId: info.messageId,
           status: 'sent',
           timestamp: new Date().toISOString(),
-          sentBy: 'admin' // You can get this from session/auth
+          sentBy: 'admin'
         });
 
         return { success: true, email: student.email, messageId: info.messageId };
