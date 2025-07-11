@@ -36,12 +36,25 @@ import { useParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import PhoneInput from "react-phone-input-2"
 import "react-phone-input-2/lib/style.css"
+import { toast } from "sonner"
 
 // Google Sheets URL for enrollment data submission
-const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxkGnKUiVv-XZ-O75PizlVWeEjLzt-nHq-MLhoFZ6aBugEGDZ0UKNY1I5ha_PEHPLQB/exec';
+const GOOGLE_SHEETS_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_URL;
 
 // Function to submit enrollment data to Google Sheets
 const submitToGoogleSheets = async (enrollmentData: any, courseTitle: string) => {
+  // Check if Google Sheets URL is configured
+  if (!GOOGLE_SHEETS_URL) {
+    console.error('Google Sheets URL not configured. Please set NEXT_PUBLIC_GOOGLE_SHEETS_URL in your environment variables.')
+    return {
+      success: false,
+      error: 'Google Sheets integration not configured. Please contact support.',
+      details: {
+        message: 'NEXT_PUBLIC_GOOGLE_SHEETS_URL environment variable is not set'
+      }
+    }
+  }
+
   console.log('=== SUBMITTING TO GOOGLE SHEETS ===')
   console.log('Enrollment data:', enrollmentData)
   console.log('Course title:', courseTitle)
@@ -855,8 +868,11 @@ export default function CourseDetailPage() {
       if (result.success) {
         setShowEnrollModal(false)
         
-        // Show success message
-        alert(`Successfully enrolled in ${course?.title}! Your enrollment has been recorded and you will receive a confirmation email shortly.`)
+        // Show success message with toast
+        toast.success('Enrollment Successful!', {
+          description: `Successfully enrolled in ${course?.title}! Your enrollment has been recorded and our team will contact you soon.`,
+          duration: 5000,
+        })
         
         // Reset form
         setEnrollmentData({
@@ -877,7 +893,10 @@ export default function CourseDetailPage() {
       }
     } catch (error) {
       console.error('Enrollment error:', error)
-      alert('There was an error processing your enrollment. Please try again or contact support.')
+      toast.error('Enrollment Failed', {
+        description: 'There was an error processing your enrollment. Please try again or contact support.',
+        duration: 5000,
+      })
     } finally {
       setEnrollmentLoading(false)
     }
