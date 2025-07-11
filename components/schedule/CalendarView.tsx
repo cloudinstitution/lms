@@ -9,8 +9,9 @@ import { cn } from "@/lib/utils";
 import { CourseSchedule, HolidayEvent, ScheduleViewFilters, CalendarEvent, EVENT_COLORS } from "@/types/schedule";
 import { Calendar as BigCalendar, momentLocalizer, Views, View } from "react-big-calendar";
 import moment from "moment";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { CalendarIcon, Filter, ChevronLeft, ChevronRight } from "lucide-react";
+import { useTheme } from "next-themes";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import "@/styles/calendar.css";
 
@@ -28,6 +29,16 @@ export function CalendarView({ schedules = [], holidays = [] }: CalendarViewProp
   const [filters, setFilters] = useState<ScheduleViewFilters>({});
   const [showFilters, setShowFilters] = useState(false);
   const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
+  const { theme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure theme is applied after hydration
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Force theme detection
+  const isDark = mounted && (resolvedTheme === 'dark' || theme === 'dark');
 
   // Helper function to convert day of week string to number
   const getDayOfWeekNumber = (dayOfWeek: string): number => {
@@ -489,7 +500,14 @@ export function CalendarView({ schedules = [], holidays = [] }: CalendarViewProp
           </div>
         </div>
       </CardHeader>      <CardContent>
-        <div className="h-[600px] bg-background text-foreground">          <BigCalendar
+        <div 
+          className={cn(
+            "calendar-container h-[600px] bg-background text-foreground",
+            isDark && "dark"
+          )}
+          data-theme={isDark ? 'dark' : 'light'}
+        >
+          <BigCalendar
             localizer={localizer}
             events={filteredEvents}
             startAccessor="start"
@@ -499,7 +517,8 @@ export function CalendarView({ schedules = [], holidays = [] }: CalendarViewProp
             onView={setCurrentView}
             date={currentDate}
             onNavigate={setCurrentDate}
-            eventPropGetter={eventStyleGetter}            components={{
+            eventPropGetter={eventStyleGetter}
+            components={{
               toolbar: CustomToolbar,
               event: CustomEvent,
               agenda: {

@@ -1,0 +1,133 @@
+/* Calendar theme overrides for consistent dark/light mode across environments */
+
+/* Force calendar theme consistency in all environments */
+.calendar-container,
+.calendar-container .rbc-calendar {
+  color: hsl(var(--foreground)) !important;
+  background-color: hsl(var(--background)) !important;
+}
+
+/* Override any default calendar styles that might conflict */
+.calendar-container[data-theme="dark"] .rbc-calendar,
+.calendar-container.dark .rbc-calendar,
+html.dark .calendar-container .rbc-calendar {
+  color: hsl(var(--foreground)) !important;
+  background-color: hsl(var(--background)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-header,
+.calendar-container.dark .rbc-header,
+html.dark .calendar-container .rbc-header {
+  background-color: hsl(var(--muted)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-month-view,
+.calendar-container.dark .rbc-month-view,
+html.dark .calendar-container .rbc-month-view {
+  background-color: hsl(var(--background)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-date-cell,
+.calendar-container.dark .rbc-date-cell,
+html.dark .calendar-container .rbc-date-cell {
+  color: hsl(var(--foreground)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-off-range .rbc-date-cell,
+.calendar-container.dark .rbc-off-range .rbc-date-cell,
+html.dark .calendar-container .rbc-off-range .rbc-date-cell {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-today,
+.calendar-container.dark .rbc-today,
+html.dark .calendar-container .rbc-today {
+  background-color: hsl(var(--primary) / 0.05) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-toolbar button,
+.calendar-container.dark .rbc-toolbar button,
+html.dark .calendar-container .rbc-toolbar button {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-toolbar button.rbc-active,
+.calendar-container.dark .rbc-toolbar button.rbc-active,
+html.dark .calendar-container .rbc-toolbar button.rbc-active {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-toolbar .rbc-toolbar-label,
+.calendar-container.dark .rbc-toolbar .rbc-toolbar-label,
+html.dark .calendar-container .rbc-toolbar .rbc-toolbar-label {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Ensure popups and overlays work correctly */
+.calendar-container[data-theme="dark"] .rbc-overlay,
+.calendar-container.dark .rbc-overlay,
+html.dark .calendar-container .rbc-overlay {
+  background-color: hsl(var(--background)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-overlay .rbc-overlay-header,
+.calendar-container.dark .rbc-overlay .rbc-overlay-header,
+html.dark .calendar-container .rbc-overlay .rbc-overlay-header {
+  background-color: hsl(var(--muted)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Fix week and day view time slots */
+.calendar-container[data-theme="dark"] .rbc-time-view,
+.calendar-container.dark .rbc-time-view,
+html.dark .calendar-container .rbc-time-view {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-time-slot,
+.calendar-container.dark .rbc-time-slot,
+html.dark .calendar-container .rbc-time-slot {
+  border-color: hsl(var(--border) / 0.3) !important;
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-timeslot-group,
+.calendar-container.dark .rbc-timeslot-group,
+html.dark .calendar-container .rbc-timeslot-group {
+  border-color: hsl(var(--border)) !important;
+}
+
+/* Fix agenda view */
+.calendar-container[data-theme="dark"] .rbc-agenda-view,
+.calendar-container.dark .rbc-agenda-view,
+html.dark .calendar-container .rbc-agenda-view {
+  background-color: hsl(var(--background)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-agenda-view .rbc-agenda-date-cell,
+.calendar-container[data-theme="dark"] .rbc-agenda-view .rbc-agenda-time-cell,
+.calendar-container[data-theme="dark"] .rbc-agenda-view .rbc-agenda-event-cell,
+.calendar-container.dark .rbc-agenda-view .rbc-agenda-date-cell,
+.calendar-container.dark .rbc-agenda-view .rbc-agenda-time-cell,
+.calendar-container.dark .rbc-agenda-view .rbc-agenda-event-cell,
+html.dark .calendar-container .rbc-agenda-view .rbc-agenda-date-cell,
+html.dark .calendar-container .rbc-agenda-view .rbc-agenda-time-cell,
+html.dark .calendar-container .rbc-agenda-view .rbc-agenda-event-cell {
+  border-color: hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.calendar-container[data-theme="dark"] .rbc-agenda-view .rbc-agenda-date-cell,
+.calendar-container.dark .rbc-agenda-view .rbc-agenda-date-cell,
+html.dark .calendar-container .rbc-agenda-view .rbc-agenda-date-cell {
+  background-color: hsl(var(--muted) / 0.5) !important;
+}
