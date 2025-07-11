@@ -32,6 +32,10 @@ export default function StudentCreationForm() {
   const [primaryCourseIndex, setPrimaryCourseIndex] = useState(0);
   const [courseMode, setCourseMode] = useState<"Online" | "Offline">("Online");
   const [studentId, setStudentId] = useState("");
+  const [customStudentId, setCustomStudentId] = useState("");
+  const [useCustomId, setUseCustomId] = useState(false);
+  const [isCheckingId, setIsCheckingId] = useState(false);
+  const [idValidationMessage, setIdValidationMessage] = useState("");
   const [error, setError] = useState("");
   
   // Fetch courses
@@ -188,11 +192,79 @@ export default function StudentCreationForm() {
     }
   };
 
+  // Function to validate custom student ID
+  const validateCustomStudentId = async (id: string) => {
+    if (!id || id.length < 3) {
+      setIdValidationMessage("Student ID must be at least 3 characters long");
+      return false;
+    }
+
+    setIsCheckingId(true);
+    setIdValidationMessage("");
+
+    try {
+      // Check if ID already exists in the database
+      const existingIdQuery = query(
+        collection(db, "students"),
+        where("studentId", "==", id)
+      );
+      const existingIdSnapshot = await getDocs(existingIdQuery);
+
+      if (!existingIdSnapshot.empty) {
+        setIdValidationMessage("This student ID already exists. Please use a different one.");
+        setIsCheckingId(false);
+        return false;
+      }
+
+      setIdValidationMessage("✓ Student ID is available");
+      setIsCheckingId(false);
+      return true;
+    } catch (error) {
+      console.error("Error checking student ID:", error);
+      setIdValidationMessage("Error checking ID availability");
+      setIsCheckingId(false);
+      return false;
+    }
+  };
+
+  // Handle custom student ID change
+  const handleCustomIdChange = async (value: string) => {
+    setCustomStudentId(value);
+    
+    if (value.length >= 3) {
+      await validateCustomStudentId(value);
+    } else if (value.length > 0) {
+      setIdValidationMessage("Student ID must be at least 3 characters long");
+    } else {
+      setIdValidationMessage("");
+    }
+  };
+
   // Handle form submission
   const handleCreateStudent = async (userData: BaseUserData): Promise<void> => {
     try {
       setIsCreatingStudent(true);
       setError("");
+      
+      // Validate custom student ID if using custom
+      if (useCustomId) {
+        if (!customStudentId || customStudentId.length < 3) {
+          setError("Please enter a valid custom student ID (minimum 3 characters)");
+          setIsCreatingStudent(false);
+          return;
+        }
+        
+        // Check if the custom ID is valid
+        const isValid = await validateCustomStudentId(customStudentId);
+        if (!isValid) {
+          setError("Please fix the student ID validation error before proceeding");
+          setIsCreatingStudent(false);
+          return;
+        }
+      }
+      
+      // Use custom ID if provided, otherwise use auto-generated ID
+      const finalStudentId = useCustomId ? customStudentId : studentId;
       
       // Extract primary course
       const calculatedPrimaryIndex = Math.min(primaryCourseIndex, selectedCourses.length - 1);
@@ -201,7 +273,7 @@ export default function StudentCreationForm() {
       // Prepare student data for API call
       const studentData = {
         ...userData,
-        studentId,
+        studentId: finalStudentId,
         coursesEnrolled: selectedCourses.length,
         courseName: selectedCourses.map(c => c.title),
         courseID: selectedCourses.map(c => c.courseID),
@@ -245,6 +317,9 @@ export default function StudentCreationForm() {
         setSelectedCourses([]);
         setPrimaryCourseIndex(0);
         setCourseMode("Online");
+        setUseCustomId(false);
+        setCustomStudentId("");
+        setIdValidationMessage("");
         
         // Generate next student ID
         await getNextStudentId();
@@ -271,8 +346,77 @@ export default function StudentCreationForm() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Student ID</Label>
-          <div className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground">
-            {studentId || "Generating..."}
+          <div className="space-y-3">
+            <div className="flex items-center space-x-2">
+              <input
+                type="radio"
+                id="auto-id"
+                name="studentIdType"
+                checked={!useCustomId}
+                onChange={() => {
+                  setUseCustomId(false);
+                  setIdValidationMessage("");
+                }}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="auto-id" className="text-sm font-normal cursor-pointer">
+                Auto-generate ID
+              </Label>
+            </div>
+            
+            {!useCustomId && (
+              <div className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground">
+                {studentId || "Generating..."}
+              </div>
+            )}
+            
+            <div className="flex items-center space-x-2">
+              <input
+                type="radio"
+                id="custom-id"
+                name="studentIdType"
+                checked={useCustomId}
+                onChange={() => setUseCustomId(true)}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="custom-id" className="text-sm font-normal cursor-pointer">
+                Use custom ID
+              </Label>
+            </div>
+            
+            {useCustomId && (
+              <div className="space-y-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={customStudentId}
+                    onChange={(e) => handleCustomIdChange(e.target.value)}
+                    placeholder="Enter custom student ID (min. 3 characters)"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isCheckingId}
+                  />
+                  {isCheckingId && (
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                    </div>
+                  )}
+                </div>
+                
+                {idValidationMessage && (
+                  <p className={`text-xs ${
+                    idValidationMessage.includes("✓") 
+                      ? "text-green-600" 
+                      : "text-red-600"
+                  }`}>
+                    {idValidationMessage}
+                  </p>
+                )}
+                
+                <p className="text-xs text-muted-foreground">
+                  Custom ID must be at least 3 characters long and unique
+                </p>
+              </div>
+            )}
           </div>
         </div>
         

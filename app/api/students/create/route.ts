@@ -374,6 +374,14 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // Validate student ID
+    if (!studentData.studentId || studentData.studentId.length < 3) {
+      return NextResponse.json(
+        { error: "Student ID must be at least 3 characters long" },
+        { status: 400 }
+      );
+    }
+    
     // Check if student already exists
     const existingStudentQuery = query(
       collection(db, "students"),
@@ -397,7 +405,7 @@ export async function POST(request: NextRequest) {
     
     if (!existingIdSnapshot.empty) {
       return NextResponse.json(
-        { error: "A student with this ID already exists" },
+        { error: `Student ID '${studentData.studentId}' already exists. Please use a different student ID.` },
         { status: 409 }
       );
     }
