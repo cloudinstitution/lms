@@ -4,6 +4,11 @@ import nodemailer from 'nodemailer';
 
 // Initialize Firebase Admin if it hasn't been already
 if (!admin.apps.length) {
+  console.log('🔍 Initializing Firebase Admin for production...');
+  console.log('🔍 Project ID:', process.env.FIREBASE_PROJECT_ID);
+  console.log('🔍 Client Email exists:', !!process.env.FIREBASE_CLIENT_EMAIL);
+  console.log('🔍 Private Key exists:', !!process.env.FIREBASE_PRIVATE_KEY);
+  
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
@@ -11,10 +16,19 @@ if (!admin.apps.length) {
       privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
     }),
   });
+  console.log('✅ Firebase Admin initialized successfully');
+} else {
+  console.log('🔍 Firebase Admin already initialized');
 }
 
 // Get Firestore instance
 const db = admin.firestore();
+
+// Email validation helper function
+const isValidEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
 
 // Create transporter for email sending with proper fallback logic
 const createTransporter = () => {
@@ -154,13 +168,34 @@ export async function POST(request: NextRequest) {
           const studentDoc = await studentsRef.doc(studentId).get();
           if (studentDoc.exists) {
             const studentData = studentDoc.data();
-            if (studentData?.username && studentData?.name) {
+            console.log(`🔍 Processing student ${studentId}:`, {
+              hasEmail: !!studentData?.email,
+              hasUsername: !!studentData?.username,
+              hasName: !!studentData?.name,
+              email: studentData?.email,
+              username: studentData?.username
+            });
+            
+            // Check both email and username fields for email address
+            const emailAddress = studentData?.email || studentData?.username;
+            
+            // Validate email format
+            if (emailAddress && isValidEmail(emailAddress) && studentData?.name) {
               studentEmails.push({
-                email: studentData.username,
+                email: emailAddress,
                 name: studentData.name,
                 id: studentId
               });
+              console.log(`✅ Added student ${studentId} with email ${emailAddress}`);
+            } else {
+              console.log(`❌ Skipped student ${studentId}:`, {
+                emailAddress,
+                isValidEmail: emailAddress ? isValidEmail(emailAddress) : false,
+                hasName: !!studentData?.name
+              });
             }
+          } else {
+            console.log(`❌ Student ${studentId} does not exist`);
           }
         } catch (error) {
           console.error(`Error fetching student ${studentId}:`, error);
@@ -226,9 +261,11 @@ export async function POST(request: NextRequest) {
 
         // Extract email information
         filteredStudents.forEach((student: any) => {
-          if (student.username && student.name) {
+          // Check both email and username fields for email address
+          const emailAddress = student.email || student.username;
+          if (emailAddress && student.name) {
             studentEmails.push({
-              email: student.username,
+              email: emailAddress,
               name: student.name,
               id: student.id
             });
@@ -244,17 +281,51 @@ export async function POST(request: NextRequest) {
     } else if (recipientType === 'all') {
       // Get all active students
       try {
+        console.log('🔍 Fetching all active students...');
         const allStudentsSnapshot = await studentsRef.where('status', '==', 'Active').get();
-        allStudentsSnapshot.docs.forEach(doc => {
-          const studentData = doc.data();
-          if (studentData?.username && studentData?.name) {
-            studentEmails.push({
-              email: studentData.username,
-              name: studentData.name,
-              id: doc.id
+        console.log(`🔍 Found ${allStudentsSnapshot.size} active students`);
+        
+        if (allStudentsSnapshot.empty) {
+          // Try without status filter as fallback
+          console.log('🔍 No active students found, trying all students...');
+          const allStudentsSnapshot2 = await studentsRef.limit(10).get();
+          console.log(`🔍 Found ${allStudentsSnapshot2.size} total students`);
+          
+          allStudentsSnapshot2.docs.forEach((doc, index) => {
+            const studentData = doc.data();
+            console.log(`🔍 Student ${index + 1}:`, {
+              id: doc.id,
+              status: studentData?.status,
+              hasEmail: !!studentData?.email,
+              hasUsername: !!studentData?.username,
+              email: studentData?.email,
+              username: studentData?.username
             });
-          }
-        });
+            
+            // Check both email and username fields for email address
+            const emailAddress = studentData?.email || studentData?.username;
+            if (emailAddress && isValidEmail(emailAddress) && studentData?.name) {
+              studentEmails.push({
+                email: emailAddress,
+                name: studentData.name,
+                id: doc.id
+              });
+            }
+          });
+        } else {
+          allStudentsSnapshot.docs.forEach(doc => {
+            const studentData = doc.data();
+            // Check both email and username fields for email address
+            const emailAddress = studentData?.email || studentData?.username;
+            if (emailAddress && isValidEmail(emailAddress) && studentData?.name) {
+              studentEmails.push({
+                email: emailAddress,
+                name: studentData.name,
+                id: doc.id
+              });
+            }
+          });
+        }
       } catch (error) {
         console.error('Error fetching all students:', error);
         return NextResponse.json(
@@ -265,8 +336,76 @@ export async function POST(request: NextRequest) {
     }
 
     if (studentEmails.length === 0) {
+      // Enhanced debugging for production issues
+      try {
+        console.log('🔍 Production Debug - Environment Check:');
+        console.log('🔍 Firebase Project ID:', process.env.FIREBASE_PROJECT_ID);
+        console.log('🔍 Firebase Client Email:', process.env.FIREBASE_CLIENT_EMAIL?.substring(0, 20) + '...');
+        console.log('🔍 Recipient Type:', recipientType);
+        console.log('🔍 Student IDs provided:', studentIds);
+        console.log('🔍 Filters provided:', filters);
+
+        // Get total count of students in the database
+        const totalStudentsSnapshot = await studentsRef.limit(5).get();
+        console.log('🔍 Total students found in DB:', totalStudentsSnapshot.size);
+        
+        if (!totalStudentsSnapshot.empty) {
+          totalStudentsSnapshot.docs.forEach((doc, index) => {
+            const student = doc.data();
+            console.log(`🔍 Student ${index + 1} fields:`, Object.keys(student));
+            console.log(`🔍 Student ${index + 1} data:`, {
+              id: doc.id,
+              hasEmail: !!student.email,
+              hasUsername: !!student.username,
+              hasName: !!student.name,
+              email: student.email ? `${student.email.substring(0, 5)}...` : 'N/A',
+              username: student.username ? `${student.username.substring(0, 5)}...` : 'N/A',
+              name: student.name || 'N/A',
+              status: student.status || 'N/A'
+            });
+          });
+        } else {
+          console.log('🔍 No students found in database!');
+        }
+
+        // Check specific student IDs if provided
+        if (recipientType === 'selected' && studentIds) {
+          for (const studentId of studentIds.slice(0, 3)) { // Check first 3 IDs
+            try {
+              const studentDoc = await studentsRef.doc(studentId).get();
+              console.log(`🔍 Student ID ${studentId} exists:`, studentDoc.exists);
+              if (studentDoc.exists) {
+                const data = studentDoc.data();
+                console.log(`🔍 Student ${studentId} data:`, {
+                  hasEmail: !!data?.email,
+                  hasUsername: !!data?.username,
+                  hasName: !!data?.name,
+                  email: data?.email,
+                  username: data?.username,
+                  name: data?.name
+                });
+              }
+            } catch (docError) {
+              console.log(`🔍 Error fetching student ${studentId}:`, docError);
+            }
+          }
+        }
+
+      } catch (debugError) {
+        console.error('🔍 Debug error:', debugError);
+      }
+
       return NextResponse.json(
-        { success: false, error: 'No valid student emails found' },
+        { 
+          success: false, 
+          error: 'No valid student emails found',
+          debug: {
+            recipientType,
+            studentIdsCount: studentIds?.length || 0,
+            hasFilters: !!filters,
+            environment: 'production'
+          }
+        },
         { status: 400 }
       );
     }
