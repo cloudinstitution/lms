@@ -277,7 +277,7 @@ export async function POST(request: NextRequest) {
         const emailTemplate = createEmailTemplate(subject, message, student.name);
         
         const { data, error } = await resend.emails.send({
-          from: 'Cloud Institution LMS <onboarding@resend.dev>',
+          from: 'Cloud Institution <noreply@cloudinstitution.in>', // ✅ Now using your verified domain
           to: [student.email],
           subject: subject,
           html: emailTemplate.html,
