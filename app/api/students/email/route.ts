@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as admin from 'firebase-admin';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 // Initialize Firebase Admin if it hasn't been already
 if (!admin.apps.length) {
-  console.log('🔍 Initializing Firebase Admin for production...');
-  console.log('🔍 Project ID:', process.env.FIREBASE_PROJECT_ID);
-  console.log('🔍 Client Email exists:', !!process.env.FIREBASE_CLIENT_EMAIL);
-  console.log('🔍 Private Key exists:', !!process.env.FIREBASE_PRIVATE_KEY);
-  
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
@@ -16,39 +11,18 @@ if (!admin.apps.length) {
       privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
     }),
   });
-  console.log('✅ Firebase Admin initialized successfully');
-} else {
-  console.log('🔍 Firebase Admin already initialized');
 }
 
 // Get Firestore instance
 const db = admin.firestore();
 
+// Initialize Resend with API key
+const resend = new Resend(process.env.RESEND_API_KEY || 're_123456789');
+
 // Email validation helper function
 const isValidEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
-};
-
-// Create transporter for email sending with hardcoded Gmail credentials
-const createTransporter = () => {
-  // Use hardcoded Gmail credentials to bypass environment variable issues
-  return nodemailer.createTransport({
-    service: 'gmail',
-    port: 587, // Use port 587 for better compatibility
-    secure: false, // Use STARTTLS instead of SSL
-    auth: {
-      user: 'cloudinstitution@gmail.com',
-      pass: 'aavimgofeegptalb',
-    },
-    connectionTimeout: 5000, // 5 second connection timeout
-    greetingTimeout: 5000, // 5 second greeting timeout  
-    socketTimeout: 10000, // 10 second socket timeout
-    tls: {
-      rejectUnauthorized: false,
-      ciphers: 'SSLv3'
-    }
-  });
 };
 
 // Email template for student notifications
@@ -136,7 +110,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Email configuration is now hardcoded, so no need to check environment variables
+    // Check if Resend API key is configured
+    if (!process.env.RESEND_API_KEY) {
+      return NextResponse.json(
+        { success: false, error: 'Resend API key is not configured. Please set RESEND_API_KEY environment variable.' },
+        { status: 500 }
+      );
+    }
 
     // Fetch student data from Firestore
     const studentsRef = db.collection('students');
@@ -149,34 +129,15 @@ export async function POST(request: NextRequest) {
           const studentDoc = await studentsRef.doc(studentId).get();
           if (studentDoc.exists) {
             const studentData = studentDoc.data();
-            console.log(`🔍 Processing student ${studentId}:`, {
-              hasEmail: !!studentData?.email,
-              hasUsername: !!studentData?.username,
-              hasName: !!studentData?.name,
-              email: studentData?.email,
-              username: studentData?.username
-            });
-            
             // Check both email and username fields for email address
             const emailAddress = studentData?.email || studentData?.username;
-            
-            // Validate email format
-            if (emailAddress && isValidEmail(emailAddress) && studentData?.name) {
+            if (emailAddress && studentData?.name) {
               studentEmails.push({
                 email: emailAddress,
                 name: studentData.name,
                 id: studentId
               });
-              console.log(`✅ Added student ${studentId} with email ${emailAddress}`);
-            } else {
-              console.log(`❌ Skipped student ${studentId}:`, {
-                emailAddress,
-                isValidEmail: emailAddress ? isValidEmail(emailAddress) : false,
-                hasName: !!studentData?.name
-              });
             }
-          } else {
-            console.log(`❌ Student ${studentId} does not exist`);
           }
         } catch (error) {
           console.error(`Error fetching student ${studentId}:`, error);
@@ -262,51 +223,19 @@ export async function POST(request: NextRequest) {
     } else if (recipientType === 'all') {
       // Get all active students
       try {
-        console.log('🔍 Fetching all active students...');
         const allStudentsSnapshot = await studentsRef.where('status', '==', 'Active').get();
-        console.log(`🔍 Found ${allStudentsSnapshot.size} active students`);
-        
-        if (allStudentsSnapshot.empty) {
-          // Try without status filter as fallback
-          console.log('🔍 No active students found, trying all students...');
-          const allStudentsSnapshot2 = await studentsRef.limit(10).get();
-          console.log(`🔍 Found ${allStudentsSnapshot2.size} total students`);
-          
-          allStudentsSnapshot2.docs.forEach((doc, index) => {
-            const studentData = doc.data();
-            console.log(`🔍 Student ${index + 1}:`, {
-              id: doc.id,
-              status: studentData?.status,
-              hasEmail: !!studentData?.email,
-              hasUsername: !!studentData?.username,
-              email: studentData?.email,
-              username: studentData?.username
+        allStudentsSnapshot.docs.forEach(doc => {
+          const studentData = doc.data();
+          // Check both email and username fields for email address
+          const emailAddress = studentData?.email || studentData?.username;
+          if (emailAddress && studentData?.name) {
+            studentEmails.push({
+              email: emailAddress,
+              name: studentData.name,
+              id: doc.id
             });
-            
-            // Check both email and username fields for email address
-            const emailAddress = studentData?.email || studentData?.username;
-            if (emailAddress && isValidEmail(emailAddress) && studentData?.name) {
-              studentEmails.push({
-                email: emailAddress,
-                name: studentData.name,
-                id: doc.id
-              });
-            }
-          });
-        } else {
-          allStudentsSnapshot.docs.forEach(doc => {
-            const studentData = doc.data();
-            // Check both email and username fields for email address
-            const emailAddress = studentData?.email || studentData?.username;
-            if (emailAddress && isValidEmail(emailAddress) && studentData?.name) {
-              studentEmails.push({
-                email: emailAddress,
-                name: studentData.name,
-                id: doc.id
-              });
-            }
-          });
-        }
+          }
+        });
       } catch (error) {
         console.error('Error fetching all students:', error);
         return NextResponse.json(
@@ -317,188 +246,90 @@ export async function POST(request: NextRequest) {
     }
 
     if (studentEmails.length === 0) {
-      // Enhanced debugging for production issues
+      // Debug: Let's see what fields are available in student documents
       try {
-        console.log('🔍 Production Debug - Environment Check:');
-        console.log('🔍 Firebase Project ID:', process.env.FIREBASE_PROJECT_ID);
-        console.log('🔍 Firebase Client Email:', process.env.FIREBASE_CLIENT_EMAIL?.substring(0, 20) + '...');
-        console.log('🔍 Recipient Type:', recipientType);
-        console.log('🔍 Student IDs provided:', studentIds);
-        console.log('🔍 Filters provided:', filters);
-
-        // Get total count of students in the database
-        const totalStudentsSnapshot = await studentsRef.limit(5).get();
-        console.log('🔍 Total students found in DB:', totalStudentsSnapshot.size);
-        
-        if (!totalStudentsSnapshot.empty) {
-          totalStudentsSnapshot.docs.forEach((doc, index) => {
-            const student = doc.data();
-            console.log(`🔍 Student ${index + 1} fields:`, Object.keys(student));
-            console.log(`🔍 Student ${index + 1} data:`, {
-              id: doc.id,
-              hasEmail: !!student.email,
-              hasUsername: !!student.username,
-              hasName: !!student.name,
-              email: student.email ? `${student.email.substring(0, 5)}...` : 'N/A',
-              username: student.username ? `${student.username.substring(0, 5)}...` : 'N/A',
-              name: student.name || 'N/A',
-              status: student.status || 'N/A'
-            });
+        const debugSnapshot = await studentsRef.limit(1).get();
+        if (!debugSnapshot.empty) {
+          const sampleStudent = debugSnapshot.docs[0].data();
+          console.log('🔍 Debug - Sample student fields:', Object.keys(sampleStudent));
+          console.log('🔍 Debug - Sample student data:', {
+            hasEmail: !!sampleStudent.email,
+            hasUsername: !!sampleStudent.username,
+            hasName: !!sampleStudent.name,
+            email: sampleStudent.email,
+            username: sampleStudent.username,
+            name: sampleStudent.name
           });
-        } else {
-          console.log('🔍 No students found in database!');
         }
-
-        // Check specific student IDs if provided
-        if (recipientType === 'selected' && studentIds) {
-          for (const studentId of studentIds.slice(0, 3)) { // Check first 3 IDs
-            try {
-              const studentDoc = await studentsRef.doc(studentId).get();
-              console.log(`🔍 Student ID ${studentId} exists:`, studentDoc.exists);
-              if (studentDoc.exists) {
-                const data = studentDoc.data();
-                console.log(`🔍 Student ${studentId} data:`, {
-                  hasEmail: !!data?.email,
-                  hasUsername: !!data?.username,
-                  hasName: !!data?.name,
-                  email: data?.email,
-                  username: data?.username,
-                  name: data?.name
-                });
-              }
-            } catch (docError) {
-              console.log(`🔍 Error fetching student ${studentId}:`, docError);
-            }
-          }
-        }
-
       } catch (debugError) {
-        console.error('🔍 Debug error:', debugError);
+        console.error('Debug error:', debugError);
       }
 
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'No valid student emails found',
-          debug: {
-            recipientType,
-            studentIdsCount: studentIds?.length || 0,
-            hasFilters: !!filters,
-            environment: 'production'
-          }
-        },
+        { success: false, error: 'No valid student emails found' },
         { status: 400 }
       );
     }
 
-    // Send emails to all students using Promise-based approach with batch processing
-    const batchSize = 5; // Process 5 emails at a time to prevent timeout
-    const emailBatches = [];
-    
-    for (let i = 0; i < studentEmails.length; i += batchSize) {
-      emailBatches.push(studentEmails.slice(i, i + batchSize));
-    }
-
-    console.log(`🔍 Processing ${studentEmails.length} emails in ${emailBatches.length} batches`);
-    
-    const allResults: any[] = [];
-    
-    // Process batches sequentially to avoid overwhelming the service
-    for (let batchIndex = 0; batchIndex < emailBatches.length; batchIndex++) {
-      const batch = emailBatches[batchIndex];
-      console.log(`🔍 Processing batch ${batchIndex + 1}/${emailBatches.length} with ${batch.length} emails`);
-      
-      const batchPromises = batch.map((student) => {
-        return new Promise(async (resolve) => {
-          try {
-            const emailTemplate = createEmailTemplate(subject, message, student.name);
-            
-            const mailOptions = {
-              from: `"Cloud Institution LMS" <cloudinstitution@gmail.com>`,
-              to: student.email,
-              subject: subject,
-              html: emailTemplate.html,
-              text: emailTemplate.text,
-            };
-
-            const transporter = createTransporter();
-            
-            // Add timeout to individual email sending
-            const info: any = await Promise.race([
-              new Promise((mailResolve, mailReject) => {
-                transporter.sendMail(mailOptions, (error, result) => {
-                  if (error) {
-                    console.error(`Error sending email to ${student.email}:`, error);
-                    mailReject(error);
-                  } else {
-                    console.log(`✅ Email sent successfully to ${student.email}`);
-                    mailResolve(result);
-                  }
-                });
-              }),
-              new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Email timeout after 8 seconds')), 8000)
-              )
-            ]);
-            
-            // Log email activity
-            try {
-              await db.collection('email_logs').add({
-                type: 'bulk_student_email',
-                recipient: student.email,
-                recipientName: student.name,
-                recipientId: student.id,
-                subject: subject,
-                message: message,
-                messageId: info.messageId,
-                status: 'sent',
-                timestamp: new Date().toISOString(),
-                sentBy: 'admin'
-              });
-            } catch (logError) {
-              console.error('Error logging successful email:', logError);
-            }
-
-            resolve({ success: true, email: student.email, messageId: info.messageId });
-          } catch (error) {
-            console.error(`Error sending email to ${student.email}:`, error);
-            
-            // Log failed email
-            try {
-              await db.collection('email_logs').add({
-                type: 'bulk_student_email',
-                recipient: student.email,
-                recipientName: student.name,
-                recipientId: student.id,
-                subject: subject,
-                message: message,
-                status: 'failed',
-                error: error instanceof Error ? error.message : 'Unknown error',
-                timestamp: new Date().toISOString(),
-                sentBy: 'admin'
-              });
-            } catch (logError) {
-              console.error('Error logging failed email:', logError);
-            }
-
-            resolve({ success: false, email: student.email, error: error instanceof Error ? error.message : 'Unknown error' });
-          }
+    // Send emails to all students using Resend
+    const emailPromises = studentEmails.map(async (student) => {
+      try {
+        const emailTemplate = createEmailTemplate(subject, message, student.name);
+        
+        const { data, error } = await resend.emails.send({
+          from: 'Cloud Institution LMS <onboarding@resend.dev>',
+          to: [student.email],
+          subject: subject,
+          html: emailTemplate.html,
+          text: emailTemplate.text,
         });
-      });
 
-      // Wait for current batch to complete
-      const batchResults = await Promise.all(batchPromises);
-      allResults.push(...batchResults);
-      
-      // Add small delay between batches to prevent rate limiting
-      if (batchIndex < emailBatches.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+        if (error) {
+          throw new Error(error.message);
+        }
+        
+        // Log email activity
+        await db.collection('email_logs').add({
+          type: 'bulk_student_email',
+          recipient: student.email,
+          recipientName: student.name,
+          recipientId: student.id,
+          subject: subject,
+          message: message,
+          messageId: data?.id,
+          status: 'sent',
+          timestamp: new Date().toISOString(),
+          sentBy: 'admin'
+        });
+
+        return { success: true, email: student.email, messageId: data?.id };
+      } catch (error) {
+        console.error(`Error sending email to ${student.email}:`, error);
+        
+        // Log failed email
+        await db.collection('email_logs').add({
+          type: 'bulk_student_email',
+          recipient: student.email,
+          recipientName: student.name,
+          recipientId: student.id,
+          subject: subject,
+          message: message,
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date().toISOString(),
+          sentBy: 'admin'
+        });
+
+        return { success: false, email: student.email, error: error instanceof Error ? error.message : 'Unknown error' };
       }
-    }
+    });
 
-    // Process results from all batches
-    const successful = allResults.filter((r: any) => r.success).length;
-    const failed = allResults.filter((r: any) => !r.success).length;
+    // Wait for all emails to be processed
+    const results = await Promise.all(emailPromises);
+    
+    // Count successful and failed emails
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
 
     return NextResponse.json({
       success: true,
@@ -507,7 +338,7 @@ export async function POST(request: NextRequest) {
         total: studentEmails.length,
         successful,
         failed,
-        details: allResults
+        details: results
       }
     });
 
