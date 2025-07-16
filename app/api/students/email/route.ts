@@ -35,10 +35,18 @@ const createTransporter = () => {
   // Use hardcoded Gmail credentials to bypass environment variable issues
   return nodemailer.createTransport({
     service: 'gmail',
+    port: 465,
+    secure: true,
+    pool: true, // Enable connection pooling
+    maxConnections: 5, // Max simultaneous connections
+    maxMessages: 100, // Max messages per connection
     auth: {
       user: 'cloudinstitution@gmail.com',
       pass: 'aavimgofeegptalb',
     },
+    tls: {
+      rejectUnauthorized: false
+    }
   });
 };
 
@@ -128,10 +136,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Email configuration is now hardcoded, so no need to check environment variables
-    // const transporter = createTransporter(); // This will use hardcoded Gmail credentials
-
-    // Create email transporter with hardcoded Gmail credentials
-    const transporter = createTransporter();
 
     // Fetch student data from Firestore
     const studentsRef = db.collection('students');
@@ -386,63 +390,82 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Send emails to all students
-    const emailPromises = studentEmails.map(async (student) => {
-      try {
-        const emailTemplate = createEmailTemplate(subject, message, student.name);
-        
-        const mailOptions = {
-          from: `"Cloud Institution LMS" <cloudinstitution@gmail.com>`,
-          to: student.email,
-          subject: subject,
-          html: emailTemplate.html,
-          text: emailTemplate.text,
-        };
+    // Send emails to all students using Promise-based approach
+    const emailPromises = studentEmails.map((student) => {
+      return new Promise(async (resolve, reject) => {
+        try {
+          const emailTemplate = createEmailTemplate(subject, message, student.name);
+          
+          const mailOptions = {
+            from: `"Cloud Institution LMS" <cloudinstitution@gmail.com>`,
+            to: student.email,
+            subject: subject,
+            html: emailTemplate.html,
+            text: emailTemplate.text,
+          };
 
-        const info = await transporter.sendMail(mailOptions);
-        
-        // Log email activity
-        await db.collection('email_logs').add({
-          type: 'bulk_student_email',
-          recipient: student.email,
-          recipientName: student.name,
-          recipientId: student.id,
-          subject: subject,
-          message: message,
-          messageId: info.messageId,
-          status: 'sent',
-          timestamp: new Date().toISOString(),
-          sentBy: 'admin'
-        });
+          const transporter = createTransporter();
+          
+          // Wrap sendMail in Promise to ensure completion
+          const info: any = await new Promise((mailResolve, mailReject) => {
+            transporter.sendMail(mailOptions, (error, result) => {
+              if (error) {
+                console.error(`Error sending email to ${student.email}:`, error);
+                mailReject(error);
+              } else {
+                console.log(`✅ Email sent successfully to ${student.email}`);
+                mailResolve(result);
+              }
+            });
+          });
+          
+          // Log email activity
+          await db.collection('email_logs').add({
+            type: 'bulk_student_email',
+            recipient: student.email,
+            recipientName: student.name,
+            recipientId: student.id,
+            subject: subject,
+            message: message,
+            messageId: info.messageId,
+            status: 'sent',
+            timestamp: new Date().toISOString(),
+            sentBy: 'admin'
+          });
 
-        return { success: true, email: student.email, messageId: info.messageId };
-      } catch (error) {
-        console.error(`Error sending email to ${student.email}:`, error);
-        
-        // Log failed email
-        await db.collection('email_logs').add({
-          type: 'bulk_student_email',
-          recipient: student.email,
-          recipientName: student.name,
-          recipientId: student.id,
-          subject: subject,
-          message: message,
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Unknown error',
-          timestamp: new Date().toISOString(),
-          sentBy: 'admin'
-        });
+          resolve({ success: true, email: student.email, messageId: info.messageId });
+        } catch (error) {
+          console.error(`Error sending email to ${student.email}:`, error);
+          
+          // Log failed email
+          try {
+            await db.collection('email_logs').add({
+              type: 'bulk_student_email',
+              recipient: student.email,
+              recipientName: student.name,
+              recipientId: student.id,
+              subject: subject,
+              message: message,
+              status: 'failed',
+              error: error instanceof Error ? error.message : 'Unknown error',
+              timestamp: new Date().toISOString(),
+              sentBy: 'admin'
+            });
+          } catch (logError) {
+            console.error('Error logging failed email:', logError);
+          }
 
-        return { success: false, email: student.email, error: error instanceof Error ? error.message : 'Unknown error' };
-      }
+          resolve({ success: false, email: student.email, error: error instanceof Error ? error.message : 'Unknown error' });
+        }
+      });
     });
 
     // Wait for all emails to be processed
-    const results = await Promise.all(emailPromises);
+    const results: any[] = await Promise.all(emailPromises);
     
     // Count successful and failed emails
-    const successful = results.filter(r => r.success).length;
-    const failed = results.filter(r => !r.success).length;
+    const successful = results.filter((r: any) => r.success).length;
+    const failed = results.filter((r: any) => !r.success).length;
 
     return NextResponse.json({
       success: true,
