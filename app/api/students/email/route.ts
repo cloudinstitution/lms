@@ -35,17 +35,18 @@ const createTransporter = () => {
   // Use hardcoded Gmail credentials to bypass environment variable issues
   return nodemailer.createTransport({
     service: 'gmail',
-    port: 465,
-    secure: true,
-    pool: true, // Enable connection pooling
-    maxConnections: 5, // Max simultaneous connections
-    maxMessages: 100, // Max messages per connection
+    port: 587, // Use port 587 for better compatibility
+    secure: false, // Use STARTTLS instead of SSL
     auth: {
       user: 'cloudinstitution@gmail.com',
       pass: 'aavimgofeegptalb',
     },
+    connectionTimeout: 5000, // 5 second connection timeout
+    greetingTimeout: 5000, // 5 second greeting timeout  
+    socketTimeout: 10000, // 10 second socket timeout
     tls: {
-      rejectUnauthorized: false
+      rejectUnauthorized: false,
+      ciphers: 'SSLv3'
     }
   });
 };
@@ -390,82 +391,114 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Send emails to all students using Promise-based approach
-    const emailPromises = studentEmails.map((student) => {
-      return new Promise(async (resolve, reject) => {
-        try {
-          const emailTemplate = createEmailTemplate(subject, message, student.name);
-          
-          const mailOptions = {
-            from: `"Cloud Institution LMS" <cloudinstitution@gmail.com>`,
-            to: student.email,
-            subject: subject,
-            html: emailTemplate.html,
-            text: emailTemplate.text,
-          };
-
-          const transporter = createTransporter();
-          
-          // Wrap sendMail in Promise to ensure completion
-          const info: any = await new Promise((mailResolve, mailReject) => {
-            transporter.sendMail(mailOptions, (error, result) => {
-              if (error) {
-                console.error(`Error sending email to ${student.email}:`, error);
-                mailReject(error);
-              } else {
-                console.log(`✅ Email sent successfully to ${student.email}`);
-                mailResolve(result);
-              }
-            });
-          });
-          
-          // Log email activity
-          await db.collection('email_logs').add({
-            type: 'bulk_student_email',
-            recipient: student.email,
-            recipientName: student.name,
-            recipientId: student.id,
-            subject: subject,
-            message: message,
-            messageId: info.messageId,
-            status: 'sent',
-            timestamp: new Date().toISOString(),
-            sentBy: 'admin'
-          });
-
-          resolve({ success: true, email: student.email, messageId: info.messageId });
-        } catch (error) {
-          console.error(`Error sending email to ${student.email}:`, error);
-          
-          // Log failed email
-          try {
-            await db.collection('email_logs').add({
-              type: 'bulk_student_email',
-              recipient: student.email,
-              recipientName: student.name,
-              recipientId: student.id,
-              subject: subject,
-              message: message,
-              status: 'failed',
-              error: error instanceof Error ? error.message : 'Unknown error',
-              timestamp: new Date().toISOString(),
-              sentBy: 'admin'
-            });
-          } catch (logError) {
-            console.error('Error logging failed email:', logError);
-          }
-
-          resolve({ success: false, email: student.email, error: error instanceof Error ? error.message : 'Unknown error' });
-        }
-      });
-    });
-
-    // Wait for all emails to be processed
-    const results: any[] = await Promise.all(emailPromises);
+    // Send emails to all students using Promise-based approach with batch processing
+    const batchSize = 5; // Process 5 emails at a time to prevent timeout
+    const emailBatches = [];
     
-    // Count successful and failed emails
-    const successful = results.filter((r: any) => r.success).length;
-    const failed = results.filter((r: any) => !r.success).length;
+    for (let i = 0; i < studentEmails.length; i += batchSize) {
+      emailBatches.push(studentEmails.slice(i, i + batchSize));
+    }
+
+    console.log(`🔍 Processing ${studentEmails.length} emails in ${emailBatches.length} batches`);
+    
+    const allResults: any[] = [];
+    
+    // Process batches sequentially to avoid overwhelming the service
+    for (let batchIndex = 0; batchIndex < emailBatches.length; batchIndex++) {
+      const batch = emailBatches[batchIndex];
+      console.log(`🔍 Processing batch ${batchIndex + 1}/${emailBatches.length} with ${batch.length} emails`);
+      
+      const batchPromises = batch.map((student) => {
+        return new Promise(async (resolve) => {
+          try {
+            const emailTemplate = createEmailTemplate(subject, message, student.name);
+            
+            const mailOptions = {
+              from: `"Cloud Institution LMS" <cloudinstitution@gmail.com>`,
+              to: student.email,
+              subject: subject,
+              html: emailTemplate.html,
+              text: emailTemplate.text,
+            };
+
+            const transporter = createTransporter();
+            
+            // Add timeout to individual email sending
+            const info: any = await Promise.race([
+              new Promise((mailResolve, mailReject) => {
+                transporter.sendMail(mailOptions, (error, result) => {
+                  if (error) {
+                    console.error(`Error sending email to ${student.email}:`, error);
+                    mailReject(error);
+                  } else {
+                    console.log(`✅ Email sent successfully to ${student.email}`);
+                    mailResolve(result);
+                  }
+                });
+              }),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Email timeout after 8 seconds')), 8000)
+              )
+            ]);
+            
+            // Log email activity
+            try {
+              await db.collection('email_logs').add({
+                type: 'bulk_student_email',
+                recipient: student.email,
+                recipientName: student.name,
+                recipientId: student.id,
+                subject: subject,
+                message: message,
+                messageId: info.messageId,
+                status: 'sent',
+                timestamp: new Date().toISOString(),
+                sentBy: 'admin'
+              });
+            } catch (logError) {
+              console.error('Error logging successful email:', logError);
+            }
+
+            resolve({ success: true, email: student.email, messageId: info.messageId });
+          } catch (error) {
+            console.error(`Error sending email to ${student.email}:`, error);
+            
+            // Log failed email
+            try {
+              await db.collection('email_logs').add({
+                type: 'bulk_student_email',
+                recipient: student.email,
+                recipientName: student.name,
+                recipientId: student.id,
+                subject: subject,
+                message: message,
+                status: 'failed',
+                error: error instanceof Error ? error.message : 'Unknown error',
+                timestamp: new Date().toISOString(),
+                sentBy: 'admin'
+              });
+            } catch (logError) {
+              console.error('Error logging failed email:', logError);
+            }
+
+            resolve({ success: false, email: student.email, error: error instanceof Error ? error.message : 'Unknown error' });
+          }
+        });
+      });
+
+      // Wait for current batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      allResults.push(...batchResults);
+      
+      // Add small delay between batches to prevent rate limiting
+      if (batchIndex < emailBatches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+      }
+    }
+
+    // Process results from all batches
+    const successful = allResults.filter((r: any) => r.success).length;
+    const failed = allResults.filter((r: any) => !r.success).length;
 
     return NextResponse.json({
       success: true,
@@ -474,7 +507,7 @@ export async function POST(request: NextRequest) {
         total: studentEmails.length,
         successful,
         failed,
-        details: results
+        details: allResults
       }
     });
 
