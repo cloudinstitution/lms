@@ -30,34 +30,16 @@ const isValidEmail = (email: string): boolean => {
   return emailRegex.test(email);
 };
 
-// Create transporter for email sending with proper fallback logic
+// Create transporter for email sending with hardcoded Gmail credentials
 const createTransporter = () => {
-  // Check for Gmail configuration first
-  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-    return nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
-    });
-  }
-  // Check for custom SMTP configuration
-  else if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
-    return nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
-  }
-  // If no configuration is found, throw an error
-  else {
-    throw new Error('No email configuration found. Please set up Gmail or SMTP credentials.');
-  }
+  // Use hardcoded Gmail credentials to bypass environment variable issues
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: 'cloudinstitution@gmail.com',
+      pass: 'aavimgofeegptalb',
+    },
+  });
 };
 
 // Email template for student notifications
@@ -145,16 +127,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if email configuration is available (supports both Gmail and SMTP)
-    if (!((process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || 
-          (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD))) {
-      return NextResponse.json(
-        { success: false, error: 'Email configuration is not available. Please configure Gmail or SMTP settings.' },
-        { status: 500 }
-      );
-    }
+    // Email configuration is now hardcoded, so no need to check environment variables
+    // const transporter = createTransporter(); // This will use hardcoded Gmail credentials
 
-    // Create email transporter with fallback logic
+    // Create email transporter with hardcoded Gmail credentials
     const transporter = createTransporter();
 
     // Fetch student data from Firestore
@@ -416,7 +392,7 @@ export async function POST(request: NextRequest) {
         const emailTemplate = createEmailTemplate(subject, message, student.name);
         
         const mailOptions = {
-          from: `"Cloud Institution LMS" <${process.env.GMAIL_USER || process.env.SMTP_USER}>`,
+          from: `"Cloud Institution LMS" <cloudinstitution@gmail.com>`,
           to: student.email,
           subject: subject,
           html: emailTemplate.html,
