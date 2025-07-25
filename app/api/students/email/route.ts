@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
 import * as admin from 'firebase-admin';
+import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
 // Initialize Firebase Admin if it hasn't been already
@@ -79,51 +79,113 @@ This email was sent from Cloud Institution LMS
 
 export async function POST(request: NextRequest) {
   try {
+    // First, try to parse the request body
+    let requestData;
+    try {
+      requestData = await request.json();
+    } catch (parseError) {
+      console.error('❌ Failed to parse request body:', parseError);
+      return NextResponse.json(
+        { success: false, error: 'Invalid JSON in request body', details: parseError instanceof Error ? parseError.message : 'Unknown parsing error' },
+        { status: 400 }
+      );
+    }
+
     const { 
       studentIds, 
       subject, 
       message, 
       filters, 
       recipientType = 'selected' 
-    } = await request.json();
+    } = requestData;
+
+    // Enhanced logging for debugging deployment issues
+    console.log('🔍 Email API Request Debug Info:', {
+      hasStudentIds: !!studentIds,
+      studentIdsLength: Array.isArray(studentIds) ? studentIds.length : 'not array',
+      hasSubject: !!subject,
+      hasMessage: !!message,
+      recipientType,
+      hasFilters: !!filters,
+      requestDataKeys: Object.keys(requestData || {}),
+      environment: process.env.NODE_ENV,
+      hasResendKey: !!process.env.RESEND_API_KEY,
+      hasFirebaseConfig: !!(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY)
+    });
 
     // Validate required fields
     if (!subject || !message) {
+      console.error('❌ Missing required fields - subject or message');
       return NextResponse.json(
-        { success: false, error: 'Subject and message are required' },
+        { success: false, error: 'Subject and message are required', received: { hasSubject: !!subject, hasMessage: !!message } },
         { status: 400 }
       );
     }
 
     // Validate recipient type and required data
     if (recipientType === 'selected' && (!studentIds || !Array.isArray(studentIds) || studentIds.length === 0)) {
+      console.error('❌ Invalid student IDs for selected recipients:', { studentIds, isArray: Array.isArray(studentIds), length: studentIds?.length });
       return NextResponse.json(
-        { success: false, error: 'Student IDs are required for selected recipients' },
+        { success: false, error: 'Student IDs are required for selected recipients', received: { studentIds, recipientType } },
         { status: 400 }
       );
     }
 
     if (recipientType === 'filtered' && !filters) {
+      console.error('❌ Missing filters for filtered recipients');
       return NextResponse.json(
         { success: false, error: 'Filters are required for filtered recipients' },
         { status: 400 }
       );
     }
 
+    // Enhanced environment variable validation
+    const envValidation = {
+      hasResendKey: !!process.env.RESEND_API_KEY,
+      hasFirebaseProjectId: !!process.env.FIREBASE_PROJECT_ID,
+      hasFirebaseClientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
+      hasFirebasePrivateKey: !!process.env.FIREBASE_PRIVATE_KEY
+    };
+
+    console.log('🔍 Environment Variables Check:', envValidation);
+
     // Check if Resend API key is configured
     if (!process.env.RESEND_API_KEY) {
+      console.error('❌ Resend API key is not configured');
       return NextResponse.json(
-        { success: false, error: 'Resend API key is not configured. Please set RESEND_API_KEY environment variable.' },
+        { success: false, error: 'Resend API key is not configured. Please set RESEND_API_KEY environment variable.', envCheck: envValidation },
         { status: 500 }
       );
     }
 
-    // Fetch student data from Firestore
-    const studentsRef = db.collection('students');
+    // Check Firebase configuration
+    if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
+      console.error('❌ Firebase configuration is incomplete');
+      return NextResponse.json(
+        { success: false, error: 'Firebase configuration is incomplete. Please check FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY environment variables.', envCheck: envValidation },
+        { status: 500 }
+      );
+    }
+
+    // Fetch student data from Firestore with enhanced error handling
+    let studentsRef;
+    try {
+      studentsRef = db.collection('students');
+      console.log('✅ Successfully connected to Firestore');
+    } catch (firestoreError) {
+      console.error('❌ Failed to connect to Firestore:', firestoreError);
+      return NextResponse.json(
+        { success: false, error: 'Failed to connect to database', details: firestoreError instanceof Error ? firestoreError.message : 'Unknown database error' },
+        { status: 500 }
+      );
+    }
+
     const studentEmails: { email: string; name: string; id: string }[] = [];
 
     if (recipientType === 'selected') {
       // Get student details for selected IDs
+      console.log(`🔍 Fetching ${studentIds.length} selected students:`, studentIds);
+      
       for (const studentId of studentIds) {
         try {
           const studentDoc = await studentsRef.doc(studentId).get();
@@ -137,10 +199,22 @@ export async function POST(request: NextRequest) {
                 name: studentData.name,
                 id: studentId
               });
+              console.log(`✅ Found student: ${studentData.name} (${emailAddress})`);
+            } else {
+              console.warn(`⚠️ Student ${studentId} missing email or name:`, {
+                hasEmail: !!studentData?.email,
+                hasUsername: !!studentData?.username,
+                hasName: !!studentData?.name,
+                email: studentData?.email,
+                username: studentData?.username,
+                name: studentData?.name
+              });
             }
+          } else {
+            console.warn(`⚠️ Student document not found: ${studentId}`);
           }
         } catch (error) {
-          console.error(`Error fetching student ${studentId}:`, error);
+          console.error(`❌ Error fetching student ${studentId}:`, error);
         }
       }
     } else if (recipientType === 'filtered') {
@@ -246,92 +320,155 @@ export async function POST(request: NextRequest) {
     }
 
     if (studentEmails.length === 0) {
-      // Debug: Let's see what fields are available in student documents
+      // Enhanced debugging for deployment issues
       try {
-        const debugSnapshot = await studentsRef.limit(1).get();
-        if (!debugSnapshot.empty) {
-          const sampleStudent = debugSnapshot.docs[0].data();
-          console.log('🔍 Debug - Sample student fields:', Object.keys(sampleStudent));
-          console.log('🔍 Debug - Sample student data:', {
-            hasEmail: !!sampleStudent.email,
-            hasUsername: !!sampleStudent.username,
-            hasName: !!sampleStudent.name,
-            email: sampleStudent.email,
-            username: sampleStudent.username,
-            name: sampleStudent.name
-          });
-        }
+        const debugSnapshot = await studentsRef.limit(3).get();
+        const debugInfo = {
+          totalDocuments: debugSnapshot.size,
+          sampleStudents: debugSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              hasEmail: !!data.email,
+              hasUsername: !!data.username,
+              hasName: !!data.name,
+              email: data.email,
+              username: data.username,
+              name: data.name,
+              availableFields: Object.keys(data)
+            };
+          })
+        };
+        
+        console.log('🔍 Debug - No valid student emails found. Sample data:', debugInfo);
+        
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'No valid student emails found',
+            debug: {
+              requestInfo: {
+                recipientType,
+                studentIdsProvided: studentIds?.length || 0,
+                selectedStudentIds: recipientType === 'selected' ? studentIds : []
+              },
+              databaseInfo: debugInfo
+            }
+          },
+          { status: 400 }
+        );
       } catch (debugError) {
-        console.error('Debug error:', debugError);
+        console.error('❌ Debug error:', debugError);
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'No valid student emails found and unable to debug database',
+            debugError: debugError instanceof Error ? debugError.message : 'Unknown debug error'
+          },
+          { status: 400 }
+        );
       }
-
-      return NextResponse.json(
-        { success: false, error: 'No valid student emails found' },
-        { status: 400 }
-      );
     }
 
-    // Send emails to all students using Resend
-    const emailPromises = studentEmails.map(async (student) => {
+    console.log(`✅ Found ${studentEmails.length} valid student emails to send to`);
+
+    // Send emails to all students using Resend with enhanced error handling
+    console.log(`📧 Starting to send emails to ${studentEmails.length} students`);
+    
+    const emailPromises = studentEmails.map(async (student, index) => {
       try {
+        console.log(`📤 Sending email ${index + 1}/${studentEmails.length} to ${student.name} (${student.email})`);
+        
         const emailTemplate = createEmailTemplate(subject, message, student.name);
         
-        const { data, error } = await resend.emails.send({
-          from: 'Cloud Institution <noreply@cloudinstitution.in>', // ✅ Now using your verified domain
+        const emailPayload = {
+          from: 'Cloud Institution <noreply@cloudinstitution.in>',
           to: [student.email],
           subject: subject,
           html: emailTemplate.html,
           text: emailTemplate.text,
+        };
+
+        console.log(`📧 Email payload for ${student.email}:`, {
+          from: emailPayload.from,
+          to: emailPayload.to,
+          subject: emailPayload.subject,
+          hasHtml: !!emailPayload.html,
+          hasText: !!emailPayload.text
         });
+        
+        const { data, error } = await resend.emails.send(emailPayload);
 
         if (error) {
-          throw new Error(error.message);
+          console.error(`❌ Resend error for ${student.email}:`, error);
+          throw new Error(`Resend API error: ${error.message || JSON.stringify(error)}`);
         }
         
+        console.log(`✅ Email sent successfully to ${student.email}, message ID: ${data?.id}`);
+        
         // Log email activity
-        await db.collection('email_logs').add({
-          type: 'bulk_student_email',
-          recipient: student.email,
-          recipientName: student.name,
-          recipientId: student.id,
-          subject: subject,
-          message: message,
-          messageId: data?.id,
-          status: 'sent',
-          timestamp: new Date().toISOString(),
-          sentBy: 'admin'
-        });
+        try {
+          await db.collection('email_logs').add({
+            type: 'bulk_student_email',
+            recipient: student.email,
+            recipientName: student.name,
+            recipientId: student.id,
+            subject: subject,
+            message: message,
+            messageId: data?.id,
+            status: 'sent',
+            timestamp: new Date().toISOString(),
+            sentBy: 'admin'
+          });
+        } catch (logError) {
+          console.error(`⚠️ Failed to log email for ${student.email}:`, logError);
+          // Don't fail the email send if logging fails
+        }
 
         return { success: true, email: student.email, messageId: data?.id };
       } catch (error) {
-        console.error(`Error sending email to ${student.email}:`, error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`❌ Error sending email to ${student.email}:`, errorMessage);
         
         // Log failed email
-        await db.collection('email_logs').add({
-          type: 'bulk_student_email',
-          recipient: student.email,
-          recipientName: student.name,
-          recipientId: student.id,
-          subject: subject,
-          message: message,
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Unknown error',
-          timestamp: new Date().toISOString(),
-          sentBy: 'admin'
-        });
+        try {
+          await db.collection('email_logs').add({
+            type: 'bulk_student_email',
+            recipient: student.email,
+            recipientName: student.name,
+            recipientId: student.id,
+            subject: subject,
+            message: message,
+            status: 'failed',
+            error: errorMessage,
+            timestamp: new Date().toISOString(),
+            sentBy: 'admin'
+          });
+        } catch (logError) {
+          console.error(`⚠️ Failed to log failed email for ${student.email}:`, logError);
+        }
 
-        return { success: false, email: student.email, error: error instanceof Error ? error.message : 'Unknown error' };
+        return { success: false, email: student.email, error: errorMessage };
       }
     });
 
     // Wait for all emails to be processed
+    console.log('⏳ Waiting for all email promises to resolve...');
     const results = await Promise.all(emailPromises);
     
     // Count successful and failed emails
     const successful = results.filter(r => r.success).length;
     const failed = results.filter(r => !r.success).length;
 
-    return NextResponse.json({
+    console.log(`📊 Email Results: ${successful} successful, ${failed} failed out of ${results.length} total`);
+
+    // Log failed emails for debugging
+    if (failed > 0) {
+      const failedEmails = results.filter(r => !r.success);
+      console.error('❌ Failed emails:', failedEmails);
+    }
+
+    const response = {
       success: true,
       message: `Emails sent to ${successful} students${failed > 0 ? ` (${failed} failed)` : ''}`,
       results: {
@@ -340,14 +477,23 @@ export async function POST(request: NextRequest) {
         failed,
         details: results
       }
-    });
+    };
+
+    console.log('✅ Sending final response:', response);
+
+    return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Email sending error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to send emails';
+    console.error('❌ Critical email sending error:', error);
+    console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    
     return NextResponse.json(
       { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Failed to send emails' 
+        error: errorMessage,
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV
       },
       { status: 500 }
     );
