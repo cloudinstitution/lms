@@ -14,6 +14,7 @@ import { Eye, PlusCircle, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
+
 interface Question {
   question: string
   options: string[]
@@ -374,5 +375,47 @@ export default function UploadQuizForm() {
       </form>
     </Card>
     </div>
+
+    // deleteing the quiz
+    {courseQuizzes.map((quiz) => (
+  <Card key={quiz.id} className="border-l-4 border-l-blue-500">
+    <CardContent className="p-4">
+      <div className="space-y-2">
+        <h4 className="font-medium">{quiz.topic}</h4>
+        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <FileText className="h-3 w-3" />
+            {quiz.totalQuestions} questions
+          </span>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {formatDate(quiz.createdAt)}
+          </span>
+        </div>
+        <Badge 
+          variant={quiz.status === 'active' ? 'default' : 'secondary'}
+          className="text-xs"
+        >
+          {quiz.status || 'active'}
+        </Badge>
+
+        {/* 🔹 Action Buttons */}
+        <div className="flex gap-2 mt-3">
+          <Link href={`/admin/assessments/edit/${course.courseID}/${quiz.id}`}>
+            <Button size="sm" variant="outline">Edit</Button>
+          </Link>
+          <Button 
+            size="sm" 
+            variant="destructive" 
+            onClick={() => deleteQuiz(course.courseID.toString(), quiz.id)}
+          >
+            Delete
+          </Button>
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+))}
+
   )
 }
