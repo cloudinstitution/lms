@@ -87,6 +87,13 @@ export default function CourseDetails() {
       setError("Please enter a valid YouTube link.")
       return
     }
+    if (
+  newVideo.sourceType === 'youtube' &&
+  !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/.*[?&]list=)[A-Za-z0-9_-]+/)
+) {
+  setError("Please enter a valid YouTube playlist link.");
+  return;
+}
     
     if (newVideo.sourceType === 'gdrive' && !newVideo.link.match(/^https:\/\/drive\.google\.com\/(file\/d\/|open\?id=).+/)) {
       setError("Please enter a valid Google Drive link.")
