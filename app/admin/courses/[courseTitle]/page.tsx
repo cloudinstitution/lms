@@ -82,7 +82,11 @@ export default function CourseDetails() {
       return
     }
 
-    // // Validate link based on source type
+// <<<<<<< younus
+//     // // Validate link based on source type
+// =======
+//     // Validate link based on source type
+// >>>>>>> main
     // if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
     //   setError("Please enter a valid YouTube link.")
     //   return
@@ -130,15 +134,14 @@ export default function CourseDetails() {
     e.preventDefault()
     if (editVideo && editVideo.id) {
       // Validate link based on source type
-      if (editVideo.sourceType === 'youtube' && !editVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
-        toast({
-          title: "Error",
-          description: "Please enter a valid YouTube link.",
-          variant: "destructive",
-        })
-        return
-      }
-      
+      // if (editVideo.sourceType === 'youtube' && !editVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
+      //   toast({
+      //     title: "Error",
+      //     description: "Please enter a valid YouTube link.",
+      //     variant: "destructive",
+      //   })
+      //   return
+         
       if (editVideo.sourceType === 'gdrive' && !editVideo.link.match(/^https:\/\/drive\.google\.com\/(file\/d\/|open\?id=).+/)) {
         toast({
           title: "Error",
@@ -146,6 +149,7 @@ export default function CourseDetails() {
           variant: "destructive",
         })
         return
+   
       }
 
       try {
