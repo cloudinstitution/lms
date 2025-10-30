@@ -83,10 +83,10 @@ export default function CourseDetails() {
     }
 
     // Validate link based on source type
-    if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
-      setError("Please enter a valid YouTube link.")
-      return
-    }
+    // if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
+    //   setError("Please enter a valid YouTube link.")
+    //   return
+    // }
     if (
   newVideo.sourceType === 'youtube' &&
   !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/.*[?&]list=)[A-Za-z0-9_-]+/)
