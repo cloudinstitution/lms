@@ -82,7 +82,11 @@ export default function CourseDetails() {
       return
     }
 
-    // Validate link based on source type
+// <<<<<<< younus
+//     // // Validate link based on source type
+// =======
+//     // Validate link based on source type
+// >>>>>>> main
     // if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
     //   setError("Please enter a valid YouTube link.")
     //   return
