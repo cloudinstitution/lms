@@ -1,11 +1,36 @@
 "use client"
 
-import { EmailJSDialog } from '@/components/EmailJSDialog';
-import { EmailOptionsCard } from '@/components/EmailOptionsCard';
+import React from 'react';
+import { StudentList } from './components/StudentList';
+import { StudentFilters } from './components/StudentFilters';
+import { StudentActions } from './components/StudentActions';
+import { EditStudentDialog } from './components/EditStudentDialog';
+import { EmailStudentDialog } from './components/EmailStudentDialog';
+import { BulkEmailDialog } from './components/BulkEmailDialog';
+import { DeleteStudentDialog } from './components/DeleteStudentDialog';
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
+  fetchStudents,
+  updateStudent,
+  bulkDeleteStudents,
+  bulkUpdateStudentStatus,
+} from '@/lib/student-service';
+import { filterStudents } from '@/lib/student-utils';
+import { convertStudentsToCSV, downloadCSV, exportStudentsToExcel } from '@/lib/student-export-utils';
+import type {
+  Student,
+  FilterOptions,
+  PaginationState,
+  SortField
+} from '@/types/student';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Download, Plus, X, FileSpreadsheet, FileText } from 'lucide-react';
+import { 
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -14,8 +39,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Pagination,
   PaginationContent,
@@ -25,31 +48,8 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAuth } from '@/lib/auth-context';
 import { getAdminSession } from '@/lib/session-storage';
-import { convertStudentsToCSV, downloadCSV, exportStudentsToExcel } from '@/lib/student-export-utils';
-import {
-  bulkDeleteStudents,
-  bulkUpdateStudentStatus,
-  fetchStudents,
-  updateStudent,
-} from '@/lib/student-service';
-import { filterStudents } from '@/lib/student-utils';
-import type {
-  FilterOptions,
-  PaginationState,
-  SortField,
-  Student
-} from '@/types/student';
-import { Download, FileSpreadsheet, FileText, Plus, X } from 'lucide-react';
-import React from 'react';
-import { toast } from "sonner";
-import { DeleteStudentDialog } from './components/DeleteStudentDialog';
-import { EditStudentDialog } from './components/EditStudentDialog';
-import { StudentActions } from './components/StudentActions';
-import { StudentFilters } from './components/StudentFilters';
-import { StudentList } from './components/StudentList';
 
 // Helper function to sort students
 const sortStudents = (students: Student[], field: SortField, direction: 'asc' | 'desc'): Student[] => {
@@ -109,18 +109,15 @@ export default function AdminStudents() {
     open: false,
     student: null
   });
-  const [deleteDialog, setDeleteDialog] = React.useState(false);
-  const [emailJSDialog, setEmailJSDialog] = React.useState<{
+  const [emailDialog, setEmailDialog] = React.useState<{
     open: boolean;
-    recipients: Student[];
-    recipientType: 'single' | 'bulk';
-    singleStudent?: Student | null;
+    singleStudent: Student | null;
   }>({
     open: false,
-    recipients: [],
-    recipientType: 'bulk',
     singleStudent: null
   });
+  const [bulkEmailDialog, setBulkEmailDialog] = React.useState(false);
+  const [deleteDialog, setDeleteDialog] = React.useState(false);
   const [viewDetailsDialog, setViewDetailsDialog] = React.useState<{
     open: boolean;
     student: Student | null;
@@ -251,25 +248,134 @@ export default function AdminStudents() {
     }
   };
 
-  // Email handler using EmailJS
-  const handleSendEmailJS = (student: Student) => {
-    setEmailJSDialog({
-      open: true,
-      recipients: [student],
-      recipientType: 'single',
-      singleStudent: student
-    });
+  // Email handler
+  const handleSendEmail = async (subject: string, message: string) => {
+    try {
+      setEmailDialog({ open: false, singleStudent: null });
+      
+      // Determine which students to email
+      const targetStudents = emailDialog.singleStudent 
+        ? [emailDialog.singleStudent.id]
+        : selectedStudents;
+      
+      if (targetStudents.length === 0) {
+        toast.error('No students selected', {
+          description: 'Please select at least one student to send emails to.',
+        });
+        return;
+      }
+
+      // Show enhanced loading toast
+      toast.info('📤 Sending Emails...', {
+        description: `Preparing to send emails to ${targetStudents.length} student${targetStudents.length > 1 ? 's' : ''}...`,
+      });
+
+      const response = await fetch('/api/students/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          studentIds: targetStudents,
+          subject,
+          message,
+          recipientType: 'selected'
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Enhanced success toast with detailed information
+        const emailCount = targetStudents.length;
+        const successCount = result.results?.successful || emailCount;
+        const failedCount = result.results?.failed || 0;
+        
+        let successMessage = result.message || `Successfully sent ${successCount} email${successCount > 1 ? 's' : ''}`;
+        if (failedCount > 0) {
+          successMessage += ` (${failedCount} failed)`;
+        }
+        
+        toast.success('📧 Email Sent Successfully', {
+          description: successMessage,
+        });
+        
+        // Clear selected students after successful bulk email
+        if (!emailDialog.singleStudent) {
+          setSelectedStudents([]);
+        }
+      } else {
+        toast.error('❌ Email Failed', {
+          description: result.error || 'Failed to send emails. Please try again.',
+        });
+      }
+    } catch (error) {
+      console.error('Error sending emails:', error);
+      toast.error('❌ Email Error', {
+        description: 'Failed to send emails. Please check your connection and try again.',
+      });
+    }
   };
 
-  // Bulk email handler using EmailJS
-  const handleBulkEmailJS = () => {
-    const selectedStudentData = students.filter(student => selectedStudents.includes(student.id));
-    setEmailJSDialog({
-      open: true,
-      recipients: selectedStudentData,
-      recipientType: 'bulk',
-      singleStudent: null
-    });
+  // Bulk email handler
+  const handleBulkEmail = async (emailData: {
+    subject: string;
+    message: string;
+    recipientType: 'selected';
+  }) => {
+    try {
+      setBulkEmailDialog(false);
+
+      // Show enhanced loading toast
+      toast.info('📤 Sending Bulk Emails...', {
+        description: `Preparing to send emails to ${selectedStudents.length} selected students...`,
+      });
+
+      const requestBody = {
+        subject: emailData.subject,
+        message: emailData.message,
+        recipientType: 'selected',
+        studentIds: selectedStudents
+      };
+
+      const response = await fetch('/api/students/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Enhanced success toast with detailed information
+        const emailCount = selectedStudents.length;
+        const successCount = result.results?.successful || emailCount;
+        const failedCount = result.results?.failed || 0;
+        
+        let successMessage = result.message || `Successfully sent ${successCount} email${successCount > 1 ? 's' : ''}`;
+        if (failedCount > 0) {
+          successMessage += ` (${failedCount} failed)`;
+        }
+        
+        toast.success('📧 Bulk Email Sent Successfully', {
+          description: successMessage,
+        });
+        
+        // Clear selected students after successful email
+        setSelectedStudents([]);
+      } else {
+        toast.error('❌ Bulk Email Failed', {
+          description: result.error || 'Failed to send bulk emails. Please try again.',
+        });
+      }
+    } catch (error) {
+      console.error('Error sending emails:', error);
+      toast.error('❌ Bulk Email Error', {
+        description: 'Failed to send bulk emails. Please check your connection and try again.',
+      });
+    }
   };
 
   // Format date for display
@@ -411,7 +517,6 @@ export default function AdminStudents() {
                 </DropdownMenuItem>              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          
           {!isTeacher && (
             <Button className="gap-2" onClick={() => window.location.href = "/admin/dashboard"}>
               <Plus className="h-4 w-4" /> Add Student
@@ -500,16 +605,10 @@ export default function AdminStudents() {
             hasActiveFilters={hasActiveFilters()}
             onBulkDelete={() => setDeleteDialog(true)}
             onBulkStatusChange={handleBulkStatusChange}
-            onBulkEmail={handleBulkEmailJS}
+            onBulkEmail={() => setBulkEmailDialog(true)}
           />
         </div>
       </div>
-
-      {/* Email Options Card */}
-      <EmailOptionsCard
-        selectedCount={selectedStudents.length}
-        onEmailJSEmail={handleBulkEmailJS}
-      />
 
       <div className="rounded-md border mt-4">
         {loading ? (
@@ -538,7 +637,7 @@ export default function AdminStudents() {
             onSort={handleSort}
             onEdit={(student: Student) => setEditDialog({ open: true, student })}
             onDelete={(studentId: string) => handleSelectStudent(studentId)}
-            onEmail={(student: Student) => handleSendEmailJS(student)}
+            onEmail={(student: Student) => setEmailDialog({ open: true, singleStudent: student })}
             onViewDetails={(student: Student) => setViewDetailsDialog({ open: true, student })}
             isTeacher={isTeacher}
           />
@@ -613,6 +712,13 @@ export default function AdminStudents() {
         onSave={handleEditStudent}
       />
 
+      <EmailStudentDialog
+        recipientCount={emailDialog.singleStudent ? 1 : selectedStudents.length}
+        open={emailDialog.open}
+        onClose={() => setEmailDialog({ open: false, singleStudent: null })}
+        onSend={handleSendEmail}
+      />
+
       <DeleteStudentDialog
         studentCount={selectedStudents.length}
         open={deleteDialog}
@@ -620,12 +726,13 @@ export default function AdminStudents() {
         onConfirm={handleDeleteConfirm}
       />
       
-      <EmailJSDialog
-        open={emailJSDialog.open}
-        onClose={() => setEmailJSDialog({ open: false, recipients: [], recipientType: 'bulk', singleStudent: null })}
-        recipients={emailJSDialog.recipients}
-        recipientType={emailJSDialog.recipientType}
-        singleStudent={emailJSDialog.singleStudent}
+      <BulkEmailDialog
+        open={bulkEmailDialog}
+        onClose={() => setBulkEmailDialog(false)}
+        onSend={handleBulkEmail}
+        selectedCount={selectedStudents.length}
+        selectedStudents={getSelectedStudentData}
+        currentFilters={filters}
       />
       <Dialog
         open={viewDetailsDialog.open}
