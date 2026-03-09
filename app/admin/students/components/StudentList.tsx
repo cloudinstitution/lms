@@ -1,24 +1,25 @@
 "use client";
 
-import { Checkbox } from '@/components/ui/checkbox';
+import React from 'react';
+import { Student, SortField, SortOrder } from '@/types/student';
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@/components/ui/table';
-import { formatDate } from '@/lib/student-utils';
-import { SortField, Student } from '@/types/student';
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { StudentRowActions } from './StudentRowActions';
+import { formatDate } from '@/lib/student-utils';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 
 interface StudentListProps {
   students: Student[];
   selectedStudents: string[];
   onSelect: (studentId: string) => void;
-  onSelectAll: () => void;  // Changed to match the actual function signature
+  onSelectAll: (selected: boolean) => void;
   sortField: SortField;
   sortDirection: 'asc' | 'desc' | null;
   onSort: (field: SortField) => void;
@@ -43,9 +44,11 @@ export function StudentList({
   onViewDetails,
   isTeacher = false
 }: StudentListProps) {
-  // Always show selection checkboxes for better UX
-  const showSelection = true;
+  const [showSelection, setShowSelection] = React.useState(false);
 
+  const handleDoubleClick = () => {
+    setShowSelection((prev) => !prev);
+  };
   const getSortIcon = (field: SortField) => {
     if (sortField !== field) return <ArrowUpDown className="ml-2 h-4 w-4" />;
     return sortDirection === 'asc'
@@ -54,7 +57,7 @@ export function StudentList({
   };
 
   return (
-    <div>
+    <div onDoubleClick={handleDoubleClick}>
       <Table>
         <TableHeader>
           <TableRow>
