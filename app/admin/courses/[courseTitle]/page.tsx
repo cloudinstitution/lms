@@ -82,6 +82,7 @@ export default function CourseDetails() {
       return
     }
 
+<<<<<<< HEAD
 // <<<<<<< younus
 //     // // Validate link based on source type
 // =======
@@ -91,6 +92,13 @@ export default function CourseDetails() {
     //   setError("Please enter a valid YouTube link.")
     //   return
     // }
+=======
+    // Validate link based on source type
+    if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
+      setError("Please enter a valid YouTube link.")
+      return
+    }
+>>>>>>> parent of 88f2a7c (Update1 page.tsx)
     if (
   newVideo.sourceType === 'youtube' &&
   !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/.*[?&]list=)[A-Za-z0-9_-]+/)
