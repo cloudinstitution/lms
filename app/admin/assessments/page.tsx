@@ -378,4 +378,5 @@ export default function UploadQuizForm() {
 
 
  )
+}
 
