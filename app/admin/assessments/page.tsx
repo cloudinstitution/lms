@@ -332,4 +332,7 @@ export default function UploadQuizForm() {
         </form>
       </Card>
     </div>
-    )
+
+      );
+}
+    
