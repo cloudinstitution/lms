@@ -248,14 +248,24 @@ export default function AdminAttendancePage() {
     // Group students by their primary course
     const courseGroups = new Map<string, Student[]>();
 
-    studentsList.forEach(student => {
-      const primaryCourse = student.courses[student.primaryCourseIndex];
-      if (!courseGroups.has(primaryCourse.courseID)) {
-        courseGroups.set(primaryCourse.courseID, []);
-      }
-      courseGroups.get(primaryCourse.courseID)!.push(student);
-    });
-
+    // studentsList.forEach(student => {
+    //   const primaryCourse = student.courses[student.primaryCourseIndex];
+    //   if (!courseGroups.has(primaryCourse.courseID)) {
+    //     courseGroups.set(primaryCourse.courseID, []);
+    //   }
+    //   courseGroups.get(primaryCourse.courseID)!.push(student);
+    // });
+studentsList.forEach(student => {
+  const primaryCourse = student.courses?.[student.primaryCourseIndex];
+  if (!primaryCourse) {
+    console.warn('Skipping student with missing/invalid primary course:', student.id ?? student.name);
+    return;
+  }
+  if (!courseGroups.has(primaryCourse.courseID)) {
+    courseGroups.set(primaryCourse.courseID, []);
+  }
+  courseGroups.get(primaryCourse.courseID)!.push(student);
+});
     // Calculate stats for each course
     const courseStats = Array.from(courseGroups.entries()).map(([courseID, students]) => {
       const totalStudents = students.length;
