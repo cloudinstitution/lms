@@ -1,32 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import admin from 'firebase-admin';
 
-// Initialize Firebase Admin if it hasn't been already
-if (!admin.apps.length) {
+function initFirebaseAdmin() {
+  if (admin.apps.length) return;
+
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
   if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(
-      `Missing Firebase credentials. Check that all environment variables are set: 
-      FIREBASE_PROJECT_ID: ${projectId ? 'Set' : 'Missing'}, 
-      FIREBASE_CLIENT_EMAIL: ${clientEmail ? 'Set' : 'Missing'}, 
-      FIREBASE_PRIVATE_KEY: ${privateKey ? 'Set' : 'Missing'}`
-    );
+    throw new Error('Missing Firebase credentials.');
   }
 
   admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
+    credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
   });
 }
 
 export async function GET(request: NextRequest) {
   try {
+    initFirebaseAdmin(); // only runs when the route is actually called, not at build
+
     const searchParams = request.nextUrl.searchParams;
     const uid = searchParams.get('uid');
 
