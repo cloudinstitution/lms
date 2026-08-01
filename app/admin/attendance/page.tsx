@@ -1158,7 +1158,10 @@ studentsList.forEach(student => {
                             <div>
                               <p className="font-medium text-foreground">{student.name}</p>
                               <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
-                              <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p>
+                              {/* <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p> */}
+                              <p className="text-sm text-muted-foreground">
+  Course: {student.courses?.[student.primaryCourseIndex]?.courseName ?? 'N/A'}
+</p>
                             </div>
                             <div className="flex gap-2">
                               <Button
