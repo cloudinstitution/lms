@@ -7,7 +7,7 @@
 
 // Judge0 API base URL - replace with your Judge0 instance URL or use the public API
 const JUDGE0_API_URL = process.env.JUDGE0_API_URL || "https://judge0-ce.p.rapidapi.com"
-const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY || ""
+const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY || "bd11b96083msh3eb48a9318c6cfbp10bcfbjsnad786c9800cf"
 const JUDGE0_API_HOST = process.env.JUDGE0_API_HOST || "judge0-ce.p.rapidapi.com"
 
 // Ensure API key is provided
