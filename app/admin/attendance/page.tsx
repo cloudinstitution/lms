@@ -236,7 +236,7 @@ export default function AdminAttendancePage() {
   const filteredStudents = useMemo(() => {
     return students.filter(student => {
       const primaryCourse = student.courses[student.primaryCourseIndex];
-      const courseMatch = selectedCourse === "all" || primaryCourse.courseID === selectedCourse;
+     const courseMatch = selectedCourse === "all" || primaryCourse?.courseID === selectedCourse;
       const statusMatch = selectedStatus === "all" ||
         (selectedStatus === "present" && student.present) ||
         (selectedStatus === "absent" && !student.present);
@@ -248,14 +248,24 @@ export default function AdminAttendancePage() {
     // Group students by their primary course
     const courseGroups = new Map<string, Student[]>();
 
-    studentsList.forEach(student => {
-      const primaryCourse = student.courses[student.primaryCourseIndex];
-      if (!courseGroups.has(primaryCourse.courseID)) {
-        courseGroups.set(primaryCourse.courseID, []);
-      }
-      courseGroups.get(primaryCourse.courseID)!.push(student);
-    });
-
+    // studentsList.forEach(student => {
+    //   const primaryCourse = student.courses[student.primaryCourseIndex];
+    //   if (!courseGroups.has(primaryCourse.courseID)) {
+    //     courseGroups.set(primaryCourse.courseID, []);
+    //   }
+    //   courseGroups.get(primaryCourse.courseID)!.push(student);
+    // });
+studentsList.forEach(student => {
+  const primaryCourse = student.courses?.[student.primaryCourseIndex];
+  if (!primaryCourse) {
+    console.warn('Skipping student with missing/invalid primary course:', student.id ?? student.name);
+    return;
+  }
+  if (!courseGroups.has(primaryCourse.courseID)) {
+    courseGroups.set(primaryCourse.courseID, []);
+  }
+  courseGroups.get(primaryCourse.courseID)!.push(student);
+});
     // Calculate stats for each course
     const courseStats = Array.from(courseGroups.entries()).map(([courseID, students]) => {
       const totalStudents = students.length;
@@ -1148,7 +1158,10 @@ export default function AdminAttendancePage() {
                             <div>
                               <p className="font-medium text-foreground">{student.name}</p>
                               <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
-                              <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p>
+                              {/* <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p> */}
+                              <p className="text-sm text-muted-foreground">
+  Course: {student.courses?.[student.primaryCourseIndex]?.courseName ?? 'N/A'}
+</p>
                             </div>
                             <div className="flex gap-2">
                               <Button

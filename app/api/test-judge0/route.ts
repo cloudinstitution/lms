@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 // This endpoint is used to check if the Judge0 API is available
 export async function GET() {
   const JUDGE0_API_URL = "https://judge0-ce.p.rapidapi.com"
-  const JUDGE0_API_KEY = "07f2f64360mshd61de342a5548dcp134f99jsn1beeaecd0bcd"
+  const JUDGE0_API_KEY = "bd11b96083msh3eb48a9318c6cfbp10bcfbjsnad786c9800cf"
   const JUDGE0_API_HOST = "judge0-ce.p.rapidapi.com"
 
   try {
