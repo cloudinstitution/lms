@@ -1,0 +1,36 @@
+.attendance-calendar {
+  --day-size: 28px;
+  font-size: 0.875rem;
+}
+
+.attendance-calendar .rdp-caption {
+  padding: 0 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.attendance-calendar .rdp-head_cell,
+.attendance-calendar .rdp-cell {
+  width: var(--day-size);
+  height: var(--day-size);
+  font-size: 0.75rem;
+}
+
+.attendance-calendar .rdp-button {
+  width: var(--day-size);
+  height: var(--day-size);
+  font-size: 0.75rem;
+}
+
+.attendance-calendar .rdp-nav {
+  padding: 2px;
+}
+
+.attendance-calendar .rdp-nav_button {
+  width: 24px;
+  height: 24px;
+}
+
+.attendance-calendar .rdp-caption_label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
