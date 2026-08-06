@@ -19,13 +19,14 @@ import { db } from "@/lib/firebase"
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDocs,
   orderBy,
   query,
   updateDoc,
 } from "firebase/firestore"
-import { Edit2 } from "lucide-react"
+import { Edit2, Trash2 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 
@@ -50,6 +51,11 @@ export default function CourseDetails() {
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null)
   const [editVideo, setEditVideo] = useState<Video | null>(null)
   const [error, setError] = useState("")
+
+  // Delete confirmation state
+  const [videoToDelete, setVideoToDelete] = useState<Video | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     fetchVideos()
@@ -82,30 +88,12 @@ export default function CourseDetails() {
       return
     }
 
-
-//     // // Validate link based on source type
-
-//     // Validate link based on source type
-
-     if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
-       setError("Please enter a valid YouTube link.")
-       return
-     }
-
     // Validate link based on source type
     if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
       setError("Please enter a valid YouTube link.")
       return
     }
 
-    {/* if (
-  newVideo.sourceType === 'youtube' &&
-  !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/.*[?&]list=)[A-Za-z0-9_-]+/)
-) {
-  setError("Please enter a valid YouTube playlist link.");
-  return;
-} */}
-    
     if (newVideo.sourceType === 'gdrive' && !newVideo.link.match(/^https:\/\/drive\.google\.com\/(file\/d\/|open\?id=).+/)) {
       setError("Please enter a valid Google Drive link.")
       return
@@ -140,15 +128,6 @@ export default function CourseDetails() {
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editVideo && editVideo.id) {
-      // Validate link based on source type
-      // if (editVideo.sourceType === 'youtube' && !editVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
-      //   toast({
-      //     title: "Error",
-      //     description: "Please enter a valid YouTube link.",
-      //     variant: "destructive",
-      //   })
-      //   return
-         
       if (editVideo.sourceType === 'gdrive' && !editVideo.link.match(/^https:\/\/drive\.google\.com\/(file\/d\/|open\?id=).+/)) {
         toast({
           title: "Error",
@@ -156,7 +135,6 @@ export default function CourseDetails() {
           variant: "destructive",
         })
         return
-   
       }
 
       try {
@@ -184,6 +162,37 @@ export default function CourseDetails() {
     }
   }
 
+  // Delete handlers
+  const handleDeleteClick = (video: Video) => {
+    setVideoToDelete(video)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!videoToDelete) return
+    try {
+      setDeleting(true)
+      const videoDocRef = doc(db, "courses", courseTitle as string, "videos", videoToDelete.id)
+      await deleteDoc(videoDocRef)
+      setVideos((prev) => prev.filter((v) => v.id !== videoToDelete.id))
+      toast({
+        title: "Success",
+        description: "Video deleted successfully!",
+      })
+    } catch (err) {
+      console.error("Error deleting video:", err)
+      toast({
+        title: "Error",
+        description: "Failed to delete video.",
+        variant: "destructive",
+      })
+    } finally {
+      setDeleting(false)
+      setIsDeleteDialogOpen(false)
+      setVideoToDelete(null)
+    }
+  }
+
   // Updated function to handle YouTube links correctly
   const extractVideoId = (url: string) => {
     try {
@@ -205,7 +214,6 @@ export default function CourseDetails() {
       const videoId = extractVideoId(video.link);
       return `https://www.youtube.com/embed/${videoId}`;
     } else if (video.sourceType === 'gdrive') {
-      // Convert Google Drive viewing URL to embedding URL
       const gdriveUrl = video.link;
       const fileId = gdriveUrl.match(/\/d\/(.*?)(\/|$)/)?.[1] || "";
       return `https://drive.google.com/file/d/${fileId}/preview`;
@@ -244,7 +252,8 @@ export default function CourseDetails() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Video Source</Label>                <select 
+                <Label>Video Source</Label>
+                <select 
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-50"
                   value={newVideo.sourceType}
                   onChange={(e) => setNewVideo({ ...newVideo, sourceType: e.target.value as 'youtube' | 'gdrive' })}
@@ -307,56 +316,67 @@ export default function CourseDetails() {
                     </TableCell>
                     <TableCell>{video.serialNo}</TableCell>
                     <TableCell>
-                      <Dialog open={editingVideoId === video.id} onOpenChange={(open) => {
-                        if (open) {
-                          handleEditClick(video)
-                        } else {
-                          setEditingVideoId(null)
-                        }
-                      }}>
-                        <DialogTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Edit Video</DialogTitle>
-                            <DialogDescription>Update video details.</DialogDescription>
-                          </DialogHeader>
-                          <div className="space-y-2">
-                            <Label>Title</Label>
-                            <Input
-                              value={editVideo?.title || ""}
-                              onChange={(e) => setEditVideo({ ...editVideo!, title: e.target.value })}
-                            />
-                            <Label>Video Source</Label>                            <select 
-                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-50"
-                              value={editVideo?.sourceType || 'youtube'}
-                              onChange={(e) => setEditVideo({ ...editVideo!, sourceType: e.target.value as 'youtube' | 'gdrive' })}
-                              required
-                            >
-                              <option value="youtube" className="bg-white dark:bg-slate-950">YouTube</option>
-                              <option value="gdrive" className="bg-white dark:bg-slate-950">Google Drive</option>
-                            </select>
-                            <Label>{editVideo?.sourceType === 'gdrive' ? 'Google Drive Link' : 'YouTube Link'}</Label>
-                            <Input
-                              value={editVideo?.link || ""}
-                              onChange={(e) => setEditVideo({ ...editVideo!, link: e.target.value })}
-                              placeholder={editVideo?.sourceType === 'youtube' ? 'https://youtube.com/watch?v=...' : 'https://drive.google.com/file/d...'}
-                            />
-                            <Label>Serial No</Label>
-                            <Input
-                              type="number"
-                              value={editVideo?.serialNo || 0}
-                              onChange={(e) => setEditVideo({ ...editVideo!, serialNo: Number(e.target.value) })}
-                            />
-                          </div>
-                          <DialogFooter>
-                            <Button onClick={handleEditSubmit}>Save Changes</Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
+                      <div className="flex items-center gap-1">
+                        <Dialog open={editingVideoId === video.id} onOpenChange={(open) => {
+                          if (open) {
+                            handleEditClick(video)
+                          } else {
+                            setEditingVideoId(null)
+                          }
+                        }}>
+                          <DialogTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Edit Video</DialogTitle>
+                              <DialogDescription>Update video details.</DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-2">
+                              <Label>Title</Label>
+                              <Input
+                                value={editVideo?.title || ""}
+                                onChange={(e) => setEditVideo({ ...editVideo!, title: e.target.value })}
+                              />
+                              <Label>Video Source</Label>
+                              <select 
+                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-950 dark:border-slate-800 dark:text-slate-50"
+                                value={editVideo?.sourceType || 'youtube'}
+                                onChange={(e) => setEditVideo({ ...editVideo!, sourceType: e.target.value as 'youtube' | 'gdrive' })}
+                                required
+                              >
+                                <option value="youtube" className="bg-white dark:bg-slate-950">YouTube</option>
+                                <option value="gdrive" className="bg-white dark:bg-slate-950">Google Drive</option>
+                              </select>
+                              <Label>{editVideo?.sourceType === 'gdrive' ? 'Google Drive Link' : 'YouTube Link'}</Label>
+                              <Input
+                                value={editVideo?.link || ""}
+                                onChange={(e) => setEditVideo({ ...editVideo!, link: e.target.value })}
+                                placeholder={editVideo?.sourceType === 'youtube' ? 'https://youtube.com/watch?v=...' : 'https://drive.google.com/file/d...'}
+                              />
+                              <Label>Serial No</Label>
+                              <Input
+                                type="number"
+                                value={editVideo?.serialNo || 0}
+                                onChange={(e) => setEditVideo({ ...editVideo!, serialNo: Number(e.target.value) })}
+                              />
+                            </div>
+                            <DialogFooter>
+                              <Button onClick={handleEditSubmit}>Save Changes</Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteClick(video)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -365,6 +385,26 @@ export default function CourseDetails() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Video</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{videoToDelete?.title}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleting}>
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
