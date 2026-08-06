@@ -4,16 +4,23 @@ import type React from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/hooks/use-toast"
 import { db } from "@/lib/firebase"
-import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore"
+import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore"
 import { Eye, PlusCircle, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-
 
 interface Question {
   question: string
@@ -28,6 +35,12 @@ interface Course {
   status: string
 }
 
+interface Assessment {
+  topic: string
+  totalQuestions: number
+  status: string
+}
+
 export default function UploadQuizForm() {
   const [selectedCourseId, setSelectedCourseId] = useState("")
   const [topic, setTopic] = useState("")
@@ -38,10 +51,26 @@ export default function UploadQuizForm() {
     { question: "", options: ["", "", "", ""], correctAnswer: 0 },
   ])
 
+  // Existing assessments (for delete feature)
+  const [existingAssessments, setExistingAssessments] = useState<Assessment[]>([])
+  const [assessmentsLoading, setAssessmentsLoading] = useState(false)
+  const [assessmentToDelete, setAssessmentToDelete] = useState<Assessment | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
   // Fetch courses on component mount
   useEffect(() => {
     fetchCourses()
   }, [])
+
+  // Fetch existing assessments whenever the selected course changes
+  useEffect(() => {
+    if (selectedCourseId) {
+      fetchExistingAssessments(selectedCourseId)
+    } else {
+      setExistingAssessments([])
+    }
+  }, [selectedCourseId, courses])
 
   const fetchCourses = async () => {
     try {
@@ -53,9 +82,9 @@ export default function UploadQuizForm() {
         courseID: doc.data().courseID || 0,
         status: doc.data().status || "Active",
       })) as Course[]
-      
+
       // Filter only active courses
-      const activeCourses = coursesList.filter(course => course.status === "Active")
+      const activeCourses = coursesList.filter((course) => course.status === "Active")
       setCourses(activeCourses)
     } catch (error) {
       console.error("Error fetching courses:", error)
@@ -66,6 +95,34 @@ export default function UploadQuizForm() {
       })
     } finally {
       setCoursesLoading(false)
+    }
+  }
+
+  const fetchExistingAssessments = async (courseId: string) => {
+    try {
+      setAssessmentsLoading(true)
+      const selectedCourse = courses.find((c) => c.id === courseId)
+      if (!selectedCourse) return
+
+      const actualCourseID = selectedCourse.courseID.toString()
+      const topicsSnapshot = await getDocs(collection(db, "quizzes", actualCourseID, "topics"))
+
+      const assessmentsList = topicsSnapshot.docs.map((docSnap) => ({
+        topic: docSnap.id,
+        totalQuestions: docSnap.data().totalQuestions || 0,
+        status: docSnap.data().status || "active",
+      })) as Assessment[]
+
+      setExistingAssessments(assessmentsList)
+    } catch (error) {
+      console.error("Error fetching existing assessments:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load existing assessments for this course.",
+        variant: "destructive",
+      })
+    } finally {
+      setAssessmentsLoading(false)
     }
   }
 
@@ -155,25 +212,25 @@ export default function UploadQuizForm() {
 
     try {
       // Get the selected course details
-      const selectedCourse = courses.find(c => c.id === selectedCourseId)
+      const selectedCourse = courses.find((c) => c.id === selectedCourseId)
       if (!selectedCourse) {
         throw new Error("Selected course not found")
       }
 
       // Use the actual courseID (not Firestore document ID) as the path
       const actualCourseID = selectedCourse.courseID.toString()
-      
+
       console.log("🔍 Admin: Creating quiz with data:", {
         selectedCourse,
         actualCourseID,
         topic,
-        path: `quizzes/${actualCourseID}/topics/${topic}`
-      });
-      
+        path: `quizzes/${actualCourseID}/topics/${topic}`,
+      })
+
       // Check if a quiz with this topic already exists for this course
       const existingQuizRef = doc(db, "quizzes", actualCourseID, "topics", topic)
       const existingQuiz = await getDoc(existingQuizRef)
-      
+
       if (existingQuiz.exists()) {
         toast({
           title: "Error",
@@ -199,18 +256,18 @@ export default function UploadQuizForm() {
         metadata: {
           createdBy: "admin", // This could be dynamic based on user
           lastModified: serverTimestamp(),
-          version: "1.0"
-        }
+          version: "1.0",
+        },
       }
 
-      console.log("🔍 Admin: Quiz data to be saved:", quizData);
+      console.log("🔍 Admin: Quiz data to be saved:", quizData)
 
       // Store in the new path structure: quizzes/{actualCourseID}/topics/{topic}
       // Using the actual courseID (like 1000) as the document ID
       const quizDocRef = doc(db, "quizzes", actualCourseID, "topics", topic)
       await setDoc(quizDocRef, quizData)
-      
-      console.log("✅ Admin: Quiz saved successfully to:", `quizzes/${actualCourseID}/topics/${topic}`);
+
+      console.log("✅ Admin: Quiz saved successfully to:", `quizzes/${actualCourseID}/topics/${topic}`)
 
       toast({
         title: "Success",
@@ -221,6 +278,9 @@ export default function UploadQuizForm() {
       setSelectedCourseId("")
       setTopic("")
       setQuestions([{ question: "", options: ["", "", "", ""], correctAnswer: 0 }])
+
+      // Refresh the assessments list for this course
+      fetchExistingAssessments(selectedCourseId)
     } catch (error) {
       console.error("Error uploading quiz:", error)
       toast({
@@ -230,6 +290,44 @@ export default function UploadQuizForm() {
       })
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Delete assessment handlers
+  const handleDeleteClick = (assessment: Assessment) => {
+    setAssessmentToDelete(assessment)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!assessmentToDelete || !selectedCourseId) return
+
+    try {
+      setDeleting(true)
+      const selectedCourse = courses.find((c) => c.id === selectedCourseId)
+      if (!selectedCourse) throw new Error("Course not found")
+
+      const actualCourseID = selectedCourse.courseID.toString()
+      const quizDocRef = doc(db, "quizzes", actualCourseID, "topics", assessmentToDelete.topic)
+      await deleteDoc(quizDocRef)
+
+      setExistingAssessments((prev) => prev.filter((a) => a.topic !== assessmentToDelete.topic))
+
+      toast({
+        title: "Success",
+        description: `Assessment "${assessmentToDelete.topic}" deleted successfully.`,
+      })
+    } catch (error) {
+      console.error("Error deleting assessment:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete assessment. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setDeleting(false)
+      setIsDeleteDialogOpen(false)
+      setAssessmentToDelete(null)
     }
   }
 
@@ -247,136 +345,194 @@ export default function UploadQuizForm() {
           </Button>
         </Link>
       </div>
-      
+
       <Card className="w-full max-w-4xl mx-auto">
-      <CardHeader>
-        <CardTitle>Upload Quiz</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Create assessments for specific courses. Quizzes will be organized by course and topic.
-        </p>
-      </CardHeader>
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="course">Course</Label>
-              {coursesLoading ? (
-                <div className="flex items-center justify-center h-10 border rounded-md">
-                  <span className="text-sm text-muted-foreground">Loading courses...</span>
-                </div>
-              ) : (
-                <Select value={selectedCourseId} onValueChange={setSelectedCourseId} required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a course" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {courses.length === 0 ? (
-                      <SelectItem value="" disabled>
-                        No active courses available
-                      </SelectItem>
-                    ) : (
-                      courses.map((course) => (
-                        <SelectItem key={course.id} value={course.id}>
-                          {course.title} (ID: {course.courseID})
+        <CardHeader>
+          <CardTitle>Upload Quiz</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Create assessments for specific courses. Quizzes will be organized by course and topic.
+          </p>
+        </CardHeader>
+        <form onSubmit={handleSubmit}>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="course">Course</Label>
+                {coursesLoading ? (
+                  <div className="flex items-center justify-center h-10 border rounded-md">
+                    <span className="text-sm text-muted-foreground">Loading courses...</span>
+                  </div>
+                ) : (
+                  <Select value={selectedCourseId} onValueChange={setSelectedCourseId} required>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a course" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {courses.length === 0 ? (
+                        <SelectItem value="" disabled>
+                          No active courses available
                         </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="topic">Assessment Name / Topic</Label>
-              <Input
-                id="topic"
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                placeholder="Enter assessment name or topic"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium">Questions</h3>
-            </div>
-
-            {questions.map((question, qIndex) => (
-              <div key={qIndex} className="border rounded-lg p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium">Question {qIndex + 1}</h4>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRemoveQuestion(qIndex)}
-                    disabled={questions.length === 1}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor={`question-${qIndex}`}>Question Text</Label>
-                  <Input
-                    id={`question-${qIndex}`}
-                    value={question.question}
-                    onChange={(e) => handleQuestionChange(qIndex, e.target.value)}
-                    placeholder="Enter question text"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <Label>Options</Label>
-                  {question.options.map((option, oIndex) => (
-                    <div key={oIndex} className="flex items-center gap-2">
-                      <Input
-                        type="radio"
-                        className="h-4 w-4"
-                        name={`correct-${qIndex}`}
-                        checked={question.correctAnswer === oIndex}
-                        onChange={() => handleCorrectAnswerChange(qIndex, oIndex.toString())}
-                      />
-                      <Input
-                        value={option}
-                        onChange={(e) => handleOptionChange(qIndex, oIndex, e.target.value)}
-                        placeholder={`Option ${oIndex + 1}`}
-                        required
-                        className="flex-1"
-                      />
-                    </div>
-                  ))}
-                  <div className="text-xs text-slate-500">Select the radio button next to the correct answer</div>
-                </div>
+                      ) : (
+                        courses.map((course) => (
+                          <SelectItem key={course.id} value={course.id}>
+                            {course.title} (ID: {course.courseID})
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
-            ))}
+              <div className="space-y-2">
+                <Label htmlFor="topic">Assessment Name / Topic</Label>
+                <Input
+                  id="topic"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="Enter assessment name or topic"
+                  required
+                />
+              </div>
+            </div>
 
-            <Button type="button" variant="outline" onClick={handleAddQuestion} className="w-full">
-              <PlusCircle className="h-4 w-4 mr-2" />
-              Add Question
+            {/* Existing Assessments for selected course */}
+            {selectedCourseId && (
+              <div className="space-y-2 border rounded-lg p-4">
+                <h3 className="text-sm font-medium">Existing Assessments for this Course</h3>
+                {assessmentsLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading...</p>
+                ) : existingAssessments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No assessments yet for this course.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {existingAssessments.map((assessment) => (
+                      <li
+                        key={assessment.topic}
+                        className="flex items-center justify-between text-sm border-b last:border-b-0 py-2"
+                      >
+                        <span>
+                          {assessment.topic}{" "}
+                          <span className="text-muted-foreground">
+                            ({assessment.totalQuestions} question{assessment.totalQuestions !== 1 ? "s" : ""})
+                          </span>
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteClick(assessment)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-medium">Questions</h3>
+              </div>
+
+              {questions.map((question, qIndex) => (
+                <div key={qIndex} className="border rounded-lg p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">Question {qIndex + 1}</h4>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveQuestion(qIndex)}
+                      disabled={questions.length === 1}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor={`question-${qIndex}`}>Question Text</Label>
+                    <Input
+                      id={`question-${qIndex}`}
+                      value={question.question}
+                      onChange={(e) => handleQuestionChange(qIndex, e.target.value)}
+                      placeholder="Enter question text"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Options</Label>
+                    {question.options.map((option, oIndex) => (
+                      <div key={oIndex} className="flex items-center gap-2">
+                        <Input
+                          type="radio"
+                          className="h-4 w-4"
+                          name={`correct-${qIndex}`}
+                          checked={question.correctAnswer === oIndex}
+                          onChange={() => handleCorrectAnswerChange(qIndex, oIndex.toString())}
+                        />
+                        <Input
+                          value={option}
+                          onChange={(e) => handleOptionChange(qIndex, oIndex, e.target.value)}
+                          placeholder={`Option ${oIndex + 1}`}
+                          required
+                          className="flex-1"
+                        />
+                      </div>
+                    ))}
+                    <div className="text-xs text-slate-500">Select the radio button next to the correct answer</div>
+                  </div>
+                </div>
+              ))}
+
+              <Button type="button" variant="outline" onClick={handleAddQuestion} className="w-full">
+                <PlusCircle className="h-4 w-4 mr-2" />
+                Add Question
+              </Button>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button
+              type="submit"
+              disabled={isLoading || coursesLoading || !selectedCourseId || courses.length === 0}
+              className="w-full"
+            >
+              {isLoading
+                ? "Uploading..."
+                : coursesLoading
+                  ? "Loading courses..."
+                  : courses.length === 0
+                    ? "No courses available"
+                    : !selectedCourseId
+                      ? "Select a course first"
+                      : "Upload Quiz"}
             </Button>
-          </div>
-        </CardContent>
-        <CardFooter>
-          <Button 
-            type="submit" 
-            disabled={isLoading || coursesLoading || !selectedCourseId || courses.length === 0} 
-            className="w-full"
-          >
-            {isLoading ? "Uploading..." : 
-             coursesLoading ? "Loading courses..." :
-             courses.length === 0 ? "No courses available" :
-             !selectedCourseId ? "Select a course first" :
-             "Upload Quiz"}
-          </Button>
-        </CardFooter>
-      </form>
-    </Card>
+          </CardFooter>
+        </form>
+      </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Assessment</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{assessmentToDelete?.topic}"? This action cannot be undone
+              and students will lose access to this assessment.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleting}>
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
-
-
- )
+  )
 }
-
