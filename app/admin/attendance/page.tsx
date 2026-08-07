@@ -599,25 +599,35 @@ studentsList.forEach(student => {
       
       // Process each student's attendance change
       students.forEach(student => {
-        const primaryCourse = student.courses[student.primaryCourseIndex];
+        const primaryCourse = student.courses?.[student.primaryCourseIndex];
+
+        if (!primaryCourse) {
+          console.warn(
+            "Skipping student with missing primary course:",
+            student.id,
+            student.name
+          );
+          return;
+        }
+
         const courseId = primaryCourse.courseID;
-        
+
         if (!courseGroups.has(courseId)) {
-          courseGroups.set(courseId, { 
-            presentStudents: [], 
-            absentStudents: [], 
-            allStudentsInCourse: [] 
+          courseGroups.set(courseId, {
+            presentStudents: [],
+            absentStudents: [],
+            allStudentsInCourse: []
           });
         }
-        
+
         const courseGroup = courseGroups.get(courseId)!;
         courseGroup.allStudentsInCourse.push(student.id);
-        
+
         // Check if student should be marked present (use batch changes if available, otherwise current state)
-        const isPresent = batchAttendance.changes.has(student.id) 
-          ? batchAttendance.changes.get(student.id) 
+        const isPresent = batchAttendance.changes.has(student.id)
+          ? batchAttendance.changes.get(student.id)
           : student.present;
-          
+
         if (isPresent) {
           courseGroup.presentStudents.push(student.id);
         } else {
