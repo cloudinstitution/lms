@@ -38,6 +38,55 @@ interface VideoType {
   sourceType: 'youtube' | 'gdrive' // Add support for both video types
 }
 
+// Decodes HTML entities (in case a raw embed snippet's src ever got saved)
+// and extracts either a single video ID or a playlist ID from any
+// YouTube link shape: watch, youtu.be, /embed/VIDEO_ID, /embed/videoseries?list=..., /shorts/
+const parseYoutubeSource = (rawUrl: string): { videoId?: string; playlistId?: string } => {
+  const decoded = rawUrl
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+
+  try {
+    const parsedUrl = new URL(decoded)
+
+    if (parsedUrl.hostname === "youtu.be") {
+      return { videoId: parsedUrl.pathname.slice(1) }
+    }
+
+    if (parsedUrl.hostname.includes("youtube.com")) {
+      const listId = parsedUrl.searchParams.get("list")
+
+      // /embed/videoseries?list=... -> playlist only
+      if (parsedUrl.pathname.startsWith("/embed/videoseries")) {
+        return listId ? { playlistId: listId } : {}
+      }
+
+      // /embed/VIDEO_ID (optionally with a list= too, e.g. video within a playlist)
+      const embedMatch = parsedUrl.pathname.match(/^\/embed\/([^/?]+)/)
+      if (embedMatch) {
+        return listId ? { videoId: embedMatch[1], playlistId: listId } : { videoId: embedMatch[1] }
+      }
+
+      // /watch?v=VIDEO_ID
+      const watchId = parsedUrl.searchParams.get("v")
+      if (watchId) {
+        return listId ? { videoId: watchId, playlistId: listId } : { videoId: watchId }
+      }
+
+      // /shorts/VIDEO_ID
+      const shortsMatch = parsedUrl.pathname.match(/^\/shorts\/([^/?]+)/)
+      if (shortsMatch) return { videoId: shortsMatch[1] }
+    }
+
+    return {}
+  } catch (error) {
+    return {}
+  }
+}
+
 export default function CoursesPage() {
   const router = useRouter()
   const [student, setStudent] = useState<Student | null>(null)
@@ -122,24 +171,12 @@ export default function CoursesPage() {
     }
   }
 
-  const extractVideoId = (url: string) => {
-    try {
-      const parsedUrl = new URL(url);
-      if (parsedUrl.hostname === "youtu.be") {
-        return parsedUrl.pathname.slice(1);
-      }
-      if (parsedUrl.hostname.includes("youtube.com")) {
-        return parsedUrl.searchParams.get("v") || "";
-      }
-      return "";
-    } catch (error) {
-      return "";
-    }
-  }
   const getVideoEmbedUrl = (video: VideoType) => {
     if (video.sourceType === 'youtube') {
-      const videoId = extractVideoId(video.link);
-      return `https://www.youtube.com/embed/${videoId}`;
+      const { videoId, playlistId } = parseYoutubeSource(video.link)
+      if (videoId) return `https://www.youtube.com/embed/${videoId}`
+      if (playlistId) return `https://www.youtube.com/embed/videoseries?list=${playlistId}`
+      return ''
     } else if (video.sourceType === 'gdrive') {
       const gdriveUrl = video.link;
       const fileId = gdriveUrl.match(/\/d\/(.*?)(\/|$)/)?.[1] || "";
@@ -150,12 +187,10 @@ export default function CoursesPage() {
 
   const loadYouTubePlayer = (url: string) => {
     console.log("Loading YouTube player for URL:", url);
-    // Updated video ID extraction to handle query parameters
-    const videoIdMatch = url.match(/(?:youtube\.com.*[?&]v=|youtu\.be\/)([^?&]+)/)
-    const videoId = videoIdMatch?.[1]
+    const { videoId, playlistId } = parseYoutubeSource(url)
 
-    if (!videoId || !window.YT) {
-      console.log("Invalid video ID or YouTube API not ready:", { videoId, apiReady: !!window.YT });
+    if ((!videoId && !playlistId) || !window.YT) {
+      console.log("Invalid video/playlist ID or YouTube API not ready:", { videoId, playlistId, apiReady: !!window.YT });
       return;
     }
 
@@ -165,17 +200,18 @@ export default function CoursesPage() {
     }
 
     let hasMarkedAsCompleted = false
-    console.log("Creating new player with video ID:", videoId);
+    console.log("Creating new player:", { videoId, playlistId });
 
     playerRef.current = new window.YT.Player("yt-player", {
-      videoId,
+      ...(videoId ? { videoId } : {}),
       playerVars: {
         enablejsapi: 1,
         origin: window.location.origin,
         widget_referrer: window.location.origin,
         rel: 0,
         modestbranding: 1,
-        playsinline: 1
+        playsinline: 1,
+        ...(playlistId ? { listType: 'playlist', list: playlistId } : {}),
       },
       events: {
         onError: (error: any) => {
