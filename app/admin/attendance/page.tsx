@@ -637,6 +637,7 @@ export default function AdminAttendancePage() {
     const dateString = formatDate(date);
 
     try {
+<<<<<<< HEAD
       // Resolve the effective present/absent state for every (student, course) pair,
       // taking pending batch changes into account.
       const resolvedRows = students.flatMap(student =>
@@ -656,6 +657,42 @@ export default function AdminAttendancePage() {
           courseGroups.set(courseID, { presentStudents: [], absentStudents: [] });
         }
         const group = courseGroups.get(courseID)!;
+=======
+      // Group students by their primary course with both present and absent lists
+      const courseGroups = new Map<string, { presentStudents: string[], absentStudents: string[], allStudentsInCourse: string[] }>();
+      
+      // Process each student's attendance change
+      students.forEach(student => {
+        const primaryCourse = student.courses?.[student.primaryCourseIndex];
+
+        if (!primaryCourse) {
+          console.warn(
+            "Skipping student with missing primary course:",
+            student.id,
+            student.name
+          );
+          return;
+        }
+
+        const courseId = primaryCourse.courseID;
+
+        if (!courseGroups.has(courseId)) {
+          courseGroups.set(courseId, {
+            presentStudents: [],
+            absentStudents: [],
+            allStudentsInCourse: []
+          });
+        }
+
+        const courseGroup = courseGroups.get(courseId)!;
+        courseGroup.allStudentsInCourse.push(student.id);
+
+        // Check if student should be marked present (use batch changes if available, otherwise current state)
+        const isPresent = batchAttendance.changes.has(student.id)
+          ? batchAttendance.changes.get(student.id)
+          : student.present;
+
+>>>>>>> 798673bbc28a75274bcc771f39dce37bcd5d6b89
         if (isPresent) {
           group.presentStudents.push(studentId);
         } else {

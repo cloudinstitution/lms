@@ -42,6 +42,15 @@ export default function LoginPage() {
       if (!studentSnapshot.empty) {
         const userDoc = studentSnapshot.docs[0].data()
         if (userDoc.password === formData.password) {
+              
+          //inactive session
+
+          const studentStatus = String(userDoc.status || "").trim().toLowerCase()
+
+          if (studentStatus !== "active") {
+            setError("Your account is inactive. Please contact the administrator.")
+            return
+          }
           // Fetch full student data
           const studentData = {
             id: studentSnapshot.docs[0].id,
