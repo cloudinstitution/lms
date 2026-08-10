@@ -27,29 +27,20 @@ import { toast } from "sonner"
 import * as XLSX from 'xlsx'
 import AttendanceScanner from "./attendance-scanner"
 
-interface CourseRef {
-  courseID: string
-  courseName: string
-}
-
 interface Student {
   id: string
   customId: string
   name: string
-  courses: CourseRef[]
-  primaryCourseIndex: number
-  // Per-course attendance status for THIS date. Key = courseID.
-  presentByCourse: Record<string, boolean>
-}
-
-// One row per (student, course) enrollment - this is the unit the UI now works with.
-interface StudentCourseRow {
-  studentId: string
-  customId: string
-  name: string
-  courseID: string
-  courseName: string
   present: boolean
+  courses: {
+    courseID: string
+    courseName: string
+  }[]
+  primaryCourseIndex: number
+  attendanceSummary?: {
+    present: number
+    absent: number
+  }
 }
 
 interface CourseStats {
@@ -61,24 +52,20 @@ interface CourseStats {
 }
 
 interface AttendanceStats {
-  totalStudents: number       // unique students enrolled anywhere
-  totalEnrollments: number    // total student-course rows
-  presentEnrollments: number
-  absentEnrollments: number
+  totalStudents: number
+  presentStudents: number
+  absentStudents: number
   attendancePercentage: number
   courseStats: CourseStats[]
 }
 
 interface BatchAttendanceState {
-  // Key = `${studentId}::${courseID}`
   changes: Map<string, boolean>
   modified: boolean
   submitting: boolean
 }
 
 type FilterStatus = "all" | "present" | "absent"
-
-const changeKey = (studentId: string, courseID: string) => `${studentId}::${courseID}`
 
 export default function AdminAttendancePage() {
   const { user, userProfile } = useAuth()
@@ -97,13 +84,12 @@ export default function AdminAttendancePage() {
   const [scannerRefreshKey, setScannerRefreshKey] = useState(0)
   const [stats, setStats] = useState<AttendanceStats>({
     totalStudents: 0,
-    totalEnrollments: 0,
-    presentEnrollments: 0,
-    absentEnrollments: 0,
+    presentStudents: 0,
+    absentStudents: 0,
     attendancePercentage: 0,
     courseStats: []
   })
-
+  
   const [batchAttendance, setBatchAttendance] = useState<BatchAttendanceState>({
     changes: new Map(),
     modified: false,
@@ -115,7 +101,7 @@ export default function AdminAttendancePage() {
   // Throttle function to prevent rapid clicks
   const throttleAction = useCallback(async (action: () => void | Promise<void>) => {
     if (isThrottling) return;
-
+    
     setIsThrottling(true);
     try {
       await action();
@@ -127,14 +113,14 @@ export default function AdminAttendancePage() {
   // Get user authentication data and claims (memoized to prevent frequent updates)
   const { userClaims } = useAuth()
   const adminData = getAdminSession()
-
+  
   // Determine if user is teacher and get their assigned courses (memoized)
-  const isTeacher = useMemo(() =>
+  const isTeacher = useMemo(() => 
     userClaims?.role === 'teacher' || adminData?.role === 'teacher',
     [userClaims?.role, adminData?.role]
   )
-
-  const assignedCourses = useMemo(() =>
+  
+  const assignedCourses = useMemo(() => 
     userClaims?.assignedCourses || adminData?.assignedCourses || [],
     [userClaims?.assignedCourses, adminData?.assignedCourses]
   )
@@ -144,7 +130,7 @@ export default function AdminAttendancePage() {
   }
 
   // Stable stringified version of assigned courses to prevent frequent re-fetches
-  const assignedCoursesString = useMemo(() =>
+  const assignedCoursesString = useMemo(() => 
     JSON.stringify(assignedCourses.sort()),
     [assignedCourses]
   )
@@ -153,16 +139,16 @@ export default function AdminAttendancePage() {
   useEffect(() => {
     // Only prevent fetch if already in progress or already fetched successfully
     if (coursesFetchedRef.current && !coursesError) return;
-
+    
     const fetchCourses = async (): Promise<void> => {
       setCoursesLoading(true)
       setCoursesError(null)
       coursesFetchedRef.current = true // Mark as fetched to prevent multiple calls
-
+      
       try {
         const coursesCollection = collection(db, "courses")
         let coursesSnapshot
-
+        
         // Filter courses for teachers based on their assigned courses
         if (isTeacher && assignedCourses.length > 0) {
           const coursesQuery = query(coursesCollection, where("__name__", "in", assignedCourses))
@@ -170,7 +156,7 @@ export default function AdminAttendancePage() {
         } else {
           coursesSnapshot = await getDocs(coursesCollection)
         }
-
+        
         const courseMapping: { [key: string]: { id: string; title: string } } = {}
 
         coursesSnapshot.docs.forEach(doc => {
@@ -183,7 +169,7 @@ export default function AdminAttendancePage() {
             }
           }
         })
-
+        
         setCourses(courseMapping)
       } catch (error) {
         console.error("Error fetching courses:", error)
@@ -206,24 +192,10 @@ export default function AdminAttendancePage() {
     }
   }, [coursesError])
 
-  // Flatten students into one row per (student, course) enrollment - this is the
-  // core unit for per-course attendance.
-  const allRows = useMemo<StudentCourseRow[]>(() => {
-    return students.flatMap(student =>
-      student.courses.map(course => ({
-        studentId: student.id,
-        customId: student.customId,
-        name: student.name,
-        courseID: course.courseID,
-        courseName: course.courseName,
-        present: student.presentByCourse[course.courseID] ?? false
-      }))
-    );
-  }, [students]);
-
-  const matchesSearch = (row: StudentCourseRow) => {
-    const q = searchQuery.toLowerCase();
-    return row.name.toLowerCase().includes(q) || row.customId.toLowerCase().includes(q);
+  const matchesSearch = (student: Student) => {
+    const query = searchQuery.toLowerCase();
+    return student.name.toLowerCase().includes(query) ||
+      student.customId.toLowerCase().includes(query);
   };
 
   // Batch Controls Component
@@ -260,51 +232,65 @@ export default function AdminAttendancePage() {
     </div>
   );
 
-  // Filter rows (student-course pairs) based on search and filters
-  const filteredRows = useMemo(() => {
-    return allRows.filter(row => {
-      const courseMatch = selectedCourse === "all" || row.courseID === selectedCourse;
+  // Filter students based on search and filters
+  const filteredStudents = useMemo(() => {
+    return students.filter(student => {
+      const primaryCourse = student.courses[student.primaryCourseIndex];
+     const courseMatch = selectedCourse === "all" || primaryCourse?.courseID === selectedCourse;
       const statusMatch = selectedStatus === "all" ||
-        (selectedStatus === "present" && row.present) ||
-        (selectedStatus === "absent" && !row.present);
-      return courseMatch && statusMatch && matchesSearch(row);
+        (selectedStatus === "present" && student.present) ||
+        (selectedStatus === "absent" && !student.present);
+      return courseMatch && statusMatch && matchesSearch(student);
     });
-  }, [allRows, selectedCourse, selectedStatus, searchQuery]);
+  }, [students, selectedCourse, selectedStatus, searchQuery]);
+  
+  const calculateCourseStats = useCallback((studentsList: Student[]): CourseStats[] => {
+    // Group students by their primary course
+    const courseGroups = new Map<string, Student[]>();
 
-  const calculateCourseStats = useCallback((rows: StudentCourseRow[]): CourseStats[] => {
-    // Group rows by course - a student contributes once per course they're enrolled in
-    const courseGroups = new Map<string, StudentCourseRow[]>();
-
-    rows.forEach(row => {
-      if (!courseGroups.has(row.courseID)) {
-        courseGroups.set(row.courseID, []);
-      }
-      courseGroups.get(row.courseID)!.push(row);
-    });
-
-    const courseStats = Array.from(courseGroups.entries()).map(([courseID, rowsInCourse]) => {
-      const totalStudents = rowsInCourse.length;
-      const presentStudents = rowsInCourse.filter(r => r.present).length;
+    // studentsList.forEach(student => {
+    //   const primaryCourse = student.courses[student.primaryCourseIndex];
+    //   if (!courseGroups.has(primaryCourse.courseID)) {
+    //     courseGroups.set(primaryCourse.courseID, []);
+    //   }
+    //   courseGroups.get(primaryCourse.courseID)!.push(student);
+    // });
+studentsList.forEach(student => {
+  const primaryCourse = student.courses?.[student.primaryCourseIndex];
+  if (!primaryCourse) {
+    console.warn('Skipping student with missing/invalid primary course:', student.id ?? student.name);
+    return;
+  }
+  if (!courseGroups.has(primaryCourse.courseID)) {
+    courseGroups.set(primaryCourse.courseID, []);
+  }
+  courseGroups.get(primaryCourse.courseID)!.push(student);
+});
+    // Calculate stats for each course
+    const courseStats = Array.from(courseGroups.entries()).map(([courseID, students]) => {
+      const totalStudents = students.length;
+      const presentStudents = students.filter(s => s.present).length;
 
       return {
         courseID,
-        courseName: courses[courseID]?.title || rowsInCourse[0]?.courseName || "Uncategorized",
+        courseName: courses[courseID]?.title || "Uncategorized", // Use courses state directly
         totalStudents,
         presentStudents,
         percentage: totalStudents > 0 ? (presentStudents / totalStudents) * 100 : 0
       };
-    });
-
+    });    
+    
+    // Sort courses by name
     return courseStats.sort((a, b) => a.courseName.localeCompare(b.courseName));
-  }, [courses])
-
+  }, [courses]) // Add courses as dependency
+  
   // Use ref to avoid dependency cycles
   const fetchStudentsRef = useRef<((showToast?: boolean) => Promise<void>) | null>(null);
   const coursesFetchedRef = useRef(false);
 
   const fetchStudentsForDate = useCallback(async (showToast = true) => {
     if (!date) return
-
+    
     if (showToast) {
       toast.info("Loading students", {
         id: "loading-students",
@@ -330,16 +316,15 @@ export default function AdminAttendancePage() {
     setError(null)
     try {
       const dateString = formatDate(date)
-
+      
       // Get all students
       const studentsQuery = query(collection(db, "students"))
       const studentSnapshot = await getDocs(studentsQuery)
-
+      
       // Get attendance data for all courses for this date in a single batch
       const attendanceDataByCourse = new Map<string, string[]>()
-
-      // Get all course IDs from students to check their attendance (every course
-      // a student is enrolled in, not just their primary one)
+      
+      // Get all course IDs from students to check their attendance
       const allCourseIds = new Set<string>()
       studentSnapshot.docs.forEach(studentDoc => {
         const studentData = studentDoc.data()
@@ -371,22 +356,22 @@ export default function AdminAttendancePage() {
       })
 
       const attendanceResults = await Promise.all(attendancePromises)
-
+      
       attendanceResults.forEach(({ courseId, data }) => {
         attendanceDataByCourse.set(courseId, data)
       })
-
-      // Create the students list with per-course attendance status
+      
+      // Create the students list with attendance status
       const studentsList = studentSnapshot.docs.map(studentDoc => {
         const studentData = studentDoc.data();
         const customId = studentData.studentId || "unknown";
-
+        
         // Handle multiple courses
         const courseIDs = Array.isArray(studentData.courseID) ? studentData.courseID : [studentData.courseID];
         const primaryCourseIndex = studentData.primaryCourseIndex || 0;
-
+        
         // Map all courses with their names - use current courses state
-        const studentCourses: CourseRef[] = courseIDs.map((id: string) => {
+        const studentCourses = courseIDs.map((id: string) => {
           const courseId = id ? id.toString() : "0";
           const courseName = courses[courseId]?.title || "Uncategorized";
           return {
@@ -395,12 +380,10 @@ export default function AdminAttendancePage() {
           };
         });
 
-        // Build a present/absent flag for EACH course the student is enrolled in
-        const presentByCourse: Record<string, boolean> = {};
-        studentCourses.forEach(course => {
-          const presentStudentsInCourse = attendanceDataByCourse.get(course.courseID) || [];
-          presentByCourse[course.courseID] = presentStudentsInCourse.includes(studentDoc.id);
-        });
+        // Check if student is present in their primary course
+        const primaryCourseId = studentCourses[primaryCourseIndex]?.courseID || "0"
+        const presentStudentsInCourse = attendanceDataByCourse.get(primaryCourseId) || []
+        const isPresent = presentStudentsInCourse.includes(studentDoc.id)
 
         return {
           id: studentDoc.id,
@@ -408,36 +391,24 @@ export default function AdminAttendancePage() {
           name: studentData.name || "Unknown Student",
           courses: studentCourses,
           primaryCourseIndex: primaryCourseIndex,
-          presentByCourse
+          present: isPresent,
+          attendanceSummary: studentData.attendanceSummary || { present: 0, absent: 0 }
         }
       })
 
-      // Calculate statistics across all student-course enrollments
-      const rows: StudentCourseRow[] = studentsList.flatMap(student =>
-        student.courses.map(course => ({
-          studentId: student.id,
-          customId: student.customId,
-          name: student.name,
-          courseID: course.courseID,
-          courseName: course.courseName,
-          present: student.presentByCourse[course.courseID] ?? false
-        }))
-      );
-
+      // Calculate statistics for primary courses only
       const totalStudents = studentsList.length
-      const totalEnrollments = rows.length
-      const presentEnrollments = rows.filter(r => r.present).length
-      const absentEnrollments = totalEnrollments - presentEnrollments
-      const attendancePercentage = totalEnrollments > 0 ? (presentEnrollments / totalEnrollments) * 100 : 0
-      const courseStats = calculateCourseStats(rows)
+      const presentCount = studentsList.filter(s => s.present).length
+      const absentCount = totalStudents - presentCount
+      const attendancePercentage = totalStudents > 0 ? (presentCount / totalStudents) * 100 : 0
+      const courseStats = calculateCourseStats(studentsList)
 
       // Update state
       setStudents(studentsList)
       setStats({
         totalStudents,
-        totalEnrollments,
-        presentEnrollments,
-        absentEnrollments,
+        presentStudents: presentCount,
+        absentStudents: absentCount,
         attendancePercentage,
         courseStats
       })
@@ -451,7 +422,7 @@ export default function AdminAttendancePage() {
     } finally {
       setLoading(false)
     }
-  }, [date, courses, calculateCourseStats]) // Include courses to ensure proper course names
+  }, [date, courses]) // Include courses to ensure proper course names
 
   // Store the function in ref to avoid dependency cycles
   useEffect(() => {
@@ -469,7 +440,7 @@ export default function AdminAttendancePage() {
   // Update student course names when courses are loaded (simplified since fetchStudentsForDate now depends on courses)
   useEffect(() => {
     if (!coursesLoading && Object.keys(courses).length > 0 && students.length > 0 && !courseNamesUpdated) {
-      setStudents(prevStudents =>
+      setStudents(prevStudents => 
         prevStudents.map(student => ({
           ...student,
           courses: student.courses.map(course => ({
@@ -481,7 +452,7 @@ export default function AdminAttendancePage() {
       setCourseNamesUpdated(true);
     }
   }, [courses, coursesLoading, courseNamesUpdated, students.length]) // Add students.length to dependency
-
+  
   // Callback for when attendance is marked via scanner
   const handleAttendanceMarked = useCallback(() => {
     if (fetchStudentsRef.current) {
@@ -489,56 +460,53 @@ export default function AdminAttendancePage() {
     }
     setScannerRefreshKey(prev => prev + 1) // Reset scanner
   }, []) // No dependencies needed
-
   const downloadAttendance = (format: 'csv' | 'xlsx', groupBy?: 'course' | 'none') => {
-    if (!date || !allRows.length) return;
+    if (!date || !students.length) return;
 
     const dateStr = date.toISOString().split('T')[0];
     let data: any[] = [];
 
     if (groupBy === 'course') {
-      // Group by course - a student appears once per course they're enrolled in
-      const courseGroups = new Map<string, StudentCourseRow[]>();
-      allRows.forEach(row => {
-        if (!courseGroups.has(row.courseName)) {
-          courseGroups.set(row.courseName, []);
+      // Group by primary course
+      const courseGroups = new Map<string, Student[]>();
+      students.forEach(student => {
+        const primaryCourse = student.courses[student.primaryCourseIndex];
+        if (!courseGroups.has(primaryCourse.courseName)) {
+          courseGroups.set(primaryCourse.courseName, []);
         }
-        courseGroups.get(row.courseName)!.push(row);
+        courseGroups.get(primaryCourse.courseName)!.push(student);
       });
 
-      courseGroups.forEach((rows, courseName) => {
+      courseGroups.forEach((students, courseName) => {
         data.push({ 'Course': courseName }); // Add course header
-        rows.forEach(row => {
+        students.forEach(student => {
           data.push({
-            'Student ID': row.customId,
-            'Name': row.name,
-            'Status': row.present ? 'Present' : 'Absent'
+            'Student ID': student.customId,
+            'Name': student.name,
+            'Status': student.present ? 'Present' : 'Absent'
           });
         });
         data.push({}); // Add empty row between courses
       });
     } else {
-      // No grouping - one row per student-course enrollment, with that course's status
-      data = allRows.map(row => ({
-        'Student ID': row.customId,
-        'Name': row.name,
-        'Course': row.courseName,
-        'Status': row.present ? 'Present' : 'Absent'
+      // No grouping, but include primary course info
+      data = students.map(student => ({
+        'Student ID': student.customId,
+        'Name': student.name,
+        'Course': student.courses[student.primaryCourseIndex].courseName,
+        'Status': student.present ? 'Present' : 'Absent'
       }));
-    }
-
-    const ws = XLSX.utils.json_to_sheet(data);
+    }    const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
-
-    if (format === 'csv') {
+    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');      if (format === 'csv') {
       const csv = XLSX.utils.sheet_to_csv(ws);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = `attendance_${dateStr}.csv`;
       link.click();
-
+      
+      // Show success toast for CSV download
       toast.success("Download started", {
         id: "csv-download",
         description: `Attendance data for ${dateStr} has been downloaded as CSV`
@@ -550,7 +518,8 @@ export default function AdminAttendancePage() {
       link.href = URL.createObjectURL(blob);
       link.download = `attendance_${dateStr}.xlsx`;
       link.click();
-
+      
+      // Show success toast for XLSX download
       toast.success("Download started", {
         id: "xlsx-download",
         description: `Attendance data for ${dateStr} has been downloaded as Excel file`
@@ -558,77 +527,65 @@ export default function AdminAttendancePage() {
     }
   };
 
-  // Update the attendance status for ONE student in ONE course
-  const handleAttendanceChange = useCallback((studentId: string, courseID: string, present: boolean) => {
+  // Update the attendance change in local state
+  const handleAttendanceChange = useCallback((studentId: string, customId: string, name: string, present: boolean) => {
     setBatchAttendance((prev: BatchAttendanceState) => ({
       ...prev,
-      changes: new Map(prev.changes).set(changeKey(studentId, courseID), present),
+      changes: new Map(prev.changes).set(studentId, present),
       modified: true
     }));
-
-    // Update UI immediately - only this student's status for this course changes
-    setStudents((prevStudents: Student[]) =>
-      prevStudents.map(student =>
-        student.id === studentId
-          ? { ...student, presentByCourse: { ...student.presentByCourse, [courseID]: present } }
-          : student
-      )
-    );
+    
+    // Update UI immediately
+    setStudents((prevStudents: Student[]) => {
+      const updatedStudents = prevStudents.map(student =>
+        student.id === studentId ? { ...student, present } : student
+      );
+      
+      return updatedStudents;
+    });
   }, []);
 
   // Separate effect to recalculate stats when students change
   useEffect(() => {
     const totalStudents = students.length;
-    const totalEnrollments = allRows.length;
-    const presentEnrollments = allRows.filter(r => r.present).length;
-    const absentEnrollments = totalEnrollments - presentEnrollments;
-    const attendancePercentage = totalEnrollments > 0 ? (presentEnrollments / totalEnrollments) * 100 : 0;
-    const courseStats = calculateCourseStats(allRows);
+    const presentCount = students.filter(s => s.present).length;
+    const absentCount = totalStudents - presentCount;
+    const attendancePercentage = totalStudents > 0 ? (presentCount / totalStudents) * 100 : 0;
+    const courseStats = calculateCourseStats(students);
 
     setStats({
       totalStudents,
-      totalEnrollments,
-      presentEnrollments,
-      absentEnrollments,
+      presentStudents: presentCount,
+      absentStudents: absentCount,
       attendancePercentage,
       courseStats
     });
-  }, [students, allRows, calculateCourseStats]);
+  }, [students]);
 
-  // Mark all currently-filtered (student, course) rows present/absent
+  // Mark all students present/absent
   const markAllStudents = useCallback((present: boolean) => {
-    setBatchAttendance((prev: BatchAttendanceState) => {
-      const newChanges = new Map(prev.changes);
-      filteredRows.forEach(row => {
-        newChanges.set(changeKey(row.studentId, row.courseID), present);
+    const newChanges = new Map();
+    filteredStudents.forEach(student => {
+      newChanges.set(student.id, present);
+    });
+
+    setBatchAttendance((prev: BatchAttendanceState) => ({
+      ...prev,
+      changes: new Map([...prev.changes, ...newChanges]),
+      modified: true
+    }));
+
+    // Update UI immediately
+    setStudents((prevStudents: Student[]) => {
+      const updatedStudents = prevStudents.map(student => {
+        // Only update students that are in the filtered list
+        const shouldUpdate = filteredStudents.some(fs => fs.id === student.id);
+        return shouldUpdate ? { ...student, present } : student;
       });
-      return { ...prev, changes: newChanges, modified: true };
+      
+      return updatedStudents;
     });
-
-    // Update UI immediately - build a set of courseIDs to flip, per student
-    const updatesByStudent = new Map<string, Set<string>>();
-    filteredRows.forEach(row => {
-      if (!updatesByStudent.has(row.studentId)) {
-        updatesByStudent.set(row.studentId, new Set());
-      }
-      updatesByStudent.get(row.studentId)!.add(row.courseID);
-    });
-
-    setStudents((prevStudents: Student[]) =>
-      prevStudents.map(student => {
-        const coursesToUpdate = updatesByStudent.get(student.id);
-        if (!coursesToUpdate) return student;
-
-        const updatedPresentByCourse = { ...student.presentByCourse };
-        coursesToUpdate.forEach(courseID => {
-          updatedPresentByCourse[courseID] = present;
-        });
-
-        return { ...student, presentByCourse: updatedPresentByCourse };
-      })
-    );
-  }, [filteredRows]);
-
+  }, [filteredStudents]);
   // Submit all attendance changes using direct Firebase operations
   const submitAttendanceChanges = useCallback(async (): Promise<void> => {
     if (!date) return;
@@ -637,7 +594,6 @@ export default function AdminAttendancePage() {
     const dateString = formatDate(date);
 
     try {
-<<<<<<< HEAD
       // Resolve the effective present/absent state for every (student, course) pair,
       // taking pending batch changes into account.
       const resolvedRows = students.flatMap(student =>
@@ -657,56 +613,28 @@ export default function AdminAttendancePage() {
           courseGroups.set(courseID, { presentStudents: [], absentStudents: [] });
         }
         const group = courseGroups.get(courseID)!;
-=======
-      // Group students by their primary course with both present and absent lists
-      const courseGroups = new Map<string, { presentStudents: string[], absentStudents: string[], allStudentsInCourse: string[] }>();
-      
-      // Process each student's attendance change
-      students.forEach(student => {
-        const primaryCourse = student.courses?.[student.primaryCourseIndex];
-
-        if (!primaryCourse) {
-          console.warn(
-            "Skipping student with missing primary course:",
-            student.id,
-            student.name
-          );
-          return;
-        }
-
-        const courseId = primaryCourse.courseID;
-
-        if (!courseGroups.has(courseId)) {
-          courseGroups.set(courseId, {
-            presentStudents: [],
-            absentStudents: [],
-            allStudentsInCourse: []
-          });
-        }
-
-        const courseGroup = courseGroups.get(courseId)!;
-        courseGroup.allStudentsInCourse.push(student.id);
-
-        // Check if student should be marked present (use batch changes if available, otherwise current state)
-        const isPresent = batchAttendance.changes.has(student.id)
-          ? batchAttendance.changes.get(student.id)
-          : student.present;
-
->>>>>>> 798673bbc28a75274bcc771f39dce37bcd5d6b89
         if (isPresent) {
-          group.presentStudents.push(studentId);
+          courseGroup.presentStudents.push(student.id);
         } else {
-          group.absentStudents.push(studentId);
+          courseGroup.absentStudents.push(student.id);
         }
       });
 
-      const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'admin';
-      const teacherName = adminSession?.role || userProfile?.role || 'admin';
+      // Filter out courses that have no students at all
+      const coursesWithStudents = Array.from(courseGroups.entries()).filter(([courseId, { allStudentsInCourse }]) => 
+        allStudentsInCourse.length > 0
+      );
 
-      // Write per-course attendance documents
-      const attendanceDocPromises = Array.from(courseGroups.entries()).map(async ([courseId, { presentStudents }]) => {
-        const attendanceDocRef = doc(db, "attendance", courseId, "dates", dateString);
+      // Mark attendance for each course using direct Firebase operations
+      const promises = coursesWithStudents.map(async ([courseId, { presentStudents, absentStudents, allStudentsInCourse }]) => {
         try {
+          // Use admin session data for proper Firestore document ID
+          const teacherId = adminSession?.id || userProfile?.firestoreId || user?.uid || 'admin';
+          const teacherName = adminSession?.role || userProfile?.role || 'admin';
+          
+          const attendanceDocRef = doc(db, "attendance", courseId, "dates", dateString);
+          
+          // Only create/update attendance document if there are present students
           if (presentStudents.length > 0) {
             await setDoc(attendanceDocRef, {
               presentStudents,
@@ -717,43 +645,69 @@ export default function AdminAttendancePage() {
               date: dateString
             });
           } else {
-            const existingDoc = await getDoc(attendanceDocRef);
-            if (existingDoc.exists()) {
-              await deleteDoc(attendanceDocRef);
+            // If no students are present, delete the attendance document if it exists
+            try {
+              const existingDoc = await getDoc(attendanceDocRef);
+              if (existingDoc.exists()) {
+                await deleteDoc(attendanceDocRef);
+              }
+            } catch (error) {
+              // Document doesn't exist, which is fine
             }
           }
+
+          // Update student attendance summaries for present students
+          const presentStudentPromises = presentStudents.map(async (studentId) => {
+            const studentDocRef = doc(db, "students", studentId);
+            const studentDoc = await getDoc(studentDocRef);
+            
+            if (studentDoc.exists()) {
+              const studentData = studentDoc.data();
+              const updatedAttendanceByCourse = await updateStudentAttendanceSummary(
+                studentData,
+                courseId,
+                dateString,
+                true // student is present
+              );
+
+              await setDoc(studentDocRef, {
+                ...studentData,
+                attendanceByCourse: updatedAttendanceByCourse
+              }, { merge: true });
+            }
+          });
+
+          // Update student attendance summaries for absent students - remove this date from their present dates
+          const absentStudentPromises = absentStudents.map(async (studentId) => {
+            const studentDocRef = doc(db, "students", studentId);
+            const studentDoc = await getDoc(studentDocRef);
+            
+            if (studentDoc.exists()) {
+              const studentData = studentDoc.data();
+              const updatedAttendanceByCourse = await updateStudentAttendanceSummary(
+                studentData,
+                courseId,
+                dateString,
+                false // student is absent
+              );
+
+              await setDoc(studentDocRef, {
+                ...studentData,
+                attendanceByCourse: updatedAttendanceByCourse
+              }, { merge: true });
+            }
+          });
+
+          await Promise.all([...presentStudentPromises, ...absentStudentPromises]);
+          return { success: true };
         } catch (error) {
           console.error(`Error marking attendance for course ${courseId}:`, error);
           throw error;
         }
       });
 
-      // Update each student's attendanceByCourse summary ONCE per student, covering
-      // ALL of their courses in a single read + single write, to avoid concurrent
-      // per-course writes clobbering each other on the same student document.
-      const studentSummaryPromises = students.map(async (student) => {
-        const studentCourseUpdates = resolvedRows.filter(r => r.studentId === student.id);
-        if (studentCourseUpdates.length === 0) return;
-
-        const studentDocRef = doc(db, "students", student.id);
-        const studentDoc = await getDoc(studentDocRef);
-        if (!studentDoc.exists()) return;
-
-        let workingStudentData = studentDoc.data();
-        for (const { courseID, isPresent } of studentCourseUpdates) {
-          const updatedAttendanceByCourse = await updateStudentAttendanceSummary(
-            workingStudentData,
-            courseID,
-            dateString,
-            isPresent
-          );
-          workingStudentData = { ...workingStudentData, attendanceByCourse: updatedAttendanceByCourse };
-        }
-
-        await setDoc(studentDocRef, workingStudentData, { merge: true });
-      });
-
-      await Promise.all([...attendanceDocPromises, ...studentSummaryPromises]);
+      // Wait for all attendance marking to complete
+      await Promise.all(promises);
 
       // Clear batch state
       setBatchAttendance({
@@ -762,6 +716,7 @@ export default function AdminAttendancePage() {
         submitting: false
       });
 
+      // Show success message
       toast.success("Attendance submitted successfully", {
         description: "Updated attendance for all students",
         duration: 5000
@@ -781,7 +736,7 @@ export default function AdminAttendancePage() {
     } finally {
       setBatchAttendance(prev => ({ ...prev, submitting: false }));
     }
-  }, [date, students, batchAttendance.changes, adminSession, userProfile, user]);
+  }, [date, students, batchAttendance.changes, adminSession, userProfile, user, fetchStudentsRef]);
 
   // Reset batch state when date changes
   useEffect(() => {
@@ -790,7 +745,8 @@ export default function AdminAttendancePage() {
       modified: false,
       submitting: false
     });
-
+    
+    // Clean up function
     return () => {
       setBatchAttendance({
         changes: new Map(),
@@ -800,10 +756,25 @@ export default function AdminAttendancePage() {
     };
   }, [date]);
 
+  // Manual refresh function for courses
+  const refreshCourses = useCallback(() => {
+    coursesFetchedRef.current = false;
+    setCoursesLoading(true);
+    setCourses({});
+    setCourseNamesUpdated(false);
+    
+    // Trigger re-fetch by updating a dummy state
+    const timer = setTimeout(() => {
+      // The useEffect will run again because coursesFetchedRef.current is now false
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div className="container mx-auto py-10">
       <h1 className="text-3xl font-bold mb-6 text-foreground">Attendance Management</h1>
-
+      
       <Tabs defaultValue="manual">
         <TabsList className="mb-6 bg-muted/50">
           <TabsTrigger value="manual" className="data-[state=active]:bg-background data-[state=active]:text-primary">
@@ -832,8 +803,8 @@ export default function AdminAttendancePage() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Present Today</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-emerald-600">{stats.presentEnrollments}</div>
-                  <p className="text-xs text-muted-foreground mt-1">Course enrollments marked present</p>
+                  <div className="text-2xl font-bold text-emerald-600">{stats.presentStudents}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Students marked present</p>
                 </CardContent>
               </Card>
               <Card>
@@ -841,8 +812,8 @@ export default function AdminAttendancePage() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Absent Today</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-red-600">{stats.absentEnrollments}</div>
-                  <p className="text-xs text-muted-foreground mt-1">Course enrollments marked absent</p>
+                  <div className="text-2xl font-bold text-red-600">{stats.absentStudents}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Students marked absent</p>
                 </CardContent>
               </Card>
               <Card>
@@ -853,7 +824,7 @@ export default function AdminAttendancePage() {
                   <div className={`text-2xl font-bold ${stats.attendancePercentage >= 75 ? 'text-emerald-600' : stats.attendancePercentage >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
                     {stats.attendancePercentage.toFixed(1)}%
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">Across all course enrollments</p>
+                  <p className="text-xs text-muted-foreground mt-1">Overall attendance rate</p>
                 </CardContent>
               </Card>
             </div>
@@ -902,14 +873,13 @@ export default function AdminAttendancePage() {
                     <div>
                       <CardTitle className="text-sm text-foreground">Select Date</CardTitle>
                       <CardDescription className="text-xs text-muted-foreground">Choose a date to view or mark attendance</CardDescription>
-                    </div>
-                    <DropdownMenu>
+                    </div>                    <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
                           variant="outline"
                           size="sm"
                           className="ml-2 bg-primary text-primary-foreground shadow-sm !transition-none disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
-                          disabled={!date || !allRows.length}
+                          disabled={!date || !students.length}
                         >
                           <DownloadCloud className="h-4 w-4 mr-1.5" />
                           <span className="font-medium">Export</span>
@@ -997,8 +967,9 @@ export default function AdminAttendancePage() {
 
                       const today = new Date()
                       today.setHours(0, 0, 0, 0)
-
-                      if (newDate > today) {
+                      
+                      if (newDate > today) {                        
+                        // Show a more prominent warning for future dates
                         toast.error("⚠️ Future Date Selected", {
                           id: "calendar-future-date",
                           description: "Attendance cannot be marked for future dates. Please select today or a past date.",
@@ -1075,8 +1046,7 @@ export default function AdminAttendancePage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-foreground">Student Attendance</CardTitle>
-                  <CardDescription className="text-muted-foreground">
+                  <CardTitle className="text-foreground">Student Attendance</CardTitle>                  <CardDescription className="text-muted-foreground">
                     {date ? `Attendance for ${date.toLocaleDateString()}` : "Select a date"}
                   </CardDescription>
                 </CardHeader>
@@ -1086,7 +1056,7 @@ export default function AdminAttendancePage() {
                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
                       <span className="ml-2 text-muted-foreground">Loading students...</span>
                     </div>
-                  ) : allRows.length > 0 ? (
+                  ) : students.length > 0 ? (
                     <>
                       <div className="flex flex-col md:flex-row gap-4 mb-6">
                         <div className="flex-1">
@@ -1096,7 +1066,8 @@ export default function AdminAttendancePage() {
                             onChange={(e) => {
                               const query = e.target.value;
                               setSearchQuery(query)
-
+                              
+                              // Show toast only if user enters something
                               if (query.trim().length > 0) {
                                 toast.info("Searching...", {
                                   id: "search-students",
@@ -1113,11 +1084,12 @@ export default function AdminAttendancePage() {
                             value={selectedCourse}
                             onValueChange={(value) => {
                               setSelectedCourse(value)
-
-                              const courseName = value === "all"
-                                ? "all courses"
+                              
+                              // Show toast notification for course filter change
+                              const courseName = value === "all" 
+                                ? "all courses" 
                                 : courses[value]?.title || "selected course";
-
+                                
                               toast.info("Course filter applied", {
                                 id: "filter-course",
                                 description: `Now showing students from ${courseName}`
@@ -1145,17 +1117,18 @@ export default function AdminAttendancePage() {
                               )}
                             </SelectContent>
                           </Select>
-                          <Select
-                            value={selectedStatus}
+                          <Select 
+                            value={selectedStatus} 
                             onValueChange={(value: string) => {
                               setSelectedStatus(value as FilterStatus)
-
-                              const statusText = value === "all"
-                                ? "Showing all students"
-                                : value === "present"
-                                  ? "Showing present students only"
+                              
+                              // Show toast notification for filter change
+                              const statusText = value === "all" 
+                                ? "Showing all students" 
+                                : value === "present" 
+                                  ? "Showing present students only" 
                                   : "Showing absent students only";
-
+                                  
                               toast.info("Filter applied", {
                                 id: "filter-status",
                                 description: statusText
@@ -1172,25 +1145,28 @@ export default function AdminAttendancePage() {
                           </Select>
                         </div>
                       </div>
-
+                      
                       <BatchControls />
                       <div className="space-y-4">
-                        {filteredRows.map((row) => (
-                          <div key={`${row.studentId}-${row.courseID}`} className="flex items-center justify-between p-3 border rounded-md bg-card">
+                        {filteredStudents.map((student) => (
+                          <div key={student.id} className="flex items-center justify-between p-3 border rounded-md bg-card">
                             <div>
-                              <p className="font-medium text-foreground">{row.name}</p>
-                              <p className="text-sm text-muted-foreground">ID: {row.customId}</p>
-                              <p className="text-sm text-muted-foreground">Course: {row.courseName}</p>
+                              <p className="font-medium text-foreground">{student.name}</p>
+                              <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
+                              {/* <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p> */}
+                              <p className="text-sm text-muted-foreground">
+  Course: {student.courses?.[student.primaryCourseIndex]?.courseName ?? 'N/A'}
+</p>
                             </div>
                             <div className="flex gap-2">
                               <Button
                                 size="sm"
-                                variant={row.present ? "default" : "outline"}
-                                onClick={() => throttleAction(() => handleAttendanceChange(row.studentId, row.courseID, true))}
+                                variant={student.present ? "default" : "outline"}
+                                onClick={() => throttleAction(() => handleAttendanceChange(student.id, student.customId, student.name, true))}
                                 className={cn(
                                   "text-white !transition-none",
-                                  row.present
-                                    ? "bg-emerald-500 dark:bg-emerald-600"
+                                  student.present 
+                                    ? "bg-emerald-500 dark:bg-emerald-600" 
                                     : "bg-muted"
                                 )}
                                 disabled={batchAttendance.submitting || isThrottling}
@@ -1199,12 +1175,12 @@ export default function AdminAttendancePage() {
                               </Button>
                               <Button
                                 size="sm"
-                                variant={!row.present ? "destructive" : "outline"}
-                                onClick={() => throttleAction(() => handleAttendanceChange(row.studentId, row.courseID, false))}
+                                variant={!student.present ? "destructive" : "outline"}
+                                onClick={() => throttleAction(() => handleAttendanceChange(student.id, student.customId, student.name, false))}
                                 className={cn(
                                   "text-white !transition-none",
-                                  !row.present
-                                    ? "bg-red-500 dark:bg-red-600"
+                                  !student.present 
+                                    ? "bg-red-500 dark:bg-red-600" 
                                     : "bg-muted"
                                 )}
                                 disabled={batchAttendance.submitting || isThrottling}
@@ -1216,7 +1192,7 @@ export default function AdminAttendancePage() {
                         ))}
                       </div>
 
-                      {filteredRows.length === 0 && (
+                      {filteredStudents.length === 0 && (
                         <div className="text-center py-10 bg-muted/30 rounded-lg">
                           <p className="text-muted-foreground">No students found matching the filters</p>
                         </div>
