@@ -47,10 +47,10 @@ export default function StudentCreationForm() {
         const coursesList = coursesSnapshot.docs
           .map((doc) => ({
             id: doc.id,
-            title: doc.data().title,
+            title: doc.data().title || "Untitled Course",
             courseID: doc.data().courseID || 0
           }))
-          .sort((a, b) => a.title.localeCompare(b.title));
+          .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 
         setCourses(coursesList);
       } catch (error) {

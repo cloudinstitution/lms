@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/youtube/renew-all",
+      "schedule": "*/2 * * * *"
+    }
+  ]
+}

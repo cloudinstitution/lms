@@ -21,12 +21,15 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
+  setDoc,
   updateDoc,
+  where,
 } from "firebase/firestore"
-import { Edit2, Trash2 } from "lucide-react"
+import { Check, Edit2, Trash2, X as XIcon } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 
@@ -36,6 +39,19 @@ interface Video {
   link: string
   serialNo: number
   sourceType: 'youtube' | 'gdrive'
+}
+
+interface PendingVideo {
+  id: string
+  videoId: string
+  channelId: string
+  courseId: string | null
+  title: string
+  thumbnailUrl: string
+  link: string
+  sourceType: 'youtube'
+  status: string
+  createdAt: string
 }
 
 export default function CourseDetails() {
@@ -57,8 +73,19 @@ export default function CourseDetails() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // YouTube channel mapping state
+  const [youtubeChannelId, setYoutubeChannelId] = useState("")
+  const [savingChannelId, setSavingChannelId] = useState(false)
+
+  // Pending videos (from WebSub sync) state
+  const [pendingVideos, setPendingVideos] = useState<PendingVideo[]>([])
+  const [pendingSerialNos, setPendingSerialNos] = useState<Record<string, number>>({})
+  const [processingPendingId, setProcessingPendingId] = useState<string | null>(null)
+
   useEffect(() => {
     fetchVideos()
+    fetchCourseChannelId()
+    fetchPendingVideos()
   }, [courseTitle])
 
   const fetchVideos = async () => {
@@ -71,6 +98,9 @@ export default function CourseDetails() {
         ...doc.data(),
       })) as Video[]
       setVideos(videoList)
+      // Default the next new-video serial number and pending-approval serial numbers
+      // to continue after the current max
+      setNewVideo((prev) => ({ ...prev, serialNo: videoList.length + 1 }))
     } catch (err) {
       console.error("Error fetching videos:", err)
       toast({
@@ -81,6 +111,111 @@ export default function CourseDetails() {
     }
   }
 
+  const fetchCourseChannelId = async () => {
+    try {
+      const courseDocRef = doc(db, "courses", courseTitle as string)
+      const courseSnap = await getDoc(courseDocRef)
+      if (courseSnap.exists()) {
+        setYoutubeChannelId(courseSnap.data().youtubeChannelId || "")
+      }
+    } catch (err) {
+      console.error("Error fetching course channel ID:", err)
+    }
+  }
+
+  const fetchPendingVideos = async () => {
+    try {
+      const pendingRef = collection(db, "pendingVideos")
+      const q = query(pendingRef, where("courseId", "==", courseTitle as string))
+      const querySnapshot = await getDocs(q)
+      const pendingList = querySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as PendingVideo[]
+      setPendingVideos(pendingList)
+    } catch (err) {
+      console.error("Error fetching pending videos:", err)
+      toast({
+        title: "Error",
+        description: "Failed to fetch pending videos.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleSaveChannelId = async () => {
+    setSavingChannelId(true)
+    try {
+      const courseDocRef = doc(db, "courses", courseTitle as string)
+      // setDoc with merge so this works whether or not the course doc already has other fields
+      await setDoc(courseDocRef, { youtubeChannelId: youtubeChannelId.trim() }, { merge: true })
+      toast({
+        title: "Success",
+        description: "YouTube channel linked to this course.",
+      })
+    } catch (err) {
+      console.error("Error saving channel ID:", err)
+      toast({
+        title: "Error",
+        description: "Failed to save channel ID.",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingChannelId(false)
+    }
+  }
+
+  const handleApprovePending = async (pending: PendingVideo) => {
+    const serialNo = pendingSerialNos[pending.id] ?? videos.length + 1
+    setProcessingPendingId(pending.id)
+    try {
+      const videoRef = collection(db, "courses", courseTitle as string, "videos")
+      await addDoc(videoRef, {
+        title: pending.title,
+        link: pending.link,
+        serialNo: Number(serialNo),
+        sourceType: pending.sourceType,
+      })
+      await deleteDoc(doc(db, "pendingVideos", pending.id))
+      setPendingVideos((prev) => prev.filter((p) => p.id !== pending.id))
+      fetchVideos()
+      toast({
+        title: "Success",
+        description: "Video approved and published to the course.",
+      })
+    } catch (err) {
+      console.error("Error approving pending video:", err)
+      toast({
+        title: "Error",
+        description: "Failed to approve video.",
+        variant: "destructive",
+      })
+    } finally {
+      setProcessingPendingId(null)
+    }
+  }
+
+  const handleRejectPending = async (pending: PendingVideo) => {
+    setProcessingPendingId(pending.id)
+    try {
+      await deleteDoc(doc(db, "pendingVideos", pending.id))
+      setPendingVideos((prev) => prev.filter((p) => p.id !== pending.id))
+      toast({
+        title: "Removed",
+        description: "Pending video discarded.",
+      })
+    } catch (err) {
+      console.error("Error rejecting pending video:", err)
+      toast({
+        title: "Error",
+        description: "Failed to discard video.",
+        variant: "destructive",
+      })
+    } finally {
+      setProcessingPendingId(null)
+    }
+  }
+
   const handleUploadVideo = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newVideo.title || !newVideo.link || !newVideo.serialNo || !newVideo.sourceType) {
@@ -88,8 +223,12 @@ export default function CourseDetails() {
       return
     }
 
+    const normalizedLink = newVideo.sourceType === 'youtube'
+      ? normalizeYoutubeLink(newVideo.link)
+      : newVideo.link
+
     // Validate link based on source type
-    if (newVideo.sourceType === 'youtube' && !newVideo.link.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
+    if (newVideo.sourceType === 'youtube' && !normalizedLink.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
       setError("Please enter a valid YouTube link.")
       return
     }
@@ -103,7 +242,7 @@ export default function CourseDetails() {
       const videoRef = collection(db, "courses", courseTitle as string, "videos")
       await addDoc(videoRef, {
         title: newVideo.title,
-        link: newVideo.link,
+        link: newVideo.sourceType === 'youtube' ? normalizedLink : newVideo.link,
         serialNo: Number(newVideo.serialNo),
         sourceType: newVideo.sourceType
       })
@@ -128,6 +267,19 @@ export default function CourseDetails() {
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editVideo && editVideo.id) {
+      const normalizedLink = editVideo.sourceType === 'youtube'
+        ? normalizeYoutubeLink(editVideo.link)
+        : editVideo.link
+
+      if (editVideo.sourceType === 'youtube' && !normalizedLink.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/)) {
+        toast({
+          title: "Error",
+          description: "Please enter a valid YouTube link.",
+          variant: "destructive",
+        })
+        return
+      }
+
       if (editVideo.sourceType === 'gdrive' && !editVideo.link.match(/^https:\/\/drive\.google\.com\/(file\/d\/|open\?id=).+/)) {
         toast({
           title: "Error",
@@ -141,7 +293,7 @@ export default function CourseDetails() {
         const videoDocRef = doc(db, "courses", courseTitle as string, "videos", editVideo.id)
         await updateDoc(videoDocRef, {
           title: editVideo.title,
-          link: editVideo.link,
+          link: editVideo.sourceType === 'youtube' ? normalizedLink : editVideo.link,
           serialNo: Number(editVideo.serialNo),
           sourceType: editVideo.sourceType
         })
@@ -193,26 +345,64 @@ export default function CourseDetails() {
     }
   }
 
-  // Updated function to handle YouTube links correctly
-  const extractVideoId = (url: string) => {
+  // Decodes HTML entities (in case a raw embed snippet's src ever got pasted)
+  // and normalizes a pasted <iframe> embed code down to a plain URL
+  const normalizeYoutubeLink = (input: string) => {
+    let trimmed = input.trim()
+    const iframeSrcMatch = trimmed.match(/src=["']([^"']+)["']/)
+    let url = iframeSrcMatch ? iframeSrcMatch[1] : trimmed
+    url = url
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+    return url
+  }
+
+  // Extracts a video ID or playlist ID from any YouTube link shape:
+  // watch, youtu.be, /embed/VIDEO_ID, /embed/videoseries?list=..., /shorts/
+  const parseYoutubeSource = (rawUrl: string): { videoId?: string; playlistId?: string } => {
     try {
-      const parsedUrl = new URL(url);
+      const parsedUrl = new URL(rawUrl)
+
       if (parsedUrl.hostname === "youtu.be") {
-        return parsedUrl.pathname.slice(1);
+        return { videoId: parsedUrl.pathname.slice(1) }
       }
+
       if (parsedUrl.hostname.includes("youtube.com")) {
-        return parsedUrl.searchParams.get("v") || "";
+        const listId = parsedUrl.searchParams.get("list")
+
+        if (parsedUrl.pathname.startsWith("/embed/videoseries")) {
+          return listId ? { playlistId: listId } : {}
+        }
+
+        const embedMatch = parsedUrl.pathname.match(/^\/embed\/([^/?]+)/)
+        if (embedMatch) {
+          return listId ? { videoId: embedMatch[1], playlistId: listId } : { videoId: embedMatch[1] }
+        }
+
+        const watchId = parsedUrl.searchParams.get("v")
+        if (watchId) {
+          return listId ? { videoId: watchId, playlistId: listId } : { videoId: watchId }
+        }
+
+        const shortsMatch = parsedUrl.pathname.match(/^\/shorts\/([^/?]+)/)
+        if (shortsMatch) return { videoId: shortsMatch[1] }
       }
-      return "";
+
+      return {}
     } catch (error) {
-      return "";
+      return {}
     }
   }
 
   const getVideoEmbedUrl = (video: Video) => {
     if (video.sourceType === 'youtube') {
-      const videoId = extractVideoId(video.link);
-      return `https://www.youtube.com/embed/${videoId}`;
+      const { videoId, playlistId } = parseYoutubeSource(video.link)
+      if (videoId) return `https://www.youtube.com/embed/${videoId}`
+      if (playlistId) return `https://www.youtube.com/embed/videoseries?list=${playlistId}`
+      return ''
     } else if (video.sourceType === 'gdrive') {
       const gdriveUrl = video.link;
       const fileId = gdriveUrl.match(/\/d\/(.*?)(\/|$)/)?.[1] || "";
@@ -228,6 +418,82 @@ export default function CourseDetails() {
       </Button>
 
       <h1 className="text-3xl font-bold tracking-tight mb-6">{decodeURIComponent(courseTitle as string)}</h1>
+
+      {/* YouTube Channel Sync */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>YouTube Auto-Sync</CardTitle>
+          <CardDescription>
+            Link a YouTube channel to auto-detect new uploads for this course. Detected videos wait for your approval below before going live.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-2">
+            <div className="flex-1 space-y-2">
+              <Label>YouTube Channel ID</Label>
+              <Input
+                value={youtubeChannelId}
+                onChange={(e) => setYoutubeChannelId(e.target.value)}
+                placeholder="UCxxxxxxxxxxxxxxxxxxxxxxx"
+              />
+            </div>
+            <Button onClick={handleSaveChannelId} disabled={savingChannelId}>
+              {savingChannelId ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pending Videos Review Queue */}
+      {pendingVideos.length > 0 && (
+        <Card className="mb-6 border-amber-200 dark:border-amber-900">
+          <CardHeader>
+            <CardTitle>Pending Videos ({pendingVideos.length})</CardTitle>
+            <CardDescription>New uploads detected from YouTube. Set a serial number and approve to publish.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {pendingVideos.map((pending) => (
+                <div key={pending.id} className="flex items-center gap-4 border rounded-md p-3">
+                  {pending.thumbnailUrl && (
+                    <img src={pending.thumbnailUrl} alt={pending.title} className="w-32 h-auto rounded" />
+                  )}
+                  <div className="flex-1">
+                    <p className="font-medium">{pending.title}</p>
+                    <p className="text-sm text-muted-foreground">Video ID: {pending.videoId}</p>
+                  </div>
+                  <div className="w-24">
+                    <Label className="text-xs">Serial No</Label>
+                    <Input
+                      type="number"
+                      value={pendingSerialNos[pending.id] ?? videos.length + 1}
+                      onChange={(e) =>
+                        setPendingSerialNos((prev) => ({ ...prev, [pending.id]: Number(e.target.value) }))
+                      }
+                    />
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="default"
+                    disabled={processingPendingId === pending.id}
+                    onClick={() => handleApprovePending(pending)}
+                  >
+                    <Check className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    disabled={processingPendingId === pending.id}
+                    onClick={() => handleRejectPending(pending)}
+                  >
+                    <XIcon className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upload Video Form */}
@@ -268,7 +534,7 @@ export default function CourseDetails() {
                 <Input
                   value={newVideo.link}
                   onChange={(e) => setNewVideo({ ...newVideo, link: e.target.value })}
-                  placeholder={newVideo.sourceType === 'youtube' ? 'https://youtube.com/watch?v=...' : 'https://drive.google.com/file/d/...'}
+                  placeholder={newVideo.sourceType === 'youtube' ? 'Paste a link, embed code, or playlist embed' : 'https://drive.google.com/file/d/...'}
                   required
                 />
               </div>
@@ -354,7 +620,7 @@ export default function CourseDetails() {
                               <Input
                                 value={editVideo?.link || ""}
                                 onChange={(e) => setEditVideo({ ...editVideo!, link: e.target.value })}
-                                placeholder={editVideo?.sourceType === 'youtube' ? 'https://youtube.com/watch?v=...' : 'https://drive.google.com/file/d...'}
+                                placeholder={editVideo?.sourceType === 'youtube' ? 'Paste a link, embed code, or playlist embed' : 'https://drive.google.com/file/d...'}
                               />
                               <Label>Serial No</Label>
                               <Input
