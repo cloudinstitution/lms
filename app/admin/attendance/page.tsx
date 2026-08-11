@@ -594,25 +594,40 @@ studentsList.forEach(student => {
     const dateString = formatDate(date);
 
     try {
-      // Resolve the effective present/absent state for every (student, course) pair,
-      // taking pending batch changes into account.
-      const resolvedRows = students.flatMap(student =>
-        student.courses.map(course => {
-          const key = changeKey(student.id, course.courseID);
-          const isPresent = batchAttendance.changes.has(key)
-            ? batchAttendance.changes.get(key)!
-            : (student.presentByCourse[course.courseID] ?? false);
-          return { studentId: student.id, courseID: course.courseID, isPresent };
-        })
-      );
+      // Group students by their primary course with both present and absent lists
+      const courseGroups = new Map<string, { presentStudents: string[], absentStudents: string[], allStudentsInCourse: string[] }>();
+      
+      // Process each student's attendance change
+      students.forEach(student => {
+        const primaryCourse = student.courses?.[student.primaryCourseIndex];
 
-      // Group by course to write each course's attendance/{courseId}/dates/{date} doc
-      const courseGroups = new Map<string, { presentStudents: string[], absentStudents: string[] }>();
-      resolvedRows.forEach(({ studentId, courseID, isPresent }) => {
-        if (!courseGroups.has(courseID)) {
-          courseGroups.set(courseID, { presentStudents: [], absentStudents: [] });
+        if (!primaryCourse) {
+          console.warn(
+            "Skipping student with missing primary course:",
+            student.id,
+            student.name
+          );
+          return;
         }
-        const group = courseGroups.get(courseID)!;
+
+        const courseId = primaryCourse.courseID;
+
+        if (!courseGroups.has(courseId)) {
+          courseGroups.set(courseId, {
+            presentStudents: [],
+            absentStudents: [],
+            allStudentsInCourse: []
+          });
+        }
+
+        const courseGroup = courseGroups.get(courseId)!;
+        courseGroup.allStudentsInCourse.push(student.id);
+
+        // Check if student should be marked present (use batch changes if available, otherwise current state)
+        const isPresent = batchAttendance.changes.has(student.id)
+          ? batchAttendance.changes.get(student.id)
+          : student.present;
+
         if (isPresent) {
           courseGroup.presentStudents.push(student.id);
         } else {
