@@ -88,32 +88,56 @@ export default function StudentAttendance() {
 
   // Get primary course from student session data
   const getPrimaryCourse = useCallback(() => {
-    const studentData = getStudentSession()
+    const studentData: any = getStudentSession()
     if (!studentData) {
       console.warn("[attendance] No student session available")
       return null
     }
 
-    if (!studentData.courseName) {
-      console.warn("[attendance] No course data in student session")
+    // Log the raw session once so we can see its real shape if this still fails
+    console.log("[attendance] raw session data:", JSON.stringify(studentData))
+
+    // Different parts of the app may have written the session under different
+    // field names over time - try every plausible variant instead of assuming
+    // a single shape.
+    const rawCourseNames =
+      studentData.courseName ??
+      studentData.course ??
+      studentData.courses ??
+      studentData.enrolledCourses ??
+      studentData.primaryCourse?.courseName ??
+      null
+
+    const rawCourseIDs =
+      studentData.courseID ??
+      studentData.courseId ??
+      studentData.courseIDs ??
+      studentData.primaryCourse?.courseID ??
+      null
+
+    if (!rawCourseNames && !rawCourseIDs) {
+      console.warn(
+        "[attendance] No course data found in student session under any known field name. " +
+        "Session keys were:", Object.keys(studentData)
+      )
       return null
     }
 
     const primaryIndex = studentData.primaryCourseIndex || 0
 
-    const courseIDs: string[] = Array.isArray(studentData.courseID)
-      ? studentData.courseID.map((id: unknown) => id?.toString() ?? "")
-      : [studentData.courseID?.toString() ?? ""]
+    const courseIDs: string[] = Array.isArray(rawCourseIDs)
+      ? rawCourseIDs.map((id: unknown) => id?.toString() ?? "")
+      : [rawCourseIDs?.toString() ?? ""]
 
-    const courseNames: string[] = Array.isArray(studentData.courseName)
-      ? studentData.courseName
-      : [studentData.courseName]
+    const courseNames: string[] = Array.isArray(rawCourseNames)
+      ? rawCourseNames
+      : [rawCourseNames ?? ""]
 
     const courseID = courseIDs[primaryIndex] || courseIDs[0] || ""
-    const courseName = courseNames[primaryIndex] || courseNames[0] || ""
+    const courseName = courseNames[primaryIndex] || courseNames[0] || courseID || "Unknown Course"
 
     if (!courseID) {
-      console.warn("[attendance] Could not resolve a primary course ID from session data")
+      console.warn("[attendance] Could not resolve a primary course ID from session data:", studentData)
       return null
     }
 
