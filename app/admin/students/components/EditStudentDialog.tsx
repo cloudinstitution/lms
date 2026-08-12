@@ -46,24 +46,37 @@ export function EditStudentDialog({
   const [availableCourses, setAvailableCourses] = React.useState<Course[]>([]);
   const [selectedCourses, setSelectedCourses] = React.useState<Course[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [coursesLoading, setCoursesLoading] = React.useState(false);
+  const [coursesError, setCoursesError] = React.useState<string | null>(null);
 
-  // Fetch available courses on component mount
+  // Fetch available courses whenever the dialog opens
   React.useEffect(() => {
     const fetchCourses = async () => {
+      setCoursesLoading(true);
+      setCoursesError(null);
       try {
         const coursesCollection = collection(db, "courses");
         const coursesSnapshot = await getDocs(coursesCollection);
+
         const coursesList = coursesSnapshot.docs
-          .map((doc) => ({
-            id: doc.id,
-            title: doc.data().title,
-            courseID: doc.data().courseID || 0
-          }))
+          .map((doc) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              title: data.title ?? data.courseTitle ?? data.name ?? 'Untitled course',
+              courseID: data.courseID ?? 0,
+            };
+          })
           .sort((a, b) => a.title.localeCompare(b.title));
 
         setAvailableCourses(coursesList);
       } catch (error) {
         console.error("Error fetching courses:", error);
+        setCoursesError(
+          error instanceof Error ? error.message : "Failed to load courses"
+        );
+      } finally {
+        setCoursesLoading(false);
       }
     };
 
@@ -75,15 +88,17 @@ export function EditStudentDialog({
   React.useEffect(() => {
     if (student) {
       setFormData(student);
-      
+
       // Set selected courses based on student's courseID and courseName arrays
       if (student.courseID && student.courseName) {
         const studentCourses = student.courseID.map((courseId, index) => ({
-          id: '', // We'll match by courseID instead
+          id: '', // We match by courseID instead of doc id
           title: student.courseName![index] || '',
-          courseID: courseId
+          courseID: courseId,
         }));
         setSelectedCourses(studentCourses);
+      } else {
+        setSelectedCourses([]);
       }
     }
   }, [student]);
@@ -91,13 +106,13 @@ export function EditStudentDialog({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    
+
     // Update course-related fields
     const updatedData = {
       ...formData,
       coursesEnrolled: selectedCourses.length,
-      courseID: selectedCourses.map(course => course.courseID),
-      courseName: selectedCourses.map(course => course.title),
+      courseID: selectedCourses.map((course) => course.courseID),
+      courseName: selectedCourses.map((course) => course.title),
     };
 
     onSave(updatedData);
@@ -110,14 +125,18 @@ export function EditStudentDialog({
 
   const handleCourseSelection = (course: Course, isSelected: boolean) => {
     if (isSelected) {
-      setSelectedCourses(prev => [...prev, course]);
+      setSelectedCourses((prev) => [...prev, course]);
     } else {
-      setSelectedCourses(prev => prev.filter(c => c.courseID !== course.courseID));
+      setSelectedCourses((prev) =>
+        prev.filter((c) => String(c.courseID) !== String(course.courseID))
+      );
     }
   };
 
   const removeCourse = (courseId: number) => {
-    setSelectedCourses(prev => prev.filter(c => c.courseID !== courseId));
+    setSelectedCourses((prev) =>
+      prev.filter((c) => String(c.courseID) !== String(courseId))
+    );
   };
 
   return (
@@ -129,12 +148,12 @@ export function EditStudentDialog({
             Update student information. Student ID and Join Date cannot be modified.
           </DialogDescription>
         </DialogHeader>
-        
+
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Information */}
           <div className="space-y-4">
             <h3 className="text-lg font-medium">Basic Information</h3>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Name *</Label>
@@ -145,7 +164,7 @@ export function EditStudentDialog({
                   required
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="username">Email *</Label>
                 <Input
@@ -168,7 +187,7 @@ export function EditStudentDialog({
                   onChange={(e) => handleChange('phoneNumber', e.target.value)}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
                 <Select
@@ -196,11 +215,15 @@ export function EditStudentDialog({
                   className="bg-gray-100 dark:bg-gray-800"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Join Date</Label>
                 <Input
-                  value={formData.joinedDate ? new Date(formData.joinedDate).toLocaleDateString() : ''}
+                  value={
+                    formData.joinedDate
+                      ? new Date(formData.joinedDate).toLocaleDateString()
+                      : ''
+                  }
                   disabled
                   className="bg-gray-100 dark:bg-gray-800"
                 />
@@ -211,7 +234,7 @@ export function EditStudentDialog({
           {/* Course Management */}
           <div className="space-y-4">
             <h3 className="text-lg font-medium">Course Enrollment</h3>
-            
+
             {/* Selected Courses */}
             {selectedCourses.length > 0 && (
               <div className="space-y-2">
@@ -240,16 +263,26 @@ export function EditStudentDialog({
             <div className="space-y-2">
               <Label>Available Courses</Label>
               <div className="border rounded-md p-4 max-h-60 overflow-y-auto">
-                {availableCourses.length > 0 ? (
+                {coursesLoading ? (
+                  <p className="text-center py-4 text-muted-foreground">
+                    Loading available courses...
+                  </p>
+                ) : coursesError ? (
+                  <p className="text-center py-4 text-red-500">
+                    Couldn&apos;t load courses: {coursesError}
+                  </p>
+                ) : availableCourses.length > 0 ? (
                   <div className="space-y-2">
                     {availableCourses.map((course) => {
-                      const isSelected = selectedCourses.some(c => c.courseID === course.courseID);
+                      const isSelected = selectedCourses.some(
+                        (c) => String(c.courseID) === String(course.courseID)
+                      );
                       return (
                         <div key={course.id} className="flex items-center space-x-2">
                           <Checkbox
                             id={`course-${course.id}`}
                             checked={isSelected}
-                            onCheckedChange={(checked) => 
+                            onCheckedChange={(checked) =>
                               handleCourseSelection(course, checked === true)
                             }
                           />
@@ -267,7 +300,9 @@ export function EditStudentDialog({
                     })}
                   </div>
                 ) : (
-                  <p className="text-center py-4 text-muted-foreground">Loading available courses...</p>
+                  <p className="text-center py-4 text-muted-foreground">
+                    No courses found in the &quot;courses&quot; collection.
+                  </p>
                 )}
               </div>
             </div>
