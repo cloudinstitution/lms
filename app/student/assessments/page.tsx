@@ -47,15 +47,14 @@ export default function AssessmentsPage() {
       const fetchQuizzes = async () => {
         try {
           console.log("🚀 Starting quiz fetch process...");
-          
-          // Get student's course information
-          let studentCourseId = studentData.courseID; // Try this first
-          const studentCourseName = studentData.courseName;
 
-          // If no courseID, try to use coursesEnrolled as courseID
-          if (!studentCourseId && studentData.coursesEnrolled) {
-            studentCourseId = studentData.coursesEnrolled;
-          }
+          // Get student's course information.
+          // NOTE: Do NOT fall back to coursesEnrolled here — that field is a
+          // COUNT of enrolled courses, not a course identifier. Using it as
+          // a courseID silently breaks matching for any student missing
+          // courseID.
+          const studentCourseId = studentData.courseID;
+          const studentCourseName = studentData.courseName;
 
           // Debug: Log student data to understand the structure
           console.log("🔍 Student data:", {
@@ -64,7 +63,7 @@ export default function AssessmentsPage() {
             studentCourseName,
             coursesEnrolled: studentData.coursesEnrolled
           });
-          
+
           // Debug: Check all possible course field names
           console.log("🔍 All student fields:", Object.keys(studentData));
           console.log("🔍 Possible course fields:", {
@@ -76,60 +75,73 @@ export default function AssessmentsPage() {
 
           // STEP 1: First, let's verify what courses exist and find the correct courseID
           console.log("📋 STEP 1: Verifying courses and finding correct courseID...");
-          
+
           let verifiedCourseID: string | number | null = null;
           let verifiedCourseName: string | null = null;
-          
+
           try {
             const coursesSnapshot = await getDocs(collection(db, "courses"));
             console.log("📋 All courses in database:");
-            
-            const allCourses = coursesSnapshot.docs.map(doc => {
+
+            let matchStrength = 0; // 0 = none, 1 = partial, 2 = exact
+
+            coursesSnapshot.docs.forEach(doc => {
               const courseData = doc.data();
               console.log(`  - Doc ID: ${doc.id}, CourseID: ${courseData.courseID}, Title: "${courseData.title}", CourseName: "${courseData.courseName}"`);
-              
-              // Check if this course matches the student's course
+
+              // Normalize both sides to string before comparing IDs —
+              // Firestore numbers vs stored strings will never match with ===
+              const courseIDMatch =
+                studentCourseId != null &&
+                courseData.courseID != null &&
+                String(courseData.courseID) === String(studentCourseId);
+
               const exactTitleMatch = courseData.title === studentCourseName;
               const exactCourseNameMatch = courseData.courseName === studentCourseName;
-              const partialTitleMatch = courseData.title?.includes(studentCourseName) || studentCourseName?.includes(courseData.title);
-              const courseIDMatch = courseData.courseID === studentCourseId;
-              
+
+              const isExactMatch = courseIDMatch || exactTitleMatch || exactCourseNameMatch;
+
+              const partialTitleMatch =
+                !isExactMatch &&
+                !!studentCourseName &&
+                (courseData.title?.includes(studentCourseName) ||
+                  studentCourseName?.includes(courseData.title));
+
               console.log(`    Matching with student "${studentCourseName}" (ID: ${studentCourseId}): exactTitle=${exactTitleMatch}, exactCourseName=${exactCourseNameMatch}, partialTitle=${partialTitleMatch}, courseIDMatch=${courseIDMatch}`);
-              
-              if (exactTitleMatch || exactCourseNameMatch || partialTitleMatch || courseIDMatch) {
-                console.log(`    ✅ MATCH FOUND: ${courseData.title} -> courseID: ${courseData.courseID}`);
+
+              if (isExactMatch && matchStrength < 2) {
+                console.log(`    ✅ EXACT MATCH: ${courseData.title} -> courseID: ${courseData.courseID}`);
                 verifiedCourseID = courseData.courseID;
                 verifiedCourseName = courseData.title;
+                matchStrength = 2;
+              } else if (partialTitleMatch && matchStrength < 1) {
+                console.log(`    ⚠️ PARTIAL MATCH (weak): ${courseData.title} -> courseID: ${courseData.courseID}`);
+                verifiedCourseID = courseData.courseID;
+                verifiedCourseName = courseData.title;
+                matchStrength = 1;
               }
-              
-              return {
-                docId: doc.id,
-                courseID: courseData.courseID,
-                title: courseData.title,
-                courseName: courseData.courseName
-              };
             });
-            
-            console.log(`📊 Course verification result: courseID=${verifiedCourseID}, courseName="${verifiedCourseName}"`);
-            
+
+            console.log(`📊 Course verification result: courseID=${verifiedCourseID}, courseName="${verifiedCourseName}", strength=${matchStrength}`);
+
           } catch (error) {
             console.error("❌ Error fetching courses:", error);
           }
 
           // STEP 2: Now let's check what quizzes exist for this courseID
           console.log("📋 STEP 2: Checking for quizzes...");
-          
+
           let courseQuizzes: Quiz[] = [];
-          
+
           if (verifiedCourseID) {
             console.log(`🔍 Looking for quizzes in: quizzes/${verifiedCourseID}/topics`);
-            
+
             try {
               const quizzesRef = collection(db, "quizzes", String(verifiedCourseID), "topics");
               const quizSnapshot = await getDocs(quizzesRef);
-              
-              console.log(`� Found ${quizSnapshot.docs.length} quizzes for courseID ${verifiedCourseID}`);
-              
+
+              console.log(`📚 Found ${quizSnapshot.docs.length} quizzes for courseID ${verifiedCourseID}`);
+
               courseQuizzes = quizSnapshot.docs.map((doc) => {
                 const quizData = doc.data();
                 const topicName = doc.id; // The document ID is the topic name
@@ -142,7 +154,7 @@ export default function AssessmentsPage() {
                   ...quizData,
                 } as Quiz;
               });
-              
+
             } catch (error) {
               console.error(`❌ Error fetching quizzes for courseID ${verifiedCourseID}:`, error);
             }
@@ -152,11 +164,11 @@ export default function AssessmentsPage() {
 
           // STEP 3: Debug - Check what quiz collections exist in database
           console.log("📋 STEP 3: Checking all quiz collections in database...");
-          
+
           try {
             const quizzesCollectionSnapshot = await getDocs(collection(db, "quizzes"));
             console.log("📋 Available quiz collections:", quizzesCollectionSnapshot.docs.map(doc => doc.id));
-            
+
             // Check each quiz collection to see what topics exist
             for (const quizDoc of quizzesCollectionSnapshot.docs) {
               const courseId = quizDoc.id;
