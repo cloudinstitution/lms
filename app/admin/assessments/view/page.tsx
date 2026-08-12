@@ -4,8 +4,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { db } from "@/lib/firebase"
-import { collection, getDocs } from "firebase/firestore"
-import { BookOpen, Clock, FileText, Users } from "lucide-react"
+import { collection, deleteDoc, doc, getDocs } from "firebase/firestore"
+import { BookOpen, Clock, FileText, Trash2, Users } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
@@ -33,6 +33,7 @@ export default function ViewAssessmentsPage() {
   const [quizzesByCourse, setQuizzesByCourse] = useState<Record<string, Quiz[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchCoursesAndQuizzes()
@@ -84,6 +85,40 @@ export default function ViewAssessmentsPage() {
       setError("Failed to load assessments")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDeleteQuiz = async (courseID: number, quizId: string, quizTopic: string) => {
+    const confirmed = window.confirm(
+      `Delete assessment "${quizTopic}"? This cannot be undone.`
+    )
+    if (!confirmed) return
+
+    const deleteKey = `${courseID}_${quizId}`
+    setDeletingId(deleteKey)
+
+    try {
+      await deleteDoc(doc(db, "quizzes", courseID.toString(), "topics", quizId))
+
+      // Update local state so the UI reflects the deletion without a refetch
+      setQuizzesByCourse((prev) => {
+        const courseKey = courseID.toString()
+        const updated = { ...prev }
+        const remaining = (updated[courseKey] || []).filter((q) => q.id !== quizId)
+
+        if (remaining.length > 0) {
+          updated[courseKey] = remaining
+        } else {
+          delete updated[courseKey]
+        }
+
+        return updated
+      })
+    } catch (err) {
+      console.error("Error deleting quiz:", err)
+      alert("Failed to delete assessment. Please try again.")
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -200,31 +235,50 @@ export default function ViewAssessmentsPage() {
               {courseQuizzes.length > 0 ? (
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {courseQuizzes.map((quiz) => (
-                      <Card key={quiz.id} className="border-l-4 border-l-blue-500">
-                        <CardContent className="p-4">
-                          <div className="space-y-2">
-                            <h4 className="font-medium">{quiz.topic}</h4>
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <FileText className="h-3 w-3" />
-                                {quiz.totalQuestions} questions
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {formatDate(quiz.createdAt)}
-                              </span>
+                    {courseQuizzes.map((quiz) => {
+                      const deleteKey = `${course.courseID}_${quiz.id}`
+                      const isDeleting = deletingId === deleteKey
+
+                      return (
+                        <Card key={quiz.id} className="border-l-4 border-l-blue-500">
+                          <CardContent className="p-4">
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-start gap-2">
+                                <h4 className="font-medium">{quiz.topic}</h4>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50 shrink-0"
+                                  disabled={isDeleting}
+                                  onClick={() =>
+                                    handleDeleteQuiz(course.courseID, quiz.id, quiz.topic)
+                                  }
+                                  aria-label={`Delete ${quiz.topic}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <FileText className="h-3 w-3" />
+                                  {quiz.totalQuestions} questions
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {formatDate(quiz.createdAt)}
+                                </span>
+                              </div>
+                              <Badge 
+                                variant={quiz.status === 'active' ? 'default' : 'secondary'}
+                                className="text-xs"
+                              >
+                                {isDeleting ? 'Deleting...' : (quiz.status || 'active')}
+                              </Badge>
                             </div>
-                            <Badge 
-                              variant={quiz.status === 'active' ? 'default' : 'secondary'}
-                              className="text-xs"
-                            >
-                              {quiz.status || 'active'}
-                            </Badge>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
                   </div>
                 </CardContent>
               ) : (
