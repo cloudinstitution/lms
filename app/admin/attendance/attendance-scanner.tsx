@@ -92,12 +92,13 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       // Get student's courses
       const courseIDs = Array.isArray(studentData.courseID) ? studentData.courseID : [studentData.courseID];
       const primaryCourseIndex = studentData.primaryCourseIndex || 0;
-      const primaryCourseId = courseIDs[primaryCourseIndex]?.toString() || courseIDs[0]?.toString();
+      const rawPrimaryCourseId = courseIDs[primaryCourseIndex] ?? courseIDs[0];
+      const primaryCourseId = rawPrimaryCourseId ? rawPrimaryCourseId.toString() : "0";
 
-      if (!primaryCourseId) {
+      if (!primaryCourseId || primaryCourseId === "0") {
         return {
           success: false,
-          message: `No course found for student ${studentName}.`
+          message: `No valid course found for student ${studentName}. Please check their course assignment.`
         };
       }
 
@@ -163,16 +164,29 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
   // Function to get available cameras
   const getAvailableCameras = async () => {
     try {
-      const devices = await BrowserMultiFormatReader.listVideoInputDevices()
-      const videoDevices = devices.map(device => ({
+      // Request camera permission first so device labels are populated
+      // (enumerateDevices returns empty labels until permission is granted)
+      try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true })
+        tempStream.getTracks().forEach(track => track.stop())
+      } catch (permError) {
+        console.error("Camera permission error while listing devices:", permError)
+        setCameraError("Camera access denied. Please grant camera permissions and try again.")
+        return
+      }
+
+      const allDevices = await navigator.mediaDevices.enumerateDevices()
+      const videoInputDevices = allDevices.filter(device => device.kind === "videoinput")
+
+      const videoDevices = videoInputDevices.map((device, index) => ({
         deviceId: device.deviceId,
-        label: device.label || `Camera ${devices.indexOf(device) + 1}`
+        label: device.label || `Camera ${index + 1}`
       }))
       setDevices(videoDevices)
-      
+
       // Select the rear camera by default if available
-      const rearCamera = videoDevices.find(device => 
-        device.label.toLowerCase().includes('back') || 
+      const rearCamera = videoDevices.find(device =>
+        device.label.toLowerCase().includes('back') ||
         device.label.toLowerCase().includes('rear')
       )
       setSelectedCamera(rearCamera?.deviceId || videoDevices[0]?.deviceId || "")
@@ -392,6 +406,8 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
       // Process attendance for each course
       const promises = Array.from(courseGroups.entries()).map(async ([courseId, students]) => {
         try {
+          console.log(`[AttendanceScanner] Writing attendance for course "${courseId}":`, students.map(s => ({ id: s.id, studentId: s.studentId, name: s.name })));
+
           const attendanceDocRef = doc(db, "attendance", courseId, "dates", dateString);
           const attendanceSnap = await getDoc(attendanceDocRef);
           const existingAttendance = attendanceSnap.exists() ? attendanceSnap.data() : null;
@@ -417,6 +433,8 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
             date: dateString
           });
 
+          console.log(`[AttendanceScanner] Wrote to attendance/${courseId}/dates/${dateString}. presentStudents:`, updatedPresentStudents);
+
           // Update each student's attendance summary
           const studentPromises = students.map(async (student) => {
             const studentDocRef = doc(db, "students", student.id);
@@ -435,6 +453,10 @@ const AttendanceScanner = ({ onAttendanceMarked }: AttendanceScannerProps) => {
                 ...studentData,
                 attendanceByCourse: updatedAttendanceByCourse
               }, { merge: true });
+
+              console.log(`[AttendanceScanner] Updated students/${student.id} attendanceByCourse:`, updatedAttendanceByCourse);
+            } else {
+              console.warn(`[AttendanceScanner] students/${student.id} does not exist — skipped summary update.`);
             }
           });
 
