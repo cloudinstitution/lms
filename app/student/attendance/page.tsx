@@ -27,10 +27,6 @@ interface AttendanceSummary {
   totalHours: number
   averageHoursPerDay: number
   dailyRecords: AttendanceRecord[]
-  primaryCourse: {
-    courseID: string
-    courseName: string
-  }
 }
 
 interface BatchInfo {
@@ -55,11 +51,7 @@ const EMPTY_ATTENDANCE: AttendanceSummary = {
   percentage: 0,
   totalHours: 0,
   averageHoursPerDay: 0,
-  dailyRecords: [],
-  primaryCourse: {
-    courseID: "",
-    courseName: ""
-  }
+  dailyRecords: []
 }
 
 export default function StudentAttendance() {
@@ -85,64 +77,6 @@ export default function StudentAttendance() {
   const isMounted = useRef(true)
   const unsubscribeRef = useRef<(() => void) | null>(null)
   const batchUnsubscribeRef = useRef<(() => void) | null>(null)
-
-  // Get primary course from student session data
-  const getPrimaryCourse = useCallback(() => {
-    const studentData: any = getStudentSession()
-    if (!studentData) {
-      console.warn("[attendance] No student session available")
-      return null
-    }
-
-    // Log the raw session once so we can see its real shape if this still fails
-    console.log("[attendance] raw session data:", JSON.stringify(studentData))
-
-    // Different parts of the app may have written the session under different
-    // field names over time - try every plausible variant instead of assuming
-    // a single shape.
-    const rawCourseNames =
-      studentData.courseName ??
-      studentData.course ??
-      studentData.courses ??
-      studentData.enrolledCourses ??
-      studentData.primaryCourse?.courseName ??
-      null
-
-    const rawCourseIDs =
-      studentData.courseID ??
-      studentData.courseId ??
-      studentData.courseIDs ??
-      studentData.primaryCourse?.courseID ??
-      null
-
-    if (!rawCourseNames && !rawCourseIDs) {
-      console.warn(
-        "[attendance] No course data found in student session under any known field name. " +
-        "Session keys were:", Object.keys(studentData)
-      )
-      return null
-    }
-
-    const primaryIndex = studentData.primaryCourseIndex || 0
-
-    const courseIDs: string[] = Array.isArray(rawCourseIDs)
-      ? rawCourseIDs.map((id: unknown) => id?.toString() ?? "")
-      : [rawCourseIDs?.toString() ?? ""]
-
-    const courseNames: string[] = Array.isArray(rawCourseNames)
-      ? rawCourseNames
-      : [rawCourseNames ?? ""]
-
-    const courseID = courseIDs[primaryIndex] || courseIDs[0] || ""
-    const courseName = courseNames[primaryIndex] || courseNames[0] || courseID || "Unknown Course"
-
-    if (!courseID) {
-      console.warn("[attendance] Could not resolve a primary course ID from session data:", studentData)
-      return null
-    }
-
-    return { courseID, courseName }
-  }, [])
 
   // Look up the student's Firestore document using every identifier we have,
   // stopping as soon as one succeeds. Each lookup is isolated so a bad/undefined
@@ -193,77 +127,15 @@ export default function StudentAttendance() {
     return null
   }, [])
 
-  // Look up a course's start date. Course docs may be keyed by an internal
-  // Firestore doc id that differs from the courseID field, and courseID may be
-  // stored as either a string or a number - so we try every reasonable path.
-  const findCourseStartDate = useCallback(async (courseID: string): Promise<{ date: Date | null; source: string }> => {
-    // 1) Direct document id lookup (works only if courseID happens to be the doc id)
-    try {
-      const directDoc = await getDoc(doc(db, "courses", courseID))
-      if (directDoc.exists()) {
-        const data = directDoc.data()
-        if (data.startDate) {
-          const date = data.startDate.toDate ? data.startDate.toDate() : new Date(data.startDate)
-          return { date, source: "course-direct" }
-        }
-      }
-    } catch (err) {
-      console.warn("[attendance] Direct course doc lookup failed:", err)
-    }
-
-    // 2) Query by courseID field as a string
-    try {
-      const stringQuery = query(collection(db, "courses"), where("courseID", "==", courseID))
-      const stringSnapshot = await getDocs(stringQuery)
-      if (!stringSnapshot.empty) {
-        const data = stringSnapshot.docs[0].data()
-        if (data.startDate) {
-          const date = data.startDate.toDate ? data.startDate.toDate() : new Date(data.startDate)
-          return { date, source: "course-query-string" }
-        }
-      }
-    } catch (err) {
-      console.warn("[attendance] Course query (string courseID) failed:", err)
-    }
-
-    // 3) Query by courseID field as a number, only if it actually parses
-    const numericID = Number(courseID)
-    if (!Number.isNaN(numericID)) {
-      try {
-        const numericQuery = query(collection(db, "courses"), where("courseID", "==", numericID))
-        const numericSnapshot = await getDocs(numericQuery)
-        if (!numericSnapshot.empty) {
-          const data = numericSnapshot.docs[0].data()
-          if (data.startDate) {
-            const date = data.startDate.toDate ? data.startDate.toDate() : new Date(data.startDate)
-            return { date, source: "course-query-number" }
-          }
-        }
-      } catch (err) {
-        console.warn("[attendance] Course query (numeric courseID) failed:", err)
-      }
-    }
-
-    return { date: null, source: "not-found" }
-  }, [])
-
-  // Fetch attendance data for the primary course from start date to current date
+  // Fetch and combine attendance data across every course the student has an
+  // attendanceByCourse entry for, instead of requiring a single resolved
+  // "primary course" to display anything.
   const fetchAttendanceData = useCallback(async () => {
     const studentData = getStudentSession()
     if (!studentData) {
       console.warn("[attendance] No student data in session")
       if (isMounted.current) {
         setLoadError("You're not signed in. Please log in again.")
-        setLoading(false)
-      }
-      return
-    }
-
-    const primaryCourse = getPrimaryCourse()
-    if (!primaryCourse) {
-      console.warn("[attendance] No primary course available")
-      if (isMounted.current) {
-        setLoadError("We couldn't find a course on your profile. Contact your admin if this looks wrong.")
         setLoading(false)
       }
       return
@@ -277,78 +149,46 @@ export default function StudentAttendance() {
       if (!studentDocData) {
         console.warn("[attendance] Student document not found in Firestore")
         if (isMounted.current) {
-          setAttendanceData({ ...EMPTY_ATTENDANCE, primaryCourse })
+          setAttendanceData(EMPTY_ATTENDANCE)
           setLoadError("We couldn't find your student record. Contact your admin.")
           setLoading(false)
         }
         return
       }
 
-      // Get attendance data from the student's attendanceByCourse field
+      // Combine attendance across every course in attendanceByCourse
       const attendanceByCourse = studentDocData.attendanceByCourse || {}
+      const courseEntries = Object.values(attendanceByCourse) as Array<{
+        datesPresent?: string[]
+        summary?: { totalClasses?: number; attended?: number; percentage?: number }
+      }>
 
-      const idVariants = [
-        primaryCourse.courseID,
-        primaryCourse.courseID.toString(),
-        Number(primaryCourse.courseID)
-      ].filter((id, index, arr) => arr.indexOf(id) === index)
+      // Union of all present dates across courses (a student is "present" that
+      // day if any of their courses marked them present)
+      const allPresentDates = new Set<string>()
+      let totalClassesAcrossCourses = 0
+      let attendedAcrossCourses = 0
 
-      let courseAttendance = null
-      for (const idVariant of idVariants) {
-        if (attendanceByCourse[idVariant as any]) {
-          courseAttendance = attendanceByCourse[idVariant as any]
-          break
-        }
+      courseEntries.forEach(entry => {
+        (entry.datesPresent || []).forEach(d => allPresentDates.add(d))
+        totalClassesAcrossCourses += entry.summary?.totalClasses || 0
+        attendedAcrossCourses += entry.summary?.attended ?? (entry.datesPresent?.length ?? 0)
+      })
+
+      // Determine the tracking window: earliest present date, or joinedDate,
+      // or fall back to the last 30 days if we have nothing else to go on.
+      let startDate: Date
+      const sortedDates = Array.from(allPresentDates).sort()
+      if (sortedDates.length > 0) {
+        startDate = new Date(sortedDates[0])
+      } else if (studentDocData.joinedDate) {
+        startDate = new Date(studentDocData.joinedDate)
+      } else {
+        startDate = new Date()
+        startDate.setDate(startDate.getDate() - 30)
       }
+      startDate.setHours(0, 0, 0, 0)
 
-      if (!courseAttendance) {
-        console.log("[attendance] No attendance record yet for course:", primaryCourse.courseID, "available keys:", Object.keys(attendanceByCourse))
-        courseAttendance = {
-          datesPresent: [],
-          summary: { totalClasses: 0, attended: 0, percentage: 0 }
-        }
-      }
-
-      // Resolve the course start date: course doc -> batch doc -> joinedDate -> 30-day fallback
-      let startDate: Date | null = null
-      let dateSource = "default"
-
-      const courseStart = await findCourseStartDate(primaryCourse.courseID)
-      if (courseStart.date) {
-        startDate = courseStart.date
-        dateSource = courseStart.source
-      }
-
-      if (!startDate && studentData.batch) {
-        try {
-          const batchQuery = query(collection(db, "batches"), where("batchId", "==", studentData.batch))
-          const batchSnapshot = await getDocs(batchQuery)
-          if (!batchSnapshot.empty) {
-            const batchData = batchSnapshot.docs[0].data()
-            if (batchData.startDate) {
-              startDate = batchData.startDate.toDate ? batchData.startDate.toDate() : new Date(batchData.startDate)
-              dateSource = "batch"
-            }
-          }
-        } catch (err) {
-          console.warn("[attendance] Batch start date lookup failed:", err)
-        }
-      }
-
-      if (!startDate) {
-        if (studentDocData.joinedDate) {
-          startDate = new Date(studentDocData.joinedDate)
-          dateSource = "joinedDate"
-        } else {
-          startDate = new Date()
-          startDate.setDate(startDate.getDate() - 30)
-          dateSource = "default30days"
-        }
-      }
-
-      console.log("[attendance] Using start date source:", dateSource, startDate.toISOString().split("T")[0])
-
-      // Generate daily records from start date to current date
       const currentDate = new Date()
       currentDate.setHours(23, 59, 59, 999)
 
@@ -357,11 +197,10 @@ export default function StudentAttendance() {
 
       const dailyRecords: AttendanceRecord[] = []
       const dateIterator = new Date(startDate)
-      dateIterator.setHours(0, 0, 0, 0)
 
       while (dateIterator <= currentDate) {
         const dateString = dateIterator.toISOString().split("T")[0]
-        const isPresent = courseAttendance.datesPresent?.includes(dateString) || false
+        const isPresent = allPresentDates.has(dateString)
 
         dailyRecords.push({
           date: dateString,
@@ -375,16 +214,10 @@ export default function StudentAttendance() {
 
       dailyRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-      const presentDays = courseAttendance.summary?.attended ?? courseAttendance.datesPresent?.length ?? 0
-      const totalClasses = courseAttendance.summary?.totalClasses || totalDaysCalculated
+      const presentDays = attendedAcrossCourses > 0 ? attendedAcrossCourses : allPresentDates.size
+      const totalClasses = totalClassesAcrossCourses > 0 ? totalClassesAcrossCourses : totalDaysCalculated
       const absentDays = Math.max(0, totalClasses - presentDays)
-
-      let percentage = 0
-      if (courseAttendance.summary?.percentage !== undefined) {
-        percentage = Math.round(courseAttendance.summary.percentage)
-      } else if (totalClasses > 0) {
-        percentage = Math.round((presentDays / totalClasses) * 100)
-      }
+      const percentage = totalClasses > 0 ? Math.round((presentDays / totalClasses) * 100) : 0
 
       const totalHours = presentDays * 8
       const averageHoursPerDay = totalClasses > 0 ? totalHours / totalClasses : 0
@@ -398,8 +231,7 @@ export default function StudentAttendance() {
         percentage,
         totalHours,
         averageHoursPerDay,
-        dailyRecords,
-        primaryCourse
+        dailyRecords
       }
 
       if (isMounted.current) {
@@ -409,12 +241,12 @@ export default function StudentAttendance() {
     } catch (error) {
       console.error("[attendance] Error fetching attendance data:", error)
       if (isMounted.current) {
-        setAttendanceData({ ...EMPTY_ATTENDANCE, primaryCourse })
+        setAttendanceData(EMPTY_ATTENDANCE)
         setLoadError("Something went wrong loading your attendance. Please try refreshing.")
         setLoading(false)
       }
     }
-  }, [getPrimaryCourse, findStudentDocument, findCourseStartDate])
+  }, [findStudentDocument])
 
   // Initialize attendance data and set up real-time listener
   useEffect(() => {
@@ -545,7 +377,7 @@ export default function StudentAttendance() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-foreground">Attendance</h1>
-            <p className="text-muted-foreground">Track your attendance status and history for your primary course</p>
+            <p className="text-muted-foreground">Track your overall attendance status and history</p>
           </div>
         </div>
 
@@ -622,14 +454,6 @@ export default function StudentAttendance() {
                   </div>
 
                   <div className="mt-4 space-y-3 border-t pt-4">
-                    <div className="flex justify-between items-center">
-                      <p className="text-sm text-muted-foreground">Primary Course</p>
-                      <p className="font-medium text-foreground">{attendanceData.primaryCourse.courseName}</p>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <p className="text-sm text-muted-foreground">Course ID</p>
-                      <p className="font-medium text-foreground">{attendanceData.primaryCourse.courseID}</p>
-                    </div>
                     <div className="flex justify-between items-center">
                       <p className="text-sm text-muted-foreground">Total Hours</p>
                       <p className="font-medium text-foreground">{attendanceData.totalHours.toFixed(1)}h</p>
@@ -800,10 +624,6 @@ export default function StudentAttendance() {
                           )
                         })
                       })()}
-                    </div>
-                    <div className="mt-4 text-sm text-muted-foreground text-center">
-                      <p>Showing attendance for your primary course: <span className="font-semibold text-foreground">{attendanceData.primaryCourse.courseName}</span></p>
-                      <p>Course ID: {attendanceData.primaryCourse.courseID}</p>
                     </div>
                   </div>
                 </TabsContent>
