@@ -43,20 +43,11 @@ interface Student {
   }
 }
 
-interface CourseStats {
-  courseID: string
-  courseName: string
-  totalStudents: number
-  presentStudents: number
-  percentage: number
-}
-
 interface AttendanceStats {
   totalStudents: number
   presentStudents: number
   absentStudents: number
   attendancePercentage: number
-  courseStats: CourseStats[]
 }
 
 interface BatchAttendanceState {
@@ -79,15 +70,13 @@ export default function AdminAttendancePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedStatus, setSelectedStatus] = useState<FilterStatus>("all")
-  const [selectedCourse, setSelectedCourse] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [scannerRefreshKey, setScannerRefreshKey] = useState(0)
   const [stats, setStats] = useState<AttendanceStats>({
     totalStudents: 0,
     presentStudents: 0,
     absentStudents: 0,
-    attendancePercentage: 0,
-    courseStats: []
+    attendancePercentage: 0
   })
   
   const [batchAttendance, setBatchAttendance] = useState<BatchAttendanceState>({
@@ -235,55 +224,13 @@ export default function AdminAttendancePage() {
   // Filter students based on search and filters
   const filteredStudents = useMemo(() => {
     return students.filter(student => {
-      const primaryCourse = student.courses[student.primaryCourseIndex];
-     const courseMatch = selectedCourse === "all" || primaryCourse?.courseID === selectedCourse;
       const statusMatch = selectedStatus === "all" ||
         (selectedStatus === "present" && student.present) ||
         (selectedStatus === "absent" && !student.present);
-      return courseMatch && statusMatch && matchesSearch(student);
+      return statusMatch && matchesSearch(student);
     });
-  }, [students, selectedCourse, selectedStatus, searchQuery]);
-  
-  const calculateCourseStats = useCallback((studentsList: Student[]): CourseStats[] => {
-    // Group students by their primary course
-    const courseGroups = new Map<string, Student[]>();
+  }, [students, selectedStatus, searchQuery]);
 
-    // studentsList.forEach(student => {
-    //   const primaryCourse = student.courses[student.primaryCourseIndex];
-    //   if (!courseGroups.has(primaryCourse.courseID)) {
-    //     courseGroups.set(primaryCourse.courseID, []);
-    //   }
-    //   courseGroups.get(primaryCourse.courseID)!.push(student);
-    // });
-studentsList.forEach(student => {
-  const primaryCourse = student.courses?.[student.primaryCourseIndex];
-  if (!primaryCourse) {
-    console.warn('Skipping student with missing/invalid primary course:', student.id ?? student.name);
-    return;
-  }
-  if (!courseGroups.has(primaryCourse.courseID)) {
-    courseGroups.set(primaryCourse.courseID, []);
-  }
-  courseGroups.get(primaryCourse.courseID)!.push(student);
-});
-    // Calculate stats for each course
-    const courseStats = Array.from(courseGroups.entries()).map(([courseID, students]) => {
-      const totalStudents = students.length;
-      const presentStudents = students.filter(s => s.present).length;
-
-      return {
-        courseID,
-        courseName: courses[courseID]?.title || "Uncategorized", // Use courses state directly
-        totalStudents,
-        presentStudents,
-        percentage: totalStudents > 0 ? (presentStudents / totalStudents) * 100 : 0
-      };
-    });    
-    
-    // Sort courses by name
-    return courseStats.sort((a, b) => a.courseName.localeCompare(b.courseName));
-  }, [courses]) // Add courses as dependency
-  
   // Use ref to avoid dependency cycles
   const fetchStudentsRef = useRef<((showToast?: boolean) => Promise<void>) | null>(null);
   const coursesFetchedRef = useRef(false);
@@ -401,7 +348,6 @@ studentsList.forEach(student => {
       const presentCount = studentsList.filter(s => s.present).length
       const absentCount = totalStudents - presentCount
       const attendancePercentage = totalStudents > 0 ? (presentCount / totalStudents) * 100 : 0
-      const courseStats = calculateCourseStats(studentsList)
 
       // Update state
       setStudents(studentsList)
@@ -409,8 +355,7 @@ studentsList.forEach(student => {
         totalStudents,
         presentStudents: presentCount,
         absentStudents: absentCount,
-        attendancePercentage,
-        courseStats
+        attendancePercentage
       })
 
     } catch (error) {
@@ -460,43 +405,16 @@ studentsList.forEach(student => {
     }
     setScannerRefreshKey(prev => prev + 1) // Reset scanner
   }, []) // No dependencies needed
-  const downloadAttendance = (format: 'csv' | 'xlsx', groupBy?: 'course' | 'none') => {
+  const downloadAttendance = (format: 'csv' | 'xlsx') => {
     if (!date || !students.length) return;
 
     const dateStr = date.toISOString().split('T')[0];
-    let data: any[] = [];
-
-    if (groupBy === 'course') {
-      // Group by primary course
-      const courseGroups = new Map<string, Student[]>();
-      students.forEach(student => {
-        const primaryCourse = student.courses[student.primaryCourseIndex];
-        if (!courseGroups.has(primaryCourse.courseName)) {
-          courseGroups.set(primaryCourse.courseName, []);
-        }
-        courseGroups.get(primaryCourse.courseName)!.push(student);
-      });
-
-      courseGroups.forEach((students, courseName) => {
-        data.push({ 'Course': courseName }); // Add course header
-        students.forEach(student => {
-          data.push({
-            'Student ID': student.customId,
-            'Name': student.name,
-            'Status': student.present ? 'Present' : 'Absent'
-          });
-        });
-        data.push({}); // Add empty row between courses
-      });
-    } else {
-      // No grouping, but include primary course info
-      data = students.map(student => ({
-        'Student ID': student.customId,
-        'Name': student.name,
-        'Course': student.courses[student.primaryCourseIndex].courseName,
-        'Status': student.present ? 'Present' : 'Absent'
-      }));
-    }    const ws = XLSX.utils.json_to_sheet(data);
+    const data: any[] = students.map(student => ({
+      'Student ID': student.customId,
+      'Name': student.name,
+      'Status': student.present ? 'Present' : 'Absent'
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Attendance');      if (format === 'csv') {
       const csv = XLSX.utils.sheet_to_csv(ws);
@@ -551,14 +469,12 @@ studentsList.forEach(student => {
     const presentCount = students.filter(s => s.present).length;
     const absentCount = totalStudents - presentCount;
     const attendancePercentage = totalStudents > 0 ? (presentCount / totalStudents) * 100 : 0;
-    const courseStats = calculateCourseStats(students);
 
     setStats({
       totalStudents,
       presentStudents: presentCount,
       absentStudents: absentCount,
-      attendancePercentage,
-      courseStats
+      attendancePercentage
     });
   }, [students]);
 
@@ -844,43 +760,6 @@ studentsList.forEach(student => {
               </Card>
             </div>
 
-            {/* Course-wise Stats */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-foreground">Course-wise Attendance</CardTitle>
-                <CardDescription>Breakdown of attendance by course</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {stats.courseStats.map((course, index) => (
-                    <div
-                      key={`course-stat-${course.courseID}-${index}`}
-                      className="flex items-center justify-between p-4 border rounded-lg bg-muted/30"
-                    >
-                      <div className="space-y-1">
-                        <p className="font-medium text-foreground">
-                          {course.courseName}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {course.presentStudents} / {course.totalStudents} students present
-                        </p>
-                      </div>
-                      <div className={`text-lg font-bold ${course.percentage >= 75 ? 'text-emerald-600' :
-                        course.percentage >= 50 ? 'text-yellow-600' :
-                          'text-red-600'
-                        }`}>
-                        {course.percentage.toFixed(1)}%
-                      </div>
-                    </div>
-                  ))}
-                  {stats.courseStats.length === 0 && (
-                    <div className="text-center py-6 text-muted-foreground">
-                      No course data available
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
             <div className="grid gap-6 md:grid-cols-[250px_1fr]">
               <Card className="h-fit">
                 <CardHeader className="pb-2">
@@ -904,11 +783,11 @@ studentsList.forEach(student => {
                         align="end"
                         className="w-56 p-2 backdrop-blur-sm border border-border/50 shadow-lg animate-in fade-in-0 zoom-in-95"
                       >
-                        <DropdownMenuLabel className="font-semibold px-2 py-1.5 text-sm">Simple Format</DropdownMenuLabel>
+                        <DropdownMenuLabel className="font-semibold px-2 py-1.5 text-sm">Export Format</DropdownMenuLabel>
                         <DropdownMenuSeparator className="my-1.5" />
                         <DropdownMenuGroup>
                           <DropdownMenuItem
-                            onClick={() => downloadAttendance('xlsx', 'none')}
+                            onClick={() => downloadAttendance('xlsx')}
                             className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-primary/10 rounded-sm"
                           >
                             <div className="rounded-sm bg-emerald-100 dark:bg-emerald-900/30 p-1">
@@ -920,7 +799,7 @@ studentsList.forEach(student => {
                             <span>Excel Spreadsheet (.xlsx)</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => downloadAttendance('csv', 'none')}
+                            onClick={() => downloadAttendance('csv')}
                             className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-primary/10 rounded-sm"
                           >
                             <div className="rounded-sm bg-blue-100 dark:bg-blue-900/30 p-1">
@@ -934,39 +813,6 @@ studentsList.forEach(student => {
                               </svg>
                             </div>
                             <span>CSV File (.csv)</span>
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                        <DropdownMenuSeparator className="my-1.5" />
-                        <DropdownMenuLabel className="font-semibold px-2 py-1.5 text-sm">Grouped by Course</DropdownMenuLabel>
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem
-                            onClick={() => downloadAttendance('xlsx', 'course')}
-                            className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-primary/10 rounded-sm"
-                          >
-                            <div className="rounded-sm bg-purple-100 dark:bg-purple-900/30 p-1">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-600 dark:text-purple-400">
-                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                                <polyline points="14 2 14 8 20 8" />
-                                <path d="M3 15h18" />
-                                <path d="M3 19h18" />
-                              </svg>
-                            </div>
-                            <span>Grouped Excel (.xlsx)</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => downloadAttendance('csv', 'course')}
-                            className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-primary/10 rounded-sm"
-                          >
-                            <div className="rounded-sm bg-orange-100 dark:bg-orange-900/30 p-1">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-600 dark:text-orange-400">
-                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                                <polyline points="14 2 14 8 20 8" />
-                                <path d="M3 11h18" />
-                                <path d="M3 15h18" />
-                                <path d="M3 19h18" />
-                              </svg>
-                            </div>
-                            <span>Grouped CSV (.csv)</span>
                           </DropdownMenuItem>
                         </DropdownMenuGroup>
                       </DropdownMenuContent>
@@ -1095,43 +941,6 @@ studentsList.forEach(student => {
                           />
                         </div>
                         <div className="flex gap-2">
-                          <Select
-                            value={selectedCourse}
-                            onValueChange={(value) => {
-                              setSelectedCourse(value)
-                              
-                              // Show toast notification for course filter change
-                              const courseName = value === "all" 
-                                ? "all courses" 
-                                : courses[value]?.title || "selected course";
-                                
-                              toast.info("Course filter applied", {
-                                id: "filter-course",
-                                description: `Now showing students from ${courseName}`
-                              })
-                            }}
-                            disabled={coursesLoading}
-                          >
-                            <SelectTrigger className="w-[180px]">
-                              <SelectValue placeholder={coursesLoading ? "Loading..." : "Select course"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Courses</SelectItem>
-                              {!coursesLoading && Object.entries(courses).map(([courseID, course]) => (
-                                <SelectItem
-                                  key={`course-select-${courseID}`}
-                                  value={courseID}
-                                >
-                                  {course.title}
-                                </SelectItem>
-                              ))}
-                              {coursesLoading && (
-                                <SelectItem value="loading" disabled>
-                                  Loading courses...
-                                </SelectItem>
-                              )}
-                            </SelectContent>
-                          </Select>
                           <Select 
                             value={selectedStatus} 
                             onValueChange={(value: string) => {
@@ -1168,7 +977,6 @@ studentsList.forEach(student => {
                             <div>
                               <p className="font-medium text-foreground">{student.name}</p>
                               <p className="text-sm text-muted-foreground">ID: {student.customId}</p>
-                              {/* <p className="text-sm text-muted-foreground">Course: {student.courses[student.primaryCourseIndex].courseName}</p> */}
                               <p className="text-sm text-muted-foreground">
   Course: {student.courses?.[student.primaryCourseIndex]?.courseName ?? 'N/A'}
 </p>
