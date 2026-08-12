@@ -3,7 +3,6 @@
 import StudentLayout from "@/components/student-layout"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useAuth } from "@/lib/auth-context"
 import { db } from "@/lib/firebase"
 import { getStudentSession } from "@/lib/session-storage"
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore"
@@ -47,26 +46,26 @@ interface BatchInfo {
   }
 }
 
+const EMPTY_ATTENDANCE: AttendanceSummary = {
+  startDate: "",
+  currentDate: "",
+  totalDays: 0,
+  presentDays: 0,
+  absentDays: 0,
+  percentage: 0,
+  totalHours: 0,
+  averageHoursPerDay: 0,
+  dailyRecords: [],
+  primaryCourse: {
+    courseID: "",
+    courseName: ""
+  }
+}
+
 export default function StudentAttendance() {
   const router = useRouter()
-  // Temporarily using session-based approach like other student pages
-  // const { user, userProfile, loading: authLoading } = useAuth()
-  
-  const [attendanceData, setAttendanceData] = useState<AttendanceSummary>({
-    startDate: "",
-    currentDate: "",
-    totalDays: 0,
-    presentDays: 0,
-    absentDays: 0,
-    percentage: 0,
-    totalHours: 0,
-    averageHoursPerDay: 0,
-    dailyRecords: [],
-    primaryCourse: {
-      courseID: "",
-      courseName: ""
-    }
-  })
+
+  const [attendanceData, setAttendanceData] = useState<AttendanceSummary>(EMPTY_ATTENDANCE)
   const [batchInfo, setBatchInfo] = useState<BatchInfo>({
     batchId: "",
     startDate: "",
@@ -80,231 +79,223 @@ export default function StudentAttendance() {
     },
   })
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Use refs to track mounted state and prevent state updates after unmount
   const isMounted = useRef(true)
   const unsubscribeRef = useRef<(() => void) | null>(null)
   const batchUnsubscribeRef = useRef<(() => void) | null>(null)
 
-  // Get primary course from student profile with proper course ID handling
+  // Get primary course from student session data
   const getPrimaryCourse = useCallback(() => {
-    console.log("🔍 Debug - Getting primary course")
-    
-    // Use session storage like other student pages
     const studentData = getStudentSession()
-    console.log("🔍 Debug - Student data from session:", studentData)
-    
     if (!studentData) {
-      console.warn("🔍 Debug - No student data available")
+      console.warn("[attendance] No student session available")
       return null
     }
 
-    if (studentData.courseName) {
-      // Use the actual structure from Firebase: courseName array and primaryCourseIndex
-      const primaryIndex = studentData.primaryCourseIndex || 0
-      
-      const courseIDs = Array.isArray(studentData.courseID) 
-        ? studentData.courseID 
-        : [studentData.courseID]
-        
-      const courseNames = Array.isArray(studentData.courseName) 
-        ? studentData.courseName 
-        : [studentData.courseName]
-      
-      const courseID = courseIDs[primaryIndex]?.toString() || courseIDs[0]?.toString() || ""
-      const courseName = courseNames[primaryIndex] || courseNames[0] || ""
-      
-      console.log("🔍 Debug - Course IDs from studentData:", courseIDs)
-      console.log("🔍 Debug - Course Names from studentData:", courseNames)
-      console.log("🔍 Debug - Primary index:", primaryIndex)
-      
-      const primaryCourse = { courseID, courseName }
-      console.log("🔍 Debug - Primary course from studentData:", primaryCourse)
-      return primaryCourse
+    if (!studentData.courseName) {
+      console.warn("[attendance] No course data in student session")
+      return null
     }
-    
-    console.warn("🔍 Debug - No course data available in studentData")
-    return null
-  }, []) // Removed userProfile dependency since we're using session storage
 
-  // Fetch attendance data for primary course from start date to current date
+    const primaryIndex = studentData.primaryCourseIndex || 0
+
+    const courseIDs: string[] = Array.isArray(studentData.courseID)
+      ? studentData.courseID.map((id: unknown) => id?.toString() ?? "")
+      : [studentData.courseID?.toString() ?? ""]
+
+    const courseNames: string[] = Array.isArray(studentData.courseName)
+      ? studentData.courseName
+      : [studentData.courseName]
+
+    const courseID = courseIDs[primaryIndex] || courseIDs[0] || ""
+    const courseName = courseNames[primaryIndex] || courseNames[0] || ""
+
+    if (!courseID) {
+      console.warn("[attendance] Could not resolve a primary course ID from session data")
+      return null
+    }
+
+    return { courseID, courseName }
+  }, [])
+
+  // Look up the student's Firestore document using every identifier we have,
+  // stopping as soon as one succeeds. Each lookup is isolated so a bad/undefined
+  // field on one attempt never throws and aborts the whole chain.
+  const findStudentDocument = useCallback(async (studentData: any) => {
+    // 1) Try the session id as the actual Firestore document id
+    if (studentData?.id) {
+      try {
+        const snap = await getDoc(doc(db, "students", studentData.id))
+        if (snap.exists()) {
+          console.log("[attendance] Student doc found by session id")
+          return snap.data()
+        }
+      } catch (err) {
+        console.warn("[attendance] Lookup by session id failed:", err)
+      }
+    }
+
+    // 2) Try matching on a custom student ID field, whichever variant exists
+    const customId = studentData?.studentId ?? studentData?.customStudentId ?? null
+    if (customId) {
+      try {
+        const q = query(collection(db, "students"), where("studentId", "==", customId))
+        const snapshot = await getDocs(q)
+        if (!snapshot.empty) {
+          console.log("[attendance] Student doc found by studentId field")
+          return snapshot.docs[0].data()
+        }
+      } catch (err) {
+        console.warn("[attendance] Lookup by studentId field failed:", err)
+      }
+    }
+
+    // 3) Try matching by email as a last resort
+    if (studentData?.email) {
+      try {
+        const q = query(collection(db, "students"), where("email", "==", studentData.email))
+        const snapshot = await getDocs(q)
+        if (!snapshot.empty) {
+          console.log("[attendance] Student doc found by email")
+          return snapshot.docs[0].data()
+        }
+      } catch (err) {
+        console.warn("[attendance] Lookup by email failed:", err)
+      }
+    }
+
+    return null
+  }, [])
+
+  // Look up a course's start date. Course docs may be keyed by an internal
+  // Firestore doc id that differs from the courseID field, and courseID may be
+  // stored as either a string or a number - so we try every reasonable path.
+  const findCourseStartDate = useCallback(async (courseID: string): Promise<{ date: Date | null; source: string }> => {
+    // 1) Direct document id lookup (works only if courseID happens to be the doc id)
+    try {
+      const directDoc = await getDoc(doc(db, "courses", courseID))
+      if (directDoc.exists()) {
+        const data = directDoc.data()
+        if (data.startDate) {
+          const date = data.startDate.toDate ? data.startDate.toDate() : new Date(data.startDate)
+          return { date, source: "course-direct" }
+        }
+      }
+    } catch (err) {
+      console.warn("[attendance] Direct course doc lookup failed:", err)
+    }
+
+    // 2) Query by courseID field as a string
+    try {
+      const stringQuery = query(collection(db, "courses"), where("courseID", "==", courseID))
+      const stringSnapshot = await getDocs(stringQuery)
+      if (!stringSnapshot.empty) {
+        const data = stringSnapshot.docs[0].data()
+        if (data.startDate) {
+          const date = data.startDate.toDate ? data.startDate.toDate() : new Date(data.startDate)
+          return { date, source: "course-query-string" }
+        }
+      }
+    } catch (err) {
+      console.warn("[attendance] Course query (string courseID) failed:", err)
+    }
+
+    // 3) Query by courseID field as a number, only if it actually parses
+    const numericID = Number(courseID)
+    if (!Number.isNaN(numericID)) {
+      try {
+        const numericQuery = query(collection(db, "courses"), where("courseID", "==", numericID))
+        const numericSnapshot = await getDocs(numericQuery)
+        if (!numericSnapshot.empty) {
+          const data = numericSnapshot.docs[0].data()
+          if (data.startDate) {
+            const date = data.startDate.toDate ? data.startDate.toDate() : new Date(data.startDate)
+            return { date, source: "course-query-number" }
+          }
+        }
+      } catch (err) {
+        console.warn("[attendance] Course query (numeric courseID) failed:", err)
+      }
+    }
+
+    return { date: null, source: "not-found" }
+  }, [])
+
+  // Fetch attendance data for the primary course from start date to current date
   const fetchAttendanceData = useCallback(async () => {
-    console.log("🔍 Debug - Starting fetchAttendanceData")
-    
-    // Use session storage like other student pages
     const studentData = getStudentSession()
     if (!studentData) {
-      console.warn("No student data in session")
+      console.warn("[attendance] No student data in session")
       if (isMounted.current) {
+        setLoadError("You're not signed in. Please log in again.")
         setLoading(false)
       }
       return
     }
 
     const primaryCourse = getPrimaryCourse()
-    console.log("🔍 Debug - Primary Course:", primaryCourse)
-    
     if (!primaryCourse) {
-      console.warn("No primary course available")
+      console.warn("[attendance] No primary course available")
       if (isMounted.current) {
+        setLoadError("We couldn't find a course on your profile. Contact your admin if this looks wrong.")
         setLoading(false)
       }
       return
     }
 
+    if (isMounted.current) setLoadError(null)
+
     try {
-      // Fetch student document from Firestore to get attendance data
-      // Use the student ID from session data to get the document
-      console.log("🔍 Debug - Fetching student document for ID:", studentData.id)
-      
-      let studentDoc = null
-      let studentDocData = null
-      
-      // First try using the session ID as document ID
-      try {
-        studentDoc = await getDoc(doc(db, "students", studentData.id))
-        if (studentDoc.exists()) {
-          studentDocData = studentDoc.data()
-          console.log("🔍 Debug - Found student document by session ID")
-        }
-      } catch (error) {
-        console.log("🔍 Debug - Error fetching by session ID:", error)
-      }
-      
-      // If not found by ID, try to find by custom student ID or email
+      const studentDocData = await findStudentDocument(studentData)
+
       if (!studentDocData) {
-        console.log("🔍 Debug - Trying to find student by custom ID or email")
-        const studentQuery = query(
-          collection(db, "students"), 
-          where("studentId", "==", studentData.studentId || studentData.customStudentId)
-        )
-        const studentSnapshot = await getDocs(studentQuery)
-        
-        if (!studentSnapshot.empty) {
-          studentDocData = studentSnapshot.docs[0].data()
-          console.log("🔍 Debug - Found student document by custom student ID")
-        } else {
-          // Try by email as last resort
-          if (studentData.email) {
-            const emailQuery = query(collection(db, "students"), where("email", "==", studentData.email))
-            const emailSnapshot = await getDocs(emailQuery)
-            if (!emailSnapshot.empty) {
-              studentDocData = emailSnapshot.docs[0].data()
-              console.log("🔍 Debug - Found student document by email")
-            }
-          }
-        }
-      }
-      
-      if (!studentDocData) {
-        console.warn("🔍 Debug - Student document not found in Firestore")
-        // Use fallback data structure
-        const currentDate = new Date()
-        const startDate = new Date()
-        startDate.setDate(startDate.getDate() - 30)
-        
-        const fallbackData: AttendanceSummary = {
-          startDate: startDate.toISOString().split('T')[0],
-          currentDate: currentDate.toISOString().split('T')[0],
-          totalDays: 30,
-          presentDays: 0,
-          absentDays: 30,
-          percentage: 0,
-          totalHours: 0,
-          averageHoursPerDay: 0,
-          dailyRecords: [],
-          primaryCourse
-        }
-        
+        console.warn("[attendance] Student document not found in Firestore")
         if (isMounted.current) {
-          setAttendanceData(fallbackData)
+          setAttendanceData({ ...EMPTY_ATTENDANCE, primaryCourse })
+          setLoadError("We couldn't find your student record. Contact your admin.")
           setLoading(false)
         }
         return
       }
 
-      console.log("🔍 Debug - Student Document Data:", studentDocData)
-      
-      // Get attendance data from student's attendanceByCourse field (same as admin page)
+      // Get attendance data from the student's attendanceByCourse field
       const attendanceByCourse = studentDocData.attendanceByCourse || {}
-      console.log("🔍 Debug - Attendance By Course:", attendanceByCourse)
-      
-      // Get attendance for the primary course
-      const courseIdToCheck = primaryCourse.courseID.toString()
-      let courseAttendance = attendanceByCourse[courseIdToCheck]
-      
-      // Try different course ID formats if not found
-      if (!courseAttendance) {
-        const alternativeIds = [
-          primaryCourse.courseID,
-          parseInt(primaryCourse.courseID),
-          primaryCourse.courseID.toString()
-        ].filter((id, index, arr) => arr.indexOf(id) === index) // Remove duplicates
-        
-        console.log("🔍 Debug - Trying course ID variants:", alternativeIds)
-        console.log("🔍 Debug - Available attendance keys:", Object.keys(attendanceByCourse))
-        
-        for (const courseId of alternativeIds) {
-          if (attendanceByCourse[courseId]) {
-            courseAttendance = attendanceByCourse[courseId]
-            console.log("🔍 Debug - Found attendance data with courseId:", courseId, typeof courseId)
-            break
-          }
+
+      const idVariants = [
+        primaryCourse.courseID,
+        primaryCourse.courseID.toString(),
+        Number(primaryCourse.courseID)
+      ].filter((id, index, arr) => arr.indexOf(id) === index)
+
+      let courseAttendance = null
+      for (const idVariant of idVariants) {
+        if (attendanceByCourse[idVariant as any]) {
+          courseAttendance = attendanceByCourse[idVariant as any]
+          break
         }
       }
-      
+
       if (!courseAttendance) {
-        console.log("🔍 Debug - No attendance data found for course:", primaryCourse.courseID)
+        console.log("[attendance] No attendance record yet for course:", primaryCourse.courseID, "available keys:", Object.keys(attendanceByCourse))
         courseAttendance = {
           datesPresent: [],
           summary: { totalClasses: 0, attended: 0, percentage: 0 }
         }
       }
-      
-      console.log("🔍 Debug - Course Attendance Data:", courseAttendance)
 
-      // Get course start date (try multiple sources)
-      let startDate = new Date()
-      let courseDataSource = "default"
-      
-      // Try to get course document to find start date
-      try {
-        console.log("🔍 Debug - Fetching course document for courseID:", primaryCourse.courseID)
-        
-        // Try direct document lookup first
-        let courseDoc = await getDoc(doc(db, "courses", primaryCourse.courseID))
-        let courseData = null
-        
-        if (courseDoc.exists()) {
-          courseData = courseDoc.data()
-          console.log("🔍 Debug - Found course document by direct ID lookup")
-        } else {
-          // Try query by courseID field
-          const courseQuery = query(collection(db, "courses"), where("courseID", "==", parseInt(primaryCourse.courseID)))
-          const courseSnapshot = await getDocs(courseQuery)
-          
-          if (!courseSnapshot.empty) {
-            courseData = courseSnapshot.docs[0].data()
-            console.log("🔍 Debug - Found course document by courseID field query")
-          }
-        }
-        
-        if (courseData && courseData.startDate) {
-          // Handle Firestore Timestamp or string dates
-          if (courseData.startDate.toDate) {
-            startDate = courseData.startDate.toDate()
-          } else {
-            startDate = new Date(courseData.startDate)
-          }
-          courseDataSource = "course"
-          console.log("🔍 Debug - Using course start date:", startDate)
-        }
-      } catch (courseError) {
-        console.warn("🔍 Debug - Error fetching course document:", courseError)
+      // Resolve the course start date: course doc -> batch doc -> joinedDate -> 30-day fallback
+      let startDate: Date | null = null
+      let dateSource = "default"
+
+      const courseStart = await findCourseStartDate(primaryCourse.courseID)
+      if (courseStart.date) {
+        startDate = courseStart.date
+        dateSource = courseStart.source
       }
-      
-      // Fallback to batch start date if no course start date
-      if (courseDataSource === "default" && studentData.batch) {
+
+      if (!startDate && studentData.batch) {
         try {
           const batchQuery = query(collection(db, "batches"), where("batchId", "==", studentData.batch))
           const batchSnapshot = await getDocs(batchQuery)
@@ -312,94 +303,71 @@ export default function StudentAttendance() {
             const batchData = batchSnapshot.docs[0].data()
             if (batchData.startDate) {
               startDate = batchData.startDate.toDate ? batchData.startDate.toDate() : new Date(batchData.startDate)
-              courseDataSource = "batch"
-              console.log("🔍 Debug - Using batch start date:", startDate)
+              dateSource = "batch"
             }
           }
-        } catch (batchError) {
-          console.warn("🔍 Debug - Error fetching batch:", batchError)
+        } catch (err) {
+          console.warn("[attendance] Batch start date lookup failed:", err)
         }
       }
-      
-      // Final fallback
-      if (courseDataSource === "default") {
+
+      if (!startDate) {
         if (studentDocData.joinedDate) {
           startDate = new Date(studentDocData.joinedDate)
-          courseDataSource = "joinedDate"
+          dateSource = "joinedDate"
         } else {
+          startDate = new Date()
           startDate.setDate(startDate.getDate() - 30)
-          courseDataSource = "default30days"
+          dateSource = "default30days"
         }
-        console.log("🔍 Debug - Using fallback start date:", startDate, "source:", courseDataSource)
       }
+
+      console.log("[attendance] Using start date source:", dateSource, startDate.toISOString().split("T")[0])
 
       // Generate daily records from start date to current date
       const currentDate = new Date()
       currentDate.setHours(23, 59, 59, 999)
-      
-      // Calculate total days from start to current date
+
       const timeDiff = currentDate.getTime() - startDate.getTime()
       const totalDaysCalculated = Math.max(1, Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1)
-      
-      console.log("🔍 Debug - Date range:", {
-        startDate: startDate.toISOString().split('T')[0],
-        currentDate: currentDate.toISOString().split('T')[0],
-        totalDaysCalculated,
-        courseDataSource
-      })
 
-      // Generate daily records
       const dailyRecords: AttendanceRecord[] = []
       const dateIterator = new Date(startDate)
       dateIterator.setHours(0, 0, 0, 0)
 
       while (dateIterator <= currentDate) {
-        const dateString = dateIterator.toISOString().split('T')[0]
+        const dateString = dateIterator.toISOString().split("T")[0]
         const isPresent = courseAttendance.datesPresent?.includes(dateString) || false
-        
+
         dailyRecords.push({
           date: dateString,
           status: isPresent ? "present" : "absent",
           time: isPresent ? "10:00 AM" : undefined,
           hoursSpent: isPresent ? 8 : 0
         })
-        
+
         dateIterator.setDate(dateIterator.getDate() + 1)
       }
 
-      // Sort records by date (newest first for display)
       dailyRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-      // Use the summary data from student document (same as admin page)
-      const presentDays = courseAttendance.summary?.attended || courseAttendance.datesPresent?.length || 0
+      const presentDays = courseAttendance.summary?.attended ?? courseAttendance.datesPresent?.length ?? 0
       const totalClasses = courseAttendance.summary?.totalClasses || totalDaysCalculated
       const absentDays = Math.max(0, totalClasses - presentDays)
-      
-      // Use summary percentage if available, otherwise calculate
+
       let percentage = 0
       if (courseAttendance.summary?.percentage !== undefined) {
         percentage = Math.round(courseAttendance.summary.percentage)
       } else if (totalClasses > 0) {
         percentage = Math.round((presentDays / totalClasses) * 100)
       }
-      
+
       const totalHours = presentDays * 8
       const averageHoursPerDay = totalClasses > 0 ? totalHours / totalClasses : 0
 
-      console.log("🔍 Debug - Final Statistics:", {
-        presentDays,
-        totalClasses,
-        absentDays,
-        percentage,
-        totalHours,
-        averageHoursPerDay,
-        dailyRecordsCount: dailyRecords.length,
-        summaryData: courseAttendance.summary
-      })
-
       const summaryData: AttendanceSummary = {
-        startDate: startDate.toISOString().split('T')[0],
-        currentDate: currentDate.toISOString().split('T')[0],
+        startDate: startDate.toISOString().split("T")[0],
+        currentDate: currentDate.toISOString().split("T")[0],
         totalDays: totalClasses,
         presentDays,
         absentDays,
@@ -415,54 +383,51 @@ export default function StudentAttendance() {
         setLoading(false)
       }
     } catch (error) {
-      console.error("Error fetching attendance data:", error)
+      console.error("[attendance] Error fetching attendance data:", error)
       if (isMounted.current) {
+        setAttendanceData({ ...EMPTY_ATTENDANCE, primaryCourse })
+        setLoadError("Something went wrong loading your attendance. Please try refreshing.")
         setLoading(false)
       }
     }
-  }, [getPrimaryCourse]) // Keep dependencies minimal
+  }, [getPrimaryCourse, findStudentDocument, findCourseStartDate])
 
   // Initialize attendance data and set up real-time listener
   useEffect(() => {
-    console.log("Attendance page mounting")
     isMounted.current = true
 
-    // Use session storage approach like other student pages
     const studentData = getStudentSession()
     if (!studentData) {
-      console.warn("No student data in session, redirecting to login")
+      console.warn("[attendance] No student data in session, redirecting to login")
       router.push("/login")
       return
     }
 
-    console.log("Student data found in session, loading attendance data")
-    // Fetch immediately when student data is available
     fetchAttendanceData()
 
-    // TEMPORARILY COMMENTED OUT REAL-TIME LISTENERS TO PREVENT AUTH ISSUES
-    /* 
-    // Set up real-time listener for student document changes (for profile updates)
-    // Note: We're only setting up a listener for the UID-based document
-    // If the document is found by email/username, real-time updates won't work
-    // but the data will still be fetched on page load and when userProfile changes
-    const studentDocRef = doc(db, "students", user.uid)
-    const unsubscribe = onSnapshot(studentDocRef, (doc) => {
-      if (doc.exists() && isMounted.current) {
-        console.log("Student document updated, refreshing attendance data")
-        fetchAttendanceData()
-      } else {
-        console.log("Student document listener: document does not exist or was deleted")
+    // Real-time listener on the student's own document, so admin-side changes
+    // (e.g. marking today's attendance) show up without a manual refresh.
+    if (studentData.id) {
+      try {
+        const studentDocRef = doc(db, "students", studentData.id)
+        const unsubscribe = onSnapshot(
+          studentDocRef,
+          (snap) => {
+            if (snap.exists() && isMounted.current) {
+              fetchAttendanceData()
+            }
+          },
+          (error) => {
+            console.warn("[attendance] Student document listener error:", error)
+          }
+        )
+        unsubscribeRef.current = unsubscribe
+      } catch (error) {
+        console.warn("[attendance] Failed to set up student document listener:", error)
       }
-    }, (error) => {
-      console.warn("Student document listener error:", error)
-    })
+    }
 
-    unsubscribeRef.current = unsubscribe
-    */
-
-    // Cleanup function
     return () => {
-      console.log("Attendance page unmounting")
       isMounted.current = false
       if (unsubscribeRef.current) {
         unsubscribeRef.current()
@@ -471,75 +436,40 @@ export default function StudentAttendance() {
         batchUnsubscribeRef.current()
       }
     }
-  }, [router, fetchAttendanceData]) // Removed user, authLoading dependencies
-
-  // TEMPORARILY COMMENTED OUT USER PROFILE EFFECT
-  /*
-  // Separate effect to re-fetch when userProfile loads
-  useEffect(() => {
-    if (userProfile) {
-      console.log("User profile loaded, re-fetching attendance data with updated profile")
-      fetchAttendanceData()
-    }
-  }, [userProfile, fetchAttendanceData])
-  */
+  }, [router, fetchAttendanceData])
 
   // Fetch batch info
   useEffect(() => {
-    // Use session storage approach like other student pages
     const studentData = getStudentSession()
-    if (!studentData) {
-      setBatchInfo({
-        batchId: "Not assigned",
-        startDate: "N/A",
-        endDate: "N/A",
-        duration: "N/A",
-        instructors: [],
-        schedule: {
-          weekdays: "N/A",
-          labSessions: "N/A",
-          weekend: "N/A",
-        },
-      })
+    const emptyBatch: BatchInfo = {
+      batchId: "Not assigned",
+      startDate: "N/A",
+      endDate: "N/A",
+      duration: "N/A",
+      instructors: [],
+      schedule: {
+        weekdays: "N/A",
+        labSessions: "N/A",
+        weekend: "N/A",
+      },
+    }
+
+    if (!studentData?.batch) {
+      setBatchInfo(emptyBatch)
       return
     }
 
-    // Get batch from student data
-    const batchId = studentData.batch
-    
-    if (!batchId) {
-      setBatchInfo({
-        batchId: "Not assigned",
-        startDate: "N/A",
-        endDate: "N/A",
-        duration: "N/A",
-        instructors: [],
-        schedule: {
-          weekdays: "N/A",
-          labSessions: "N/A",
-          weekend: "N/A",
-        },
-      })
-      return
-    }
+    try {
+      const batchQuery = query(collection(db, "batches"), where("batchId", "==", studentData.batch))
 
-    setupBatchListener(batchId)
-
-    function setupBatchListener(batchId: string) {
-      if (!batchId) return
-      
-      try {
-        // Query the batches collection
-        const batchQuery = query(collection(db, "batches"), where("batchId", "==", batchId))
-
-        // Set up real-time listener for batch info
-        const unsubscribe = onSnapshot(batchQuery, (snapshot) => {
+      const unsubscribe = onSnapshot(
+        batchQuery,
+        (snapshot) => {
           if (!isMounted.current) return
 
           if (!snapshot.empty) {
             const batchDoc = snapshot.docs[0].data()
 
-            // Format dates
             const startDate = batchDoc.startDate?.toDate?.()
               ? batchDoc.startDate.toDate().toLocaleDateString()
               : batchDoc.startDate || "N/A"
@@ -560,15 +490,22 @@ export default function StudentAttendance() {
                 weekend: "N/A",
               },
             })
+          } else {
+            setBatchInfo(emptyBatch)
           }
-        })
+        },
+        (error) => {
+          console.error("[attendance] Batch info listener error:", error)
+          setBatchInfo(emptyBatch)
+        }
+      )
 
-        batchUnsubscribeRef.current = unsubscribe
-      } catch (error) {
-        console.error("Error setting up batch info listener:", error)
-      }
+      batchUnsubscribeRef.current = unsubscribe
+    } catch (error) {
+      console.error("[attendance] Error setting up batch info listener:", error)
+      setBatchInfo(emptyBatch)
     }
-  }, []) // Removed user and userProfile dependencies
+  }, [])
 
   // Helper function to format date to YYYY-MM-DD
   const formatDateToString = (date: Date): string => {
@@ -587,6 +524,12 @@ export default function StudentAttendance() {
             <p className="text-muted-foreground">Track your attendance status and history for your primary course</p>
           </div>
         </div>
+
+        {loadError && !loading && (
+          <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-900/50 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+            {loadError}
+          </div>
+        )}
 
         <div className="grid gap-6 md:grid-cols-3">
           <Card className="border-none shadow-md overflow-hidden">
@@ -767,28 +710,6 @@ export default function StudentAttendance() {
                           <p className="text-xs text-muted-foreground mt-1">
                             Records will appear here once attendance starts being tracked
                           </p>
-                          {/* Debug information */}
-                          <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-left">
-                            <p><strong>Debug Info:</strong></p>
-                            <p>Session data available: {getStudentSession() ? 'Yes' : 'No'}</p>
-                            <p>Student ID: {getStudentSession()?.id || 'N/A'}</p>
-                            <p>Student Name: {getStudentSession()?.name || 'N/A'}</p>
-                            <p>Session Course: {getStudentSession()?.courseName || 'N/A'}</p>
-                            <p>Primary Course: {attendanceData.primaryCourse.courseName} (ID: {attendanceData.primaryCourse.courseID})</p>
-                            <p>Primary Course Index: {getStudentSession()?.primaryCourseIndex ?? 'N/A'}</p>
-                            <p>Total Days: {attendanceData.totalDays}</p>
-                            <p>Present Days: {attendanceData.presentDays}</p>
-                            <p>Attendance %: {attendanceData.percentage}%</p>
-                            <p>Start Date: {attendanceData.startDate}</p>
-                            <p>Current Date: {attendanceData.currentDate}</p>
-                            <p>Records Generated: {attendanceData.dailyRecords.length}</p>
-                            <p className="text-xs mt-2 text-muted-foreground">
-                              ✅ Now fetching real attendance data from student's attendanceByCourse field
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Check browser console for detailed logs and data fetching info
-                            </p>
-                          </div>
                         </div>
                       )}
                     </div>
