@@ -1,353 +1,668 @@
-"use client";
+"use client"
 
-import StudentLayout from "@/components/student-layout";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { db } from "@/lib/firebase";
-import { type Quiz, QuizService } from "@/lib/quiz-service";
-import { getStudentSession } from "@/lib/session-storage";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { AlertCircle, CheckCircle } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import StudentLayout from "@/components/student-layout"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { db } from "@/lib/firebase"
+import { getStudentSession } from "@/lib/session-storage"
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore"
+import { Calendar, CheckCircle, Clock, XCircle } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useCallback, useEffect, useRef, useState } from "react"
 
-interface Student {
-  id: string
-  name: string
-  username: string
-  password: string
-  phoneNumber: string
-  coursesEnrolled: number
-  courseID?: number // Add this field as optional
-  studentId: string
-  joinedDate: string
-  courseName: string
-  status?: "Active" | "Inactive"
+interface AttendanceRecord {
+  date: string
+  status: "present" | "absent"
+  time?: string
+  hoursSpent: number
 }
 
-export default function AssessmentsPage() {
-  const router = useRouter();
-  const [student, setStudent] = useState<Student | null>(null);
-  const [quizzesBycourse, setQuizzesBycourse] = useState<Record<string, Quiz[]>>({});
-  const [completedQuizIds, setCompletedQuizIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
-  useEffect(() => {
-    const studentData = getStudentSession();
-    if (studentData) {
-      setStudent(studentData as Student);
+interface AttendanceSummary {
+  startDate: string
+  currentDate: string
+  totalDays: number
+  presentDays: number
+  absentDays: number
+  percentage: number
+  totalHours: number
+  averageHoursPerDay: number
+  dailyRecords: AttendanceRecord[]
+}
 
-      const fetchQuizzes = async () => {
-        try {
-          console.log("🚀 Starting quiz fetch process...");
-          
-          // Get student's course information
-          let studentCourseId = studentData.courseID; // Try this first
-          const studentCourseName = studentData.courseName;
-
-          // If no courseID, try to use coursesEnrolled as courseID
-          if (!studentCourseId && studentData.coursesEnrolled) {
-            studentCourseId = studentData.coursesEnrolled;
-          }
-
-          // Debug: Log student data to understand the structure
-          console.log("🔍 Student data:", {
-            studentData,
-            studentCourseId,
-            studentCourseName,
-            coursesEnrolled: studentData.coursesEnrolled
-          });
-          
-          // Debug: Check all possible course field names
-          console.log("🔍 All student fields:", Object.keys(studentData));
-          console.log("🔍 Possible course fields:", {
-            courseID: studentData.courseID,
-            coursesEnrolled: studentData.coursesEnrolled,
-            courseName: studentData.courseName,
-            course: studentData.course
-          });
-
-          // STEP 1: First, let's verify what courses exist and find the correct courseID
-          console.log("📋 STEP 1: Verifying courses and finding correct courseID...");
-          
-          let verifiedCourseID: string | number | null = null;
-          let verifiedCourseName: string | null = null;
-          
-          try {
-            const coursesSnapshot = await getDocs(collection(db, "courses"));
-            console.log("📋 All courses in database:");
-            
-            const allCourses = coursesSnapshot.docs.map(doc => {
-              const courseData = doc.data();
-              console.log(`  - Doc ID: ${doc.id}, CourseID: ${courseData.courseID}, Title: "${courseData.title}", CourseName: "${courseData.courseName}"`);
-              
-              // Check if this course matches the student's course
-              const exactTitleMatch = courseData.title === studentCourseName;
-              const exactCourseNameMatch = courseData.courseName === studentCourseName;
-              const partialTitleMatch = courseData.title?.includes(studentCourseName) || studentCourseName?.includes(courseData.title);
-              const courseIDMatch = courseData.courseID === studentCourseId;
-              
-              console.log(`    Matching with student "${studentCourseName}" (ID: ${studentCourseId}): exactTitle=${exactTitleMatch}, exactCourseName=${exactCourseNameMatch}, partialTitle=${partialTitleMatch}, courseIDMatch=${courseIDMatch}`);
-              
-              if (exactTitleMatch || exactCourseNameMatch || partialTitleMatch || courseIDMatch) {
-                console.log(`    ✅ MATCH FOUND: ${courseData.title} -> courseID: ${courseData.courseID}`);
-                verifiedCourseID = courseData.courseID;
-                verifiedCourseName = courseData.title;
-              }
-              
-              return {
-                docId: doc.id,
-                courseID: courseData.courseID,
-                title: courseData.title,
-                courseName: courseData.courseName
-              };
-            });
-            
-            console.log(`📊 Course verification result: courseID=${verifiedCourseID}, courseName="${verifiedCourseName}"`);
-            
-          } catch (error) {
-            console.error("❌ Error fetching courses:", error);
-          }
-
-          // STEP 2: Now let's check what quizzes exist for this courseID
-          console.log("📋 STEP 2: Checking for quizzes...");
-          
-          let courseQuizzes: Quiz[] = [];
-          
-          if (verifiedCourseID) {
-            console.log(`🔍 Looking for quizzes in: quizzes/${verifiedCourseID}/topics`);
-            
-            try {
-              const quizzesRef = collection(db, "quizzes", String(verifiedCourseID), "topics");
-              const quizSnapshot = await getDocs(quizzesRef);
-              
-              console.log(`� Found ${quizSnapshot.docs.length} quizzes for courseID ${verifiedCourseID}`);
-              
-              courseQuizzes = quizSnapshot.docs.map((doc) => {
-                const quizData = doc.data();
-                const topicName = doc.id; // The document ID is the topic name
-                console.log(`  - Quiz: ${doc.id} -> Topic: "${topicName}", Questions: ${quizData.questions?.length || 0}`);
-                return {
-                  id: `${verifiedCourseID}_${topicName}`, // Create a unique ID combining courseID and topic
-                  topic: topicName, // Set the topic name from the document ID
-                  course: verifiedCourseName || 'Unknown Course',
-                  courseID: verifiedCourseID,
-                  ...quizData,
-                } as Quiz;
-              });
-              
-            } catch (error) {
-              console.error(`❌ Error fetching quizzes for courseID ${verifiedCourseID}:`, error);
-            }
-          } else {
-            console.warn("⚠️ No verified courseID found, cannot fetch quizzes");
-          }
-
-          // STEP 3: Debug - Check what quiz collections exist in database
-          console.log("📋 STEP 3: Checking all quiz collections in database...");
-          
-          try {
-            const quizzesCollectionSnapshot = await getDocs(collection(db, "quizzes"));
-            console.log("📋 Available quiz collections:", quizzesCollectionSnapshot.docs.map(doc => doc.id));
-            
-            // Check each quiz collection to see what topics exist
-            for (const quizDoc of quizzesCollectionSnapshot.docs) {
-              const courseId = quizDoc.id;
-              console.log(`🔍 Checking topics for courseID: ${courseId}`);
-              try {
-                const topicsSnapshot = await getDocs(collection(db, "quizzes", courseId, "topics"));
-                console.log(`  - Found ${topicsSnapshot.docs.length} topics:`, topicsSnapshot.docs.map(doc => doc.id));
-              } catch (topicError) {
-                console.warn(`  - Error checking topics for ${courseId}:`, topicError);
-              }
-            }
-          } catch (debugError) {
-            console.warn("Could not fetch debug info:", debugError);
-          }
-
-          // STEP 4: Fallback to old structure if no quizzes found
-          if (courseQuizzes.length === 0) {
-            console.log("🔄 STEP 4: Falling back to old quiz structure...");
-            console.log(`🔍 Searching for quizzes where course == "${studentCourseName}"`);
-
-            try {
-              const quizzesRef = query(
-                collection(db, "quizzes"),
-                where("course", "==", studentCourseName)
-              );
-              const quizSnapshot = await getDocs(quizzesRef);
-              courseQuizzes = quizSnapshot.docs.map((doc) => ({
-                id: doc.id,
-                ...doc.data(),
-              } as Quiz));
-
-              console.log(`📚 Found ${courseQuizzes.length} quizzes in old structure`);
-            } catch (error) {
-              console.error("❌ Error searching old structure:", error);
-            }
-          }
-
-          console.log(`🏁 FINAL RESULT: Found ${courseQuizzes.length} quizzes for student`);
-
-          // Get completed quizzes for the student
-          const results = await QuizService.getUserQuizResults(studentData.id);
-          setCompletedQuizIds(results.map((result) => result.quizId));
-
-          // Set quizzes for the enrolled course
-          const quizzesByCat: Record<string, Quiz[]> = {
-            [studentCourseName]: courseQuizzes
-          };
-
-          setQuizzesBycourse(quizzesByCat);
-          setLoading(false);
-        } catch (err) {
-          console.error("Error fetching quizzes:", err);
-          setError("Failed to load assessments");
-          setLoading(false);
-        }
-      };
-
-      fetchQuizzes();
-    } else {
-      router.push("/login");
-    }
-  }, [router]);
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center min-h-[300px]">
-        <div className="animate-pulse text-lg">Loading assessments...</div>
-      </div>
-    );
+interface BatchInfo {
+  batchId: string
+  startDate: string
+  endDate: string
+  duration: string
+  instructors: string[]
+  schedule: {
+    weekdays: string
+    labSessions: string
+    weekend: string
   }
+}
 
-  if (!student) {
-    return (
-      <div className="p-4 max-w-4xl mx-auto">
-        <div className="p-4 bg-destructive/15 border border-destructive/20 rounded text-destructive flex items-start gap-2">
-          <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-          <span>Please log in to view assessments</span>
-        </div>
-      </div>
-    );
+const EMPTY_ATTENDANCE: AttendanceSummary = {
+  startDate: "",
+  currentDate: "",
+  totalDays: 0,
+  presentDays: 0,
+  absentDays: 0,
+  percentage: 0,
+  totalHours: 0,
+  averageHoursPerDay: 0,
+  dailyRecords: []
+}
+
+export default function StudentAttendance() {
+  const router = useRouter()
+
+  const [attendanceData, setAttendanceData] = useState<AttendanceSummary>(EMPTY_ATTENDANCE)
+  const [batchInfo, setBatchInfo] = useState<BatchInfo>({
+    batchId: "",
+    startDate: "",
+    endDate: "",
+    duration: "",
+    instructors: [],
+    schedule: {
+      weekdays: "",
+      labSessions: "",
+      weekend: "",
+    },
+  })
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const isMounted = useRef(true)
+  const unsubscribeRef = useRef<(() => void) | null>(null)
+  const batchUnsubscribeRef = useRef<(() => void) | null>(null)
+
+  // Look up the student's Firestore document using every identifier we have.
+  // Each lookup is isolated so a bad/undefined field on one attempt never
+  // throws and aborts the whole chain.
+  const findStudentDocument = useCallback(async (studentData: any) => {
+    if (studentData?.id) {
+      try {
+        const snap = await getDoc(doc(db, "students", studentData.id))
+        if (snap.exists()) return snap.data()
+      } catch (err) {
+        console.warn("[attendance] Lookup by session id failed:", err)
+      }
+    }
+
+    const customId = studentData?.studentId ?? studentData?.customStudentId ?? null
+    if (customId) {
+      try {
+        const q = query(collection(db, "students"), where("studentId", "==", customId))
+        const snapshot = await getDocs(q)
+        if (!snapshot.empty) return snapshot.docs[0].data()
+      } catch (err) {
+        console.warn("[attendance] Lookup by studentId field failed:", err)
+      }
+    }
+
+    if (studentData?.email) {
+      try {
+        const q = query(collection(db, "students"), where("email", "==", studentData.email))
+        const snapshot = await getDocs(q)
+        if (!snapshot.empty) return snapshot.docs[0].data()
+      } catch (err) {
+        console.warn("[attendance] Lookup by email failed:", err)
+      }
+    }
+
+    return null
+  }, [])
+
+  // Fetch and aggregate attendance across all of the student's courses into a
+  // single flat tracker - no per-course matching required.
+  const fetchAttendanceData = useCallback(async () => {
+    const studentData = getStudentSession()
+    if (!studentData) {
+      console.warn("[attendance] No student data in session")
+      if (isMounted.current) {
+        setLoadError("You're not signed in. Please log in again.")
+        setLoading(false)
+      }
+      return
+    }
+
+    if (isMounted.current) setLoadError(null)
+
+    try {
+      const studentDocData: any = await findStudentDocument(studentData)
+
+      if (!studentDocData) {
+        console.warn("[attendance] Student document not found in Firestore")
+        if (isMounted.current) {
+          setAttendanceData(EMPTY_ATTENDANCE)
+          setLoadError("We couldn't find your student record. Contact your admin.")
+          setLoading(false)
+        }
+        return
+      }
+
+      // Merge attendance across every course the student has, rather than
+      // depending on resolving a single "primary" course.
+      const attendanceByCourse = studentDocData.attendanceByCourse || {}
+      const courseEntries = Object.values(attendanceByCourse) as any[]
+
+      const presentDatesSet = new Set<string>()
+      let attendedTotal = 0
+      let classesTotal = 0
+      let hasSummaryData = false
+
+      courseEntries.forEach((entry) => {
+        (entry?.datesPresent || []).forEach((d: string) => presentDatesSet.add(d))
+        if (entry?.summary) {
+          hasSummaryData = true
+          attendedTotal += entry.summary.attended || 0
+          classesTotal += entry.summary.totalClasses || 0
+        }
+      })
+
+      // Determine the tracking start date: earliest present date on record,
+      // otherwise the student's joined date, otherwise 30 days back.
+      let startDate: Date
+      if (presentDatesSet.size > 0) {
+        const earliest = Array.from(presentDatesSet).sort()[0]
+        startDate = new Date(earliest)
+      } else if (studentDocData.joinedDate) {
+        startDate = new Date(studentDocData.joinedDate)
+      } else {
+        startDate = new Date()
+        startDate.setDate(startDate.getDate() - 30)
+      }
+
+      const currentDate = new Date()
+      currentDate.setHours(23, 59, 59, 999)
+
+      const timeDiff = currentDate.getTime() - startDate.getTime()
+      const totalDaysCalculated = Math.max(1, Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1)
+
+      const dailyRecords: AttendanceRecord[] = []
+      const dateIterator = new Date(startDate)
+      dateIterator.setHours(0, 0, 0, 0)
+
+      while (dateIterator <= currentDate) {
+        const dateString = dateIterator.toISOString().split("T")[0]
+        const isPresent = presentDatesSet.has(dateString)
+
+        dailyRecords.push({
+          date: dateString,
+          status: isPresent ? "present" : "absent",
+          time: isPresent ? "10:00 AM" : undefined,
+          hoursSpent: isPresent ? 8 : 0
+        })
+
+        dateIterator.setDate(dateIterator.getDate() + 1)
+      }
+
+      dailyRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+      const presentDays = hasSummaryData ? attendedTotal : presentDatesSet.size
+      const totalClasses = hasSummaryData && classesTotal > 0 ? classesTotal : totalDaysCalculated
+      const absentDays = Math.max(0, totalClasses - presentDays)
+      const percentage = totalClasses > 0 ? Math.round((presentDays / totalClasses) * 100) : 0
+      const totalHours = presentDays * 8
+      const averageHoursPerDay = totalClasses > 0 ? totalHours / totalClasses : 0
+
+      const summaryData: AttendanceSummary = {
+        startDate: startDate.toISOString().split("T")[0],
+        currentDate: currentDate.toISOString().split("T")[0],
+        totalDays: totalClasses,
+        presentDays,
+        absentDays,
+        percentage,
+        totalHours,
+        averageHoursPerDay,
+        dailyRecords
+      }
+
+      if (isMounted.current) {
+        setAttendanceData(summaryData)
+        setLoading(false)
+      }
+    } catch (error) {
+      console.error("[attendance] Error fetching attendance data:", error)
+      if (isMounted.current) {
+        setAttendanceData(EMPTY_ATTENDANCE)
+        setLoadError("Something went wrong loading your attendance. Please try refreshing.")
+        setLoading(false)
+      }
+    }
+  }, [findStudentDocument])
+
+  useEffect(() => {
+    isMounted.current = true
+
+    const studentData = getStudentSession()
+    if (!studentData) {
+      console.warn("[attendance] No student data in session, redirecting to login")
+      router.push("/login")
+      return
+    }
+
+    fetchAttendanceData()
+
+    if (studentData.id) {
+      try {
+        const studentDocRef = doc(db, "students", studentData.id)
+        const unsubscribe = onSnapshot(
+          studentDocRef,
+          (snap) => {
+            if (snap.exists() && isMounted.current) {
+              fetchAttendanceData()
+            }
+          },
+          (error) => {
+            console.warn("[attendance] Student document listener error:", error)
+          }
+        )
+        unsubscribeRef.current = unsubscribe
+      } catch (error) {
+        console.warn("[attendance] Failed to set up student document listener:", error)
+      }
+    }
+
+    return () => {
+      isMounted.current = false
+      if (unsubscribeRef.current) unsubscribeRef.current()
+      if (batchUnsubscribeRef.current) batchUnsubscribeRef.current()
+    }
+  }, [router, fetchAttendanceData])
+
+  // Fetch batch info
+  useEffect(() => {
+    const studentData = getStudentSession()
+    const emptyBatch: BatchInfo = {
+      batchId: "Not assigned",
+      startDate: "N/A",
+      endDate: "N/A",
+      duration: "N/A",
+      instructors: [],
+      schedule: { weekdays: "N/A", labSessions: "N/A", weekend: "N/A" },
+    }
+
+    if (!studentData?.batch) {
+      setBatchInfo(emptyBatch)
+      return
+    }
+
+    try {
+      const batchQuery = query(collection(db, "batches"), where("batchId", "==", studentData.batch))
+
+      const unsubscribe = onSnapshot(
+        batchQuery,
+        (snapshot) => {
+          if (!isMounted.current) return
+
+          if (!snapshot.empty) {
+            const batchDoc = snapshot.docs[0].data()
+
+            const startDate = batchDoc.startDate?.toDate?.()
+              ? batchDoc.startDate.toDate().toLocaleDateString()
+              : batchDoc.startDate || "N/A"
+
+            const endDate = batchDoc.endDate?.toDate?.()
+              ? batchDoc.endDate.toDate().toLocaleDateString()
+              : batchDoc.endDate || "N/A"
+
+            setBatchInfo({
+              batchId: batchDoc.batchId || "Not assigned",
+              startDate,
+              endDate,
+              duration: batchDoc.duration || "N/A",
+              instructors: batchDoc.instructors || [],
+              schedule: batchDoc.schedule || { weekdays: "N/A", labSessions: "N/A", weekend: "N/A" },
+            })
+          } else {
+            setBatchInfo(emptyBatch)
+          }
+        },
+        (error) => {
+          console.error("[attendance] Batch info listener error:", error)
+          setBatchInfo(emptyBatch)
+        }
+      )
+
+      batchUnsubscribeRef.current = unsubscribe
+    } catch (error) {
+      console.error("[attendance] Error setting up batch info listener:", error)
+      setBatchInfo(emptyBatch)
+    }
+  }, [])
+
+  const formatDateToString = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, "0")
+    const day = String(date.getDate()).padStart(2, "0")
+    return `${year}-${month}-${day}`
   }
 
   return (
     <StudentLayout>
-      <div className="p-4 max-w-4xl mx-auto">
-        <h2 className="text-2xl font-semibold mb-6">Available Assessments</h2>        <div className="flex justify-between mb-4">
-          <div className="text-lg font-semibold text-foreground">
-            Course: {student.courseName}
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Attendance</h1>
+            <p className="text-muted-foreground">Track your overall attendance status and history</p>
           </div>
-          <Link href="/student/assessments/results">
-            <Button
-              variant="outline"
-              className="border-violet-200 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-800 dark:hover:bg-violet-950 dark:hover:text-violet-300"
-            >
-              View Results
-            </Button>
-          </Link>
         </div>
 
-        {error && (
-          <div className="mb-4 p-3 bg-destructive/15 border border-destructive/20 rounded text-destructive flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
+        {loadError && !loading && (
+          <div className="rounded-md border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-900/50 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+            {loadError}
           </div>
         )}
 
-        {Object.keys(quizzesBycourse).length > 0 ? (
-          Object.entries(quizzesBycourse)
-            .filter(([course]) => !selectedCourse || course === selectedCourse)
-            .map(([course, quizzes]) => (
-              <div key={course} className="mb-8">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-xl">Course: {course}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {quizzes.map((quiz) => {
-                        const hasCompleted = completedQuizIds.includes(quiz.id);
+        <div className="grid gap-6 md:grid-cols-3">
+          <Card className="border-none shadow-md overflow-hidden">
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/80 to-primary"></div>
+            <CardHeader>
+              <CardTitle className="text-foreground font-semibold">Attendance Summary</CardTitle>
+              <CardDescription className="text-muted-foreground">Your attendance from {attendanceData.startDate} to {attendanceData.currentDate}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {loading ? (
+                <div className="text-center py-4">
+                  <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+                  <p className="mt-2 text-muted-foreground">Loading attendance data...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-center">
+                    <div className="relative w-32 h-32">
+                      <svg className="w-full h-full" viewBox="0 0 100 100">
+                        <circle
+                          className="text-muted stroke-current dark:text-muted/30"
+                          strokeWidth="10"
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          fill="transparent"
+                        />
+                        <circle
+                          className="text-emerald-500 dark:text-emerald-400 stroke-current"
+                          strokeWidth="10"
+                          strokeLinecap="round"
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          fill="transparent"
+                          strokeDasharray={`${(attendanceData.percentage * 2.51327).toFixed(2)} 251.327`}
+                          strokeDashoffset="0"
+                          transform="rotate(-90 50 50)"
+                        />
+                        <text
+                          x="50"
+                          y="50"
+                          dominantBaseline="middle"
+                          textAnchor="middle"
+                          className="text-2xl font-bold fill-foreground"
+                        >
+                          {attendanceData.percentage}%
+                        </text>
+                      </svg>
+                    </div>
+                  </div>
 
-                        return (
-                          <Card
-                            key={quiz.id}
-                            className={`overflow-hidden border-border dark:border-border ${hasCompleted ? "bg-muted/50" : ""
-                              }`}
+                  <div className="grid grid-cols-3 gap-4 pt-2">
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground">Total Days</p>
+                      <p className="text-lg font-bold text-foreground">{attendanceData.totalDays}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground">Present</p>
+                      <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{attendanceData.presentDays}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground">Absent</p>
+                      <p className="text-lg font-bold text-red-600 dark:text-red-400">{attendanceData.absentDays}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3 border-t pt-4">
+                    <div className="flex justify-between items-center">
+                      <p className="text-sm text-muted-foreground">Total Hours</p>
+                      <p className="font-medium text-foreground">{attendanceData.totalHours.toFixed(1)}h</p>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <p className="text-sm text-muted-foreground">Average Hours/Day</p>
+                      <p className="font-medium text-foreground">{attendanceData.averageHoursPerDay.toFixed(1)}h</p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="md:col-span-2 border-none shadow-md overflow-hidden">
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/80 to-primary"></div>
+            <CardHeader>
+              <CardTitle className="text-foreground font-semibold">Attendance Records</CardTitle>
+              <CardDescription className="text-muted-foreground">Daily attendance history from start date to present</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="list">
+                <TabsList className="mb-4 bg-muted/50">
+                  <TabsTrigger
+                    value="list"
+                    className="data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm"
+                  >
+                    List View
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="calendar"
+                    className="data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm"
+                  >
+                    Calendar View
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="list" className="space-y-4">
+                  {loading ? (
+                    <div className="text-center py-4">
+                      <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+                      <p className="mt-2 text-muted-foreground">Loading attendance records...</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-[400px] overflow-y-auto pr-2">
+                      {attendanceData.dailyRecords.length > 0 ? (
+                        attendanceData.dailyRecords.map((record, index) => (
+                          <div
+                            key={`record-${record.date}-${index}`}
+                            className="flex items-center justify-between py-3 border-b last:border-0"
                           >
-                            <CardContent className="p-4">
-                              <div className="flex justify-between items-start mb-1">
-                                <h4 className="font-medium text-lg text-foreground">
-                                  Topic: {quiz.topic}
-                                </h4>
-                                {hasCompleted && (
-                                  <div className="flex items-center text-emerald-600 dark:text-emerald-400 text-sm">
-                                    <CheckCircle className="h-4 w-4 mr-1" />
-                                    <span>Completed</span>
-                                  </div>
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                  record.status === "present"
+                                    ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400"
+                                    : "bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400"
+                                }`}
+                              >
+                                {record.status === "present" ? (
+                                  <CheckCircle className="h-5 w-5" />
+                                ) : (
+                                  <XCircle className="h-5 w-5" />
                                 )}
                               </div>
-                              <p className="text-sm mb-4 text-muted-foreground">
-                                {quiz.questions?.length || 0} questions
+                              <div>
+                                <p className="font-medium text-foreground">
+                                  {new Date(record.date).toLocaleDateString("en-US", {
+                                    weekday: "short",
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric"
+                                  })}
+                                </p>
+                                {record.status === "present" && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {record.time && `Marked at ${record.time}`}
+                                    {record.hoursSpent > 0 && ` • ${record.hoursSpent}h spent`}
+                                  </p>
+                                )}
+                                {record.status === "absent" && (
+                                  <p className="text-xs text-red-500">
+                                    Absent from class
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-medium ${
+                                record.status === "present" 
+                                  ? "text-emerald-600 dark:text-emerald-400" 
+                                  : "text-red-600 dark:text-red-400"
+                              }`}>
+                                {record.status === "present" ? "Present" : "Absent"}
                               </p>
-
-                              {hasCompleted ? (
-                                <div className="flex justify-between">
-                                  <Button
-                                    variant="outline"
-                                    disabled
-                                    className="w-full opacity-70"
-                                  >
-                                    Already Completed
-                                  </Button>                                  <Link
-                                    href={`/student/assessments/results/${quiz.id}`}
-                                    className="ml-2"
-                                  >
-                                    <Button
-                                      variant="secondary"
-                                      className="w-full bg-teal-500 text-white hover:bg-teal-600 dark:bg-teal-600 dark:hover:bg-teal-700"
-                                    >
-                                      View Results
-                                    </Button>
-                                  </Link>
-                                </div>
-                              ) : (
-                                <Link href={`/student/assessments/${quiz.id}`}>
-                                  <Button
-                                    className="w-full bg-violet-500 text-white hover:bg-violet-600 dark:bg-violet-600 dark:hover:bg-violet-700"
-                                  >
-                                    Attempt Quiz
-                                  </Button>
-                                </Link>
-                              )}
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 bg-muted/30 rounded-lg">
+                          <Calendar className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-muted-foreground">No attendance records found</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Records will appear here once attendance starts being tracked
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
+                  )}
+                </TabsContent>
+                <TabsContent value="calendar">
+                  <div className="border rounded-md p-4">
+                    <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                        <div key={day} className="text-xs font-medium text-muted-foreground py-1">
+                          {day}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {(() => {
+                        const today = new Date()
+                        const year = today.getFullYear()
+                        const month = today.getMonth()
+
+                        const firstDayOfMonth = new Date(year, month, 1)
+                        const dayOffset = firstDayOfMonth.getDay()
+
+                        const lastDayOfMonth = new Date(year, month + 1, 0)
+                        const daysInMonth = lastDayOfMonth.getDate()
+
+                        const totalDays = dayOffset + daysInMonth
+                        const totalCells = Math.ceil(totalDays / 7) * 7
+
+                        return Array.from({ length: totalCells }).map((_, index) => {
+                          const day = index - dayOffset + 1
+                          const isCurrentMonth = day > 0 && day <= daysInMonth
+
+                          const currentDate = new Date(year, month, day)
+                          const dateString = isCurrentMonth ? formatDateToString(currentDate) : ""
+
+                          const record = attendanceData.dailyRecords.find((r) => r.date === dateString)
+                          const isToday = isCurrentMonth && day === today.getDate()
+
+                          return (
+                            <div
+                              key={`calendar-day-${index}`}
+                              className={`aspect-square flex flex-col items-center justify-center rounded-md text-sm ${
+                                isCurrentMonth
+                                  ? isToday
+                                    ? "border-2 border-primary text-primary font-bold"
+                                    : record
+                                      ? record.status === "present"
+                                        ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                                        : "bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300"
+                                      : "bg-background hover:bg-muted/50"
+                                  : "text-muted-foreground bg-muted/30"
+                              }`}
+                            >
+                              {isCurrentMonth && day}
+                              {record && (
+                                <div
+                                  className={`w-2 h-2 rounded-full mt-1 ${
+                                    record.status === "present" ? "bg-emerald-600 dark:bg-emerald-400" : "bg-red-600 dark:bg-red-400"
+                                  }`}
+                                ></div>
+                              )}
+                            </div>
+                          )
+                        })
+                      })()}
+                    </div>
+                    <div className="mt-4 text-sm text-muted-foreground text-center">
+                      <p>Showing your overall attendance history</p>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="border-none shadow-md overflow-hidden">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary/80 to-primary"></div>
+          <CardHeader>
+            <CardTitle className="text-foreground font-semibold">Batch Information</CardTitle>
+            <CardDescription className="text-muted-foreground">Your current batch details</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Batch ID</p>
+                    <p className="font-medium text-foreground">{batchInfo.batchId}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Start Date</p>
+                    <p className="font-medium text-foreground">{batchInfo.startDate}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">End Date</p>
+                    <p className="font-medium text-foreground">{batchInfo.endDate}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Duration</p>
+                    <p className="font-medium text-foreground">{batchInfo.duration}</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Instructors</p>
+                  <p className="font-medium text-foreground">{batchInfo.instructors.join(", ") || "N/A"}</p>
+                </div>
               </div>
-            ))
-        ) : (
-          <div className="p-4 bg-yellow-50 border border-yellow-200 rounded flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0 text-yellow-600" />
-            <p className="text-yellow-800">
-              {student.coursesEnrolled > 0
-                ? "No quizzes are available for your enrolled courses at this time."
-                : "No quizzes are available at this time. Please check back later."}
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">Class Schedule</p>
+                <div className="space-y-2 bg-muted/50 rounded-lg p-4">
+                  <div className="flex justify-between py-2 border-b border-border">
+                    <p className="font-medium text-foreground">Monday - Friday</p>
+                    <p className="text-muted-foreground">{batchInfo.schedule.weekdays}</p>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-border">
+                    <p className="font-medium text-foreground">Lab Sessions</p>
+                    <p className="text-muted-foreground">{batchInfo.schedule.labSessions}</p>
+                  </div>
+                  <div className="flex justify-between py-2">
+                    <p className="font-medium text-foreground">Weekend Sessions</p>
+                    <p className="text-muted-foreground">{batchInfo.schedule.weekend}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter className="bg-muted/50">
+            <p className="text-sm text-muted-foreground flex items-center">
+              <Clock className="h-4 w-4 mr-2 text-emerald-600 dark:text-emerald-400" />
+              Attendance is marked daily at 10:00 AM by your instructor.
             </p>
-          </div>
-        )}
+          </CardFooter>
+        </Card>
       </div>
     </StudentLayout>
-  );
+  )
 }
