@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { db } from "@/lib/firebase"
 import { collection, deleteDoc, doc, getDocs } from "firebase/firestore"
-import { BookOpen, Clock, FileText, Trash2, Users } from "lucide-react"
+import { BookOpen, Clock, Edit, FileText, Trash2, Users } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
@@ -245,18 +245,31 @@ export default function ViewAssessmentsPage() {
                             <div className="space-y-2">
                               <div className="flex justify-between items-start gap-2">
                                 <h4 className="font-medium">{quiz.topic}</h4>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50 shrink-0"
-                                  disabled={isDeleting}
-                                  onClick={() =>
-                                    handleDeleteQuiz(course.courseID, quiz.id, quiz.topic)
-                                  }
-                                  aria-label={`Delete ${quiz.topic}`}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <Link href={`/admin/assessments/edit/${course.courseID}/${quiz.id}`}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-blue-500 hover:text-blue-600 hover:bg-blue-50"
+                                      disabled={isDeleting}
+                                      aria-label={`Edit ${quiz.topic}`}
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  </Link>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                    disabled={isDeleting}
+                                    onClick={() =>
+                                      handleDeleteQuiz(course.courseID, quiz.id, quiz.topic)
+                                    }
+                                    aria-label={`Delete ${quiz.topic}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </div>
                               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                                 <span className="flex items-center gap-1">
@@ -268,12 +281,20 @@ export default function ViewAssessmentsPage() {
                                   {formatDate(quiz.createdAt)}
                                 </span>
                               </div>
-                              <Badge 
-                                variant={quiz.status === 'active' ? 'default' : 'secondary'}
-                                className="text-xs"
-                              >
-                                {isDeleting ? 'Deleting...' : (quiz.status || 'active')}
-                              </Badge>
+                              <div className="flex items-center justify-between gap-2">
+                                <Badge
+                                  variant={quiz.status === 'active' ? 'default' : 'secondary'}
+                                  className="text-xs"
+                                >
+                                  {isDeleting ? 'Deleting...' : (quiz.status || 'active')}
+                                </Badge>
+                                <Link href={`/admin/assessments/edit/${course.courseID}/${quiz.id}`}>
+                                  <Button variant="outline" size="sm" className="h-7 text-xs" disabled={isDeleting}>
+                                    <Edit className="h-3 w-3 mr-1" />
+                                    Edit Assessment
+                                  </Button>
+                                </Link>
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
