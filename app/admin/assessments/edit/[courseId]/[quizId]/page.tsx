@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Textarea } from "@/components/ui/textarea"
 import { db } from "@/lib/firebase"
-import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore"
+import { collection, doc, getDoc, getDocs, serverTimestamp, updateDoc } from "firebase/firestore"
 import { AlertCircle, ArrowLeft, Plus, Save, Trash2 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -46,6 +46,10 @@ export default function EditAssessmentPage() {
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  // The doc ID we actually found/matched in Firestore — may differ from the
+  // raw URL param if we had to fall back to a normalized match. This is what
+  // handleSave writes back to.
+  const [resolvedQuizId, setResolvedQuizId] = useState<string>("")
 
   useEffect(() => {
     if (!courseId || !quizId) return
@@ -55,16 +59,51 @@ export default function EditAssessmentPage() {
         setLoading(true)
         setError(null)
 
-        const quizRef = doc(db, "quizzes", courseId, "topics", quizId)
-        const quizSnap = await getDoc(quizRef)
+        const decodedCourseId = decodeURIComponent(courseId)
+        const decodedQuizId = decodeURIComponent(quizId)
+
+        console.log("🔍 Loading assessment with:", {
+          rawCourseId: courseId,
+          rawQuizId: quizId,
+          decodedCourseId,
+          decodedQuizId,
+        })
+
+        let quizSnap = await getDoc(doc(db, "quizzes", decodedCourseId, "topics", decodedQuizId))
+        let matchedId = decodedQuizId
+
+        // Fallback: if the exact ID doesn't match (whitespace, casing, or
+        // encoding differences), scan the course's topics and find the
+        // closest normalized match instead of failing outright.
+        if (!quizSnap.exists()) {
+          console.warn(`⚠️ No exact match for topics/${decodedQuizId} under quizzes/${decodedCourseId}. Scanning for a normalized match...`)
+
+          const topicsSnapshot = await getDocs(collection(db, "quizzes", decodedCourseId, "topics"))
+          console.log(
+            "📋 Available topic doc IDs in this course:",
+            topicsSnapshot.docs.map((d) => d.id)
+          )
+
+          const normalize = (val: string) => val.trim().toLowerCase()
+          const target = normalize(decodedQuizId)
+          const fallbackDoc = topicsSnapshot.docs.find((d) => normalize(d.id) === target)
+
+          if (fallbackDoc) {
+            console.log(`✅ Found normalized match: ${fallbackDoc.id}`)
+            quizSnap = fallbackDoc as any
+            matchedId = fallbackDoc.id
+          }
+        }
 
         if (!quizSnap.exists()) {
           setError("Assessment not found. It may have been deleted.")
           return
         }
 
+        setResolvedQuizId(matchedId)
+
         const data = quizSnap.data()
-        setTopic(data.topic || quizId)
+        setTopic(data.topic || matchedId)
         setStatus(data.status || "active")
 
         // Normalize whatever question shape is stored into our editable shape.
@@ -210,7 +249,9 @@ export default function EditAssessmentPage() {
 
     setSaving(true)
     try {
-      const quizRef = doc(db, "quizzes", courseId, "topics", quizId)
+      const decodedCourseId = decodeURIComponent(courseId)
+      const targetQuizId = resolvedQuizId || decodeURIComponent(quizId)
+      const quizRef = doc(db, "quizzes", decodedCourseId, "topics", targetQuizId)
       await updateDoc(quizRef, {
         topic: topic.trim(),
         status,
