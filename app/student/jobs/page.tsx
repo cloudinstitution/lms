@@ -22,6 +22,7 @@ import {
 } from "firebase/firestore"
 
 import {
+  AlertTriangle,
   Briefcase,
   Building,
   CalendarClock,
@@ -59,6 +60,21 @@ type Job = {
   deadline: string
   status: "Open" | "Closed"
   createdAt: Date
+}
+
+// A job is "expired" once its deadline date has passed, compared at the
+// day level (a deadline of today still counts as active). Jobs without a
+// deadline are never considered expired.
+const isJobExpired = (deadline: string): boolean => {
+  if (!deadline) return false
+  const deadlineDate = new Date(deadline)
+  if (Number.isNaN(deadlineDate.getTime())) return false
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  deadlineDate.setHours(0, 0, 0, 0)
+
+  return deadlineDate < today
 }
 
 const StudentJobsPage = () => {
@@ -266,6 +282,17 @@ const StudentJobsPage = () => {
   // ==============================
 
   const handleApply = (job: Job) => {
+
+    if (isJobExpired(job.deadline)) {
+
+      toast.error(
+        "This job's application deadline has passed."
+      )
+
+      return
+
+    }
+
 
     if (!studentData) {
 
@@ -943,11 +970,20 @@ const StudentJobsPage = () => {
                     job.id
                   )
 
+                const expired =
+                  isJobExpired(
+                    job.deadline
+                  )
+
                 return (
 
                   <Card
                     key={job.id}
-                    className="border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-shadow"
+                    className={`shadow-sm hover:shadow-md transition-shadow ${
+                      expired
+                        ? "border-red-200 dark:border-red-900/50"
+                        : "border-slate-200 dark:border-slate-800"
+                    }`}
                   >
 
                     <CardHeader className="bg-gradient-to-r from-purple-50 to-slate-50 dark:from-purple-950/40 dark:to-slate-900 rounded-t-lg pb-3">
@@ -961,11 +997,27 @@ const StudentJobsPage = () => {
                         </CardTitle>
 
 
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-medium whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
 
-                          {job.jobType}
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-medium whitespace-nowrap">
 
-                        </span>
+                            {job.jobType}
+
+                          </span>
+
+                          {expired && (
+
+                            <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 font-medium whitespace-nowrap">
+
+                              <AlertTriangle className="h-3 w-3" />
+
+                              Expired
+
+                            </span>
+
+                          )}
+
+                        </div>
 
                       </div>
 
@@ -1024,11 +1076,19 @@ const StudentJobsPage = () => {
 
                         {job.deadline ? (
 
-                          <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          <span
+                            className={`text-xs flex items-center gap-1 ${
+                              expired
+                                ? "text-red-600 dark:text-red-400 font-medium"
+                                : "text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
 
                             <CalendarClock className="h-3.5 w-3.5" />
 
-                            Apply by{" "}
+                            {expired
+                              ? "Deadline passed on "
+                              : "Apply by "}
 
                             {job.deadline}
 
@@ -1072,7 +1132,8 @@ const StudentJobsPage = () => {
                           <Button
                             size="sm"
                             disabled={
-                              alreadyApplied
+                              alreadyApplied ||
+                              expired
                             }
                             onClick={() =>
                               handleApply(
@@ -1082,6 +1143,8 @@ const StudentJobsPage = () => {
                             className={
                               alreadyApplied
                                 ? "bg-green-600 hover:bg-green-600 text-white cursor-default"
+                                : expired
+                                ? "bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed hover:bg-slate-300 dark:hover:bg-slate-700"
                                 : "bg-purple-600 hover:bg-purple-700 text-white"
                             }
                           >
@@ -1095,6 +1158,10 @@ const StudentJobsPage = () => {
                                 Applied
 
                               </>
+
+                            ) : expired ? (
+
+                              "Applications Closed"
 
                             ) : (
 
