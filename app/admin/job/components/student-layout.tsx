@@ -1,13 +1,21 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { db } from "@/lib/firebase"
 import { clearSession, getStudentName } from "@/lib/session-storage"
 import { isStudentInAWSCourse } from "@/lib/course-utils"
 import { collection, DocumentData, onSnapshot, query } from "firebase/firestore"
 import {
+  AlertTriangle,
   Bell,
   BookOpen,
   Briefcase,
@@ -27,7 +35,7 @@ import { useTheme } from "next-themes"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type React from "react"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 interface Notification {
   id: string;
@@ -39,8 +47,31 @@ interface Notification {
   studentId?: string;
 }
 
+interface JobListing {
+  id: string;
+  title: string;
+  company: string;
+  deadline: string; // yyyy-mm-dd
+  status: string;
+}
+
 interface StudentLayoutProps {
   children: React.ReactNode
+}
+
+// A job is "expired" once its deadline date has passed, compared at the
+// day level (a deadline of today still counts as active). Jobs without a
+// deadline are never considered expired.
+const isJobExpired = (deadline: string): boolean => {
+  if (!deadline) return false
+  const deadlineDate = new Date(deadline)
+  if (Number.isNaN(deadlineDate.getTime())) return false
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  deadlineDate.setHours(0, 0, 0, 0)
+
+  return deadlineDate < today
 }
 
 export default function StudentLayout({ children }: StudentLayoutProps) {
@@ -49,6 +80,8 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
   const [notificationCount, setNotificationCount] = useState<number>(0)
   const [studentName, setStudentName] = useState<string | null>(null)
   const [isAWSStudent, setIsAWSStudent] = useState<boolean>(false)
+  const [jobs, setJobs] = useState<JobListing[]>([])
+  const [expiryTick, setExpiryTick] = useState(0)
   const { theme, setTheme } = useTheme()
 
   useEffect(() => {
@@ -64,7 +97,7 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
     const notificationsCollection = collection(db, "notifications");
     const q = query(notificationsCollection);
     
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeNotifications = onSnapshot(q, (snapshot) => {
       const notifications = snapshot.docs.map(doc => {
         const data = doc.data() as DocumentData;
         return {
@@ -84,8 +117,41 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
       setNotificationCount(unreadCount);
     });
 
-    return () => unsubscribe();
+    // Subscribe to jobs so we can flag any whose deadline has passed
+    const jobsCollection = collection(db, "jobs");
+    const unsubscribeJobs = onSnapshot(query(jobsCollection), (snapshot) => {
+      const jobsData = snapshot.docs.map((doc) => {
+        const data = doc.data() as DocumentData;
+        return {
+          id: doc.id,
+          title: data.title || '',
+          company: data.company || '',
+          deadline: data.deadline || '',
+          status: data.status || 'Open',
+        } as JobListing;
+      });
+      setJobs(jobsData);
+    });
+
+    // Re-check deadlines periodically in case the tab stays open across midnight
+    const intervalId = setInterval(() => setExpiryTick((t) => t + 1), 60 * 60 * 1000);
+
+    return () => {
+      unsubscribeNotifications();
+      unsubscribeJobs();
+      clearInterval(intervalId);
+    }
   }, [])
+
+  // Jobs that are still marked Open but whose deadline has already passed
+  const expiredJobs = useMemo(
+    () => jobs.filter((job) => job.status === "Open" && isJobExpired(job.deadline)),
+    // expiryTick is intentionally in the deps so this recomputes on the
+    // hourly interval even if the underlying jobs list hasn't changed
+    [jobs, expiryTick]
+  )
+
+  const totalAlertCount = notificationCount + expiredJobs.length
 
   if (!isMounted) {
     return null
@@ -269,17 +335,68 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
         <div className="flex flex-col flex-1 overflow-hidden">
           <header className="w-full h-14 flex items-center justify-end px-4 border-b bg-card md:px-6">
             <div className="flex items-center gap-4">
-              <Link href="/student/notifications" className="relative">
-                <Button variant="outline" size="icon">
-                  <Bell className="h-5 w-5" />
-                  {notificationCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                      {notificationCount}
-                    </span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="relative">
+                    <Bell className="h-5 w-5" />
+                    {totalAlertCount > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                        {totalAlertCount}
+                      </span>
+                    )}
+                    <span className="sr-only">Notifications</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80">
+                  {expiredJobs.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                        <AlertTriangle className="h-4 w-4" />
+                        Job {expiredJobs.length === 1 ? "listing has" : "listings have"} expired
+                      </DropdownMenuLabel>
+                      {expiredJobs.slice(0, 5).map((job) => (
+                        <DropdownMenuItem key={job.id} asChild>
+                          <Link href="/student/jobs" className="cursor-pointer flex flex-col items-start gap-0.5 py-2">
+                            <span className="text-sm font-medium">{job.title}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {job.company} · Application deadline has passed
+                            </span>
+                          </Link>
+                        </DropdownMenuItem>
+                      ))}
+                      {expiredJobs.length > 5 && (
+                        <DropdownMenuItem asChild>
+                          <Link href="/student/jobs" className="cursor-pointer text-xs text-muted-foreground justify-center">
+                            +{expiredJobs.length - 5} more expired listing{expiredJobs.length - 5 !== 1 ? "s" : ""}
+                          </Link>
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuSeparator />
+                    </>
                   )}
-                  <span className="sr-only">Notifications</span>
-                </Button>
-              </Link>
+
+                  {notificationCount > 0 ? (
+                    <DropdownMenuItem asChild>
+                      <Link href="/student/notifications" className="cursor-pointer">
+                        <Bell className="mr-2 h-4 w-4" />
+                        <span>{notificationCount} unread notification{notificationCount !== 1 ? "s" : ""}</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  ) : (
+                    expiredJobs.length === 0 && (
+                      <DropdownMenuItem disabled className="text-muted-foreground justify-center">
+                        No new notifications
+                      </DropdownMenuItem>
+                    )
+                  )}
+
+                  <DropdownMenuItem asChild>
+                    <Link href="/student/notifications" className="cursor-pointer justify-center text-xs text-muted-foreground">
+                      View all notifications
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <div className="flex items-center gap-2 md:hidden">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">
                   {studentName?.charAt(0) || 'S'}
