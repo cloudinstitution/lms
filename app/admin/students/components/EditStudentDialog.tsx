@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/select';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
-import { X } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, X } from 'lucide-react';
 import React from 'react';
 import { Student } from '../../../../types/student';
 
@@ -48,6 +48,13 @@ export function EditStudentDialog({
   const [loading, setLoading] = React.useState(false);
   const [coursesLoading, setCoursesLoading] = React.useState(false);
   const [coursesError, setCoursesError] = React.useState<string | null>(null);
+
+  // Password change state
+  const [showPasswordFields, setShowPasswordFields] = React.useState(false);
+  const [newPassword, setNewPassword] = React.useState('');
+  const [confirmPassword, setConfirmPassword] = React.useState('');
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [passwordError, setPasswordError] = React.useState<string | null>(null);
 
   // Fetch available courses whenever the dialog opens
   React.useEffect(() => {
@@ -101,19 +108,44 @@ export function EditStudentDialog({
         setSelectedCourses([]);
       }
     }
-  }, [student]);
+
+    // Reset password fields whenever a different student is loaded or dialog reopens
+    setShowPasswordFields(false);
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowPassword(false);
+    setPasswordError(null);
+  }, [student, open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate password fields only if the admin opted to change it
+    if (showPasswordFields) {
+      if (newPassword.length < 6) {
+        setPasswordError('Password must be at least 6 characters long');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setPasswordError('Passwords do not match');
+        return;
+      }
+    }
+    setPasswordError(null);
     setLoading(true);
 
     // Update course-related fields
-    const updatedData = {
+    const updatedData: Partial<Student> = {
       ...formData,
       coursesEnrolled: selectedCourses.length,
       courseID: selectedCourses.map((course) => course.courseID),
       courseName: selectedCourses.map((course) => course.title),
     };
+
+    // Only include the password if the admin actually set a new one
+    if (showPasswordFields && newPassword) {
+      updatedData.password = newPassword;
+    }
 
     onSave(updatedData);
     setLoading(false);
@@ -137,6 +169,19 @@ export function EditStudentDialog({
     setSelectedCourses((prev) =>
       prev.filter((c) => String(c.courseID) !== String(courseId))
     );
+  };
+
+  const toggleShowPasswordFields = () => {
+    setShowPasswordFields((prev) => {
+      const next = !prev;
+      if (!next) {
+        // Collapsing the section clears any partially-entered password
+        setNewPassword('');
+        setConfirmPassword('');
+        setPasswordError(null);
+      }
+      return next;
+    });
   };
 
   return (
@@ -229,6 +274,74 @@ export function EditStudentDialog({
                 />
               </div>
             </div>
+          </div>
+
+          {/* Password Management */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-medium">Password</h3>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={toggleShowPasswordFields}
+              >
+                <KeyRound className="h-4 w-4 mr-2" />
+                {showPasswordFields ? 'Cancel Password Change' : 'Change Password'}
+              </Button>
+            </div>
+
+            {showPasswordFields && (
+              <div className="space-y-4 border rounded-md p-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="newPassword">New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="newPassword"
+                        type={showPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => {
+                          setNewPassword(e.target.value);
+                          setPasswordError(null);
+                        }}
+                        placeholder="Enter new password"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword">Confirm Password</Label>
+                    <Input
+                      id="confirmPassword"
+                      type={showPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        setPasswordError(null);
+                      }}
+                      placeholder="Re-enter new password"
+                    />
+                  </div>
+                </div>
+
+                {passwordError && (
+                  <p className="text-sm text-red-500">{passwordError}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  The new password will be saved when you click &quot;Save Changes&quot; below.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Course Management */}
