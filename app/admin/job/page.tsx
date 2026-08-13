@@ -24,6 +24,7 @@ import {
   where,
 } from "firebase/firestore"
 import {
+  AlertTriangle,
   Briefcase,
   Building,
   Edit,
@@ -73,6 +74,21 @@ const emptyForm = {
   requirements: "",
   applyLink: "",
   deadline: "",
+}
+
+// A job is "expired" once its deadline date has passed, compared at the
+// day level (so a deadline of today still counts as not-yet-expired).
+// Jobs without a deadline are never considered expired.
+const isJobExpired = (deadline: string): boolean => {
+  if (!deadline) return false
+  const deadlineDate = new Date(deadline)
+  if (Number.isNaN(deadlineDate.getTime())) return false
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  deadlineDate.setHours(0, 0, 0, 0)
+
+  return deadlineDate < today
 }
 
 const AdminJobsPage = () => {
@@ -288,12 +304,27 @@ const AdminJobsPage = () => {
     [jobs, searchQuery]
   )
 
+  // Count of currently-open jobs whose deadline has passed — surfaced next
+  // to the page title as a heads-up for the admin.
+  const expiredOpenCount = useMemo(
+    () => jobs.filter((job) => job.status === "Open" && isJobExpired(job.deadline)).length,
+    [jobs]
+  )
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Briefcase className="h-6 w-6 text-primary" /> Jobs Management
-        </h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Briefcase className="h-6 w-6 text-primary" /> Jobs Management
+          </h1>
+          {expiredOpenCount > 0 && (
+            <span className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {expiredOpenCount} expired job{expiredOpenCount !== 1 ? "s" : ""} still open
+            </span>
+          )}
+        </div>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <X className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
           {showForm ? "Cancel" : "Post a Job"}
@@ -390,132 +421,159 @@ const AdminJobsPage = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {filteredJobs.map((job) => (
-                <Card key={job.id} className="p-4">
-                  {editingId === job.id ? (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <Input
-                          value={editForm.title}
-                          onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                          placeholder="Title"
+              {filteredJobs.map((job) => {
+                const expired = isJobExpired(job.deadline)
+
+                return (
+                  <Card
+                    key={job.id}
+                    className={`p-4 ${expired ? "border-red-200 dark:border-red-900/50" : ""}`}
+                  >
+                    {editingId === job.id ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <Input
+                            value={editForm.title}
+                            onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                            placeholder="Title"
+                          />
+                          <Input
+                            value={editForm.company}
+                            onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
+                            placeholder="Company"
+                          />
+                          <Input
+                            value={editForm.location}
+                            onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                            placeholder="Location"
+                          />
+                          <Select
+                            value={editForm.jobType}
+                            onValueChange={(value: JobType) => setEditForm({ ...editForm, jobType: value })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Full-time">Full-time</SelectItem>
+                              <SelectItem value="Part-time">Part-time</SelectItem>
+                              <SelectItem value="Internship">Internship</SelectItem>
+                              <SelectItem value="Contract">Contract</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            type="date"
+                            value={editForm.deadline}
+                            onChange={(e) => setEditForm({ ...editForm, deadline: e.target.value })}
+                          />
+                          <Input
+                            value={editForm.applyLink}
+                            onChange={(e) => setEditForm({ ...editForm, applyLink: e.target.value })}
+                            placeholder="Apply link"
+                          />
+                        </div>
+                        <Textarea
+                          value={editForm.description}
+                          onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                          rows={3}
                         />
-                        <Input
-                          value={editForm.company}
-                          onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
-                          placeholder="Company"
+                        <Textarea
+                          value={editForm.requirements}
+                          onChange={(e) => setEditForm({ ...editForm, requirements: e.target.value })}
+                          rows={2}
+                          placeholder="Requirements"
                         />
-                        <Input
-                          value={editForm.location}
-                          onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
-                          placeholder="Location"
-                        />
-                        <Select
-                          value={editForm.jobType}
-                          onValueChange={(value: JobType) => setEditForm({ ...editForm, jobType: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Full-time">Full-time</SelectItem>
-                            <SelectItem value="Part-time">Part-time</SelectItem>
-                            <SelectItem value="Internship">Internship</SelectItem>
-                            <SelectItem value="Contract">Contract</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          type="date"
-                          value={editForm.deadline}
-                          onChange={(e) => setEditForm({ ...editForm, deadline: e.target.value })}
-                        />
-                        <Input
-                          value={editForm.applyLink}
-                          onChange={(e) => setEditForm({ ...editForm, applyLink: e.target.value })}
-                          placeholder="Apply link"
-                        />
-                      </div>
-                      <Textarea
-                        value={editForm.description}
-                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                        rows={3}
-                      />
-                      <Textarea
-                        value={editForm.requirements}
-                        onChange={(e) => setEditForm({ ...editForm, requirements: e.target.value })}
-                        rows={2}
-                        placeholder="Requirements"
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={cancelEditing}>
-                          <X className="h-4 w-4 mr-1" /> Cancel
-                        </Button>
-                        <Button size="sm" onClick={() => saveEdit(job.id)} disabled={loading}>
-                          <Save className="h-4 w-4 mr-1" /> Save
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="flex items-start justify-between flex-wrap gap-2">
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-semibold text-lg">{job.title}</h3>
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                job.status === "Open"
-                                  ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
-                                  : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                              }`}
-                            >
-                              {job.status}
-                            </span>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                              {job.jobType}
-                            </span>
-                          </div>
-                          <div className="text-sm text-muted-foreground flex items-center gap-3 mt-1 flex-wrap">
-                            <span className="flex items-center gap-1">
-                              <Building className="h-3.5 w-3.5" /> {job.company}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3.5 w-3.5" /> {job.location}
-                            </span>
-                            {job.deadline && <span>Deadline: {job.deadline}</span>}
-                          </div>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={cancelEditing}>
+                            <X className="h-4 w-4 mr-1" /> Cancel
+                          </Button>
+                          <Button size="sm" onClick={() => saveEdit(job.id)} disabled={loading}>
+                            <Save className="h-4 w-4 mr-1" /> Save
+                          </Button>
                         </div>
                       </div>
-                      <p className="text-sm mt-3 whitespace-pre-line">{job.description}</p>
+                    ) : (
+                      <div>
+                        <div className="flex items-start justify-between flex-wrap gap-2">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-lg">{job.title}</h3>
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                  job.status === "Open"
+                                    ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                                    : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                }`}
+                              >
+                                {job.status}
+                              </span>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                                {job.jobType}
+                              </span>
+                              {expired && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleStatus(job)}
+                                  disabled={job.status === "Closed"}
+                                  title={
+                                    job.status === "Open"
+                                      ? "Deadline has passed — click to mark this job as Closed"
+                                      : "This job's deadline has passed"
+                                  }
+                                  className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors disabled:hover:bg-red-100 dark:disabled:hover:bg-red-900/40 disabled:cursor-default"
+                                >
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Expired
+                                </button>
+                              )}
+                            </div>
+                            <div className="text-sm text-muted-foreground flex items-center gap-3 mt-1 flex-wrap">
+                              <span className="flex items-center gap-1">
+                                <Building className="h-3.5 w-3.5" /> {job.company}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3.5 w-3.5" /> {job.location}
+                              </span>
+                              {job.deadline && (
+                                <span className={expired ? "text-red-600 dark:text-red-400 font-medium" : ""}>
+                                  Deadline: {job.deadline}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-sm mt-3 whitespace-pre-line">{job.description}</p>
 
-                      <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openApplicants(job)}
-                        >
-                          <Users className="h-4 w-4 mr-1" /> Applicants ({job.applicantCount ?? 0})
-                        </Button>
-                        <div className="flex gap-2">
-                          <Button variant="outline" size="sm" onClick={() => toggleStatus(job)}>
-                            Mark as {job.status === "Open" ? "Closed" : "Open"}
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => startEditing(job)}>
-                            <Edit className="h-4 w-4 mr-1" /> Edit
-                          </Button>
+                        <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="text-red-600 hover:text-red-600"
-                            onClick={() => handleDeleteJob(job.id)}
+                            onClick={() => openApplicants(job)}
                           >
-                            <Trash2 className="h-4 w-4 mr-1" /> Delete
+                            <Users className="h-4 w-4 mr-1" /> Applicants ({job.applicantCount ?? 0})
                           </Button>
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={() => toggleStatus(job)}>
+                              Mark as {job.status === "Open" ? "Closed" : "Open"}
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => startEditing(job)}>
+                              <Edit className="h-4 w-4 mr-1" /> Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:text-red-600"
+                              onClick={() => handleDeleteJob(job.id)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-1" /> Delete
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </Card>
-              ))}
+                    )}
+                  </Card>
+                )
+              })}
             </div>
           )}
         </CardContent>
