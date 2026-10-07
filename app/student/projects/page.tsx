@@ -150,6 +150,13 @@ export default function StudentProjectsPage() {
           </Alert>
         )}
 
+        {!loading && !needsLogin && courses.length === 0 && (
+          <Alert variant="destructive">
+            <AlertTitle>No course found on your profile</AlertTitle>
+            <AlertDescription>You can only submit a project for a course you are enrolled in. Please contact the administrator to add a course to your account.</AlertDescription>
+          </Alert>
+        )}
+
         {canSubmit && (
           <div ref={formRef}><Card>
             <CardHeader>
