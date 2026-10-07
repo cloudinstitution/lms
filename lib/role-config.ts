@@ -1,16 +1,17 @@
 "use client"
 
 import {
+    Award,
     Bell,
     BookOpen,
     Briefcase,
     Calendar,
     FileText,
+    FolderCheck,
     LayoutDashboard,
     QrCode,
     Settings,
-    Users,
-    Building2
+    Users
 } from "lucide-react"
 import type React from "react"
 
@@ -40,7 +41,8 @@ export const roleConfigs: Record<string, RoleConfig> = {
       { name: "Programming", href: "/admin/programming", icon: FileText },
       { name: "Company Questions", href: "/admin/company-questions", icon: Briefcase },
       { name: "Attendance", href: "/admin/attendance", icon: QrCode },
-      { name: "job", href: "/admin/job", icon: Building2 },
+      { name: "Project Reviews", href: "/admin/projects", icon: FolderCheck },
+      { name: "Certificates", href: "/admin/certificates", icon: Award },
       { name: "Notifications", href: "/admin/notifications", icon: Bell },
       { name: "Settings", href: "/admin/settings", icon: Settings },
     ],
@@ -56,9 +58,9 @@ export const roleConfigs: Record<string, RoleConfig> = {
       { name: "Programming", href: "/admin/programming", icon: FileText },
       { name: "Company Questions", href: "/admin/company-questions", icon: Briefcase },
       { name: "Attendance", href: "/admin/attendance", icon: QrCode },
+      { name: "Project Reviews", href: "/admin/projects", icon: FolderCheck },
       { name: "Notifications", href: "/admin/notifications", icon: Bell },
       { name: "Settings", href: "/admin/settings", icon: Settings },
-   
     ],
   },
 }
