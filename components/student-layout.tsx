@@ -10,8 +10,10 @@ import { collection, DocumentData, onSnapshot, query } from "firebase/firestore"
 import {
   Bell,
   BookOpen,
+  Award,
   Briefcase,
   Code,
+  FolderUp,
   FileText,
   GraduationCap,
   LayoutDashboard,
@@ -21,14 +23,12 @@ import {
   QrCode,
   Sun,
   User,
-  Building2
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type React from "react"
 import { useEffect, useState } from "react"
-import { Icon } from "lucide-react"
 
 interface Notification {
   id: string;
@@ -103,9 +103,9 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
     { name: "Programming", href: "/student/programming", icon: Code },
     { name: "Company Questions", href: "/student/company-questions", icon: Briefcase },
     { name: "Attendance", href: "/student/attendance", icon: QrCode },
-    { name: "Jobs", href: "/student/jobs", icon: Building2 },
-    { name: "Profile", href: "/student/profile", icon: User }
-  
+    { name: "My Projects", href: "/student/projects", icon: FolderUp },
+    { name: "My Certificates", href: "/student/certificates", icon: Award },
+    { name: "Profile", href: "/student/profile", icon: User },
   ]
 
   return (
