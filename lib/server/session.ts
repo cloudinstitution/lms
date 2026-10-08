@@ -102,15 +102,30 @@ function roleFromRoleId(roleId: unknown): "admin" | "teacher" | null {
   return null
 }
 
+function toList(v: unknown): unknown[] {
+  if (Array.isArray(v)) return v
+  return v === undefined || v === null || v === "" ? [] : [v]
+}
+
+/**
+ * Student records in this app store courses as `courseName` (array or single string) and `courseID` (array of numbers,
+ * sometimes missing or misaligned). Build matching name/id lists that tolerate all of those shapes.
+ */
 function toStudentUser(docId: string, d: FirebaseFirestore.DocumentData): StudentUser {
+  const names = toList(d.courseName ?? d.courses).map((n) => String(n).trim()).filter(Boolean)
+  const rawIds = toList(d.courseID ?? d.courseId)
+  const courseIds = names.map((_, i) => {
+    const n = Number(rawIds[i])
+    return Number.isFinite(n) && rawIds[i] !== "" && rawIds[i] != null ? n : i + 1
+  })
   return {
     role: "student",
     docId,
     studentId: String(d.studentId ?? ""),
     name: String(d.name ?? ""),
     email: String(d.username ?? ""),
-    courseIds: Array.isArray(d.courseID) ? d.courseID.map(Number) : [],
-    courseNames: Array.isArray(d.courseName) ? d.courseName.map(String) : [],
+    courseIds,
+    courseNames: names,
   }
 }
 

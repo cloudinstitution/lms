@@ -20,7 +20,7 @@ type Handler<P> = (req: NextRequest, params: P) => Promise<Response>
  * never sent to the client).
  */
 export function withApi<P extends Record<string, string> = Record<string, never>>(handler: Handler<P>) {
-  return async (req: NextRequest, ctx?: { params?: Promise<P> }): Promise<Response> => {
+  return async (req: NextRequest, ctx?: { params?: Promise<any> }): Promise<Response> => {
     try {
       const params = (ctx?.params ? await ctx.params : {}) as P
       return await handler(req, params)

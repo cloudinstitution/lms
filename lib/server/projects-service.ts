@@ -72,6 +72,23 @@ async function addNotification(studentDocId: string, title: string, message: str
 /*  Student side                                                              */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The courses a student may submit a project for: the ones on their record. If their record has none (e.g. the account was
+ * created without a course), fall back to the institute's course list so they are not blocked; the reviewer sees the chosen course.
+ */
+export async function studentCourses(student: StudentUser): Promise<{ id: number; name: string }[]> {
+  if (student.courseNames.length) return student.courseNames.map((name, i) => ({ id: student.courseIds[i], name }))
+  const snap = await getDb().collection("courses").get()
+  const out: { id: number; name: string }[] = []
+  snap.docs.forEach((d, i) => {
+    const c = d.data() as { title?: unknown; name?: unknown; courseID?: unknown }
+    const name = String(c.title ?? c.name ?? "").trim()
+    const n = Number(c.courseID)
+    if (name) out.push({ id: Number.isFinite(n) && c.courseID !== "" && c.courseID != null ? n : i + 1, name })
+  })
+  return out
+}
+
 export interface SubmitInput {
   course_id: unknown
   project_title: unknown
@@ -97,9 +114,9 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
   const description = cleanText(input.project_description, "Project description", 5000)
   const category = cleanText(input.category, "Project category", 80)
   const courseId = Number(input.course_id)
-  const idx = student.courseIds.indexOf(courseId)
-  if (!Number.isInteger(courseId) || idx === -1) throw new ApiError(403, "You are not enrolled in that course")
-  const courseName = student.courseNames[idx] || `Course ${courseId}`
+  const course = (await studentCourses(student)).find((c) => c.id === courseId)
+  if (!Number.isInteger(courseId) || !course) throw new ApiError(403, "You are not enrolled in that course")
+  const courseName = course.name
   const resubmitId = typeof input.project_id === "string" && input.project_id ? input.project_id : null
 
   const files = await verifyUploadedFiles(student.docId, input.files)

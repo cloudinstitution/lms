@@ -472,3 +472,16 @@ test("26. certificate issue date uses the configured time zone", async () => {
   process.env.CERT_TIMEZONE = "UTC"; assert.equal(todayInConfiguredZone(at), "2026-03-09")
   delete process.env.CERT_TIMEZONE
 })
+
+test("27. student with no course on record can pick from the institute course list", async () => {
+  db.seed("students", "docNoCourse", { studentId: "CI2026020", name: "Pooja", username: "pooja@x.com", password: "pw", status: "Active" })
+  db.seed("courses", "c1", { title: "AWS Solutions Architect", courseID: 7 })
+  const c = await login("pooja@x.com", "pw")
+  const list = await json(await call(R.courses, "GET", "/api/student/courses", { cookie: c }))
+  assert.deepEqual(list.body.courses, [{ id: 7, name: "AWS Solutions Architect" }])
+  const s = await submitFlow(c, { course_id: 7 }, "docNoCourse")
+  assert.equal(s.status, 201, JSON.stringify(s.body))
+  assert.equal(s.body.project.course_name, "AWS Solutions Architect")
+  const bad = await submitFlow(c, { course_id: 99 }, "docNoCourse")
+  assert.equal(bad.status, 403)
+})

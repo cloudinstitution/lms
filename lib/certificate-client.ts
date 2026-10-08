@@ -24,7 +24,11 @@ export async function api<T = any>(url: string, init: { method?: string; body?: 
   } catch {
     /* non-JSON */
   }
-  if (!res.ok) throw new ApiFailure(res.status, data?.error || `Request failed (${res.status})`, data?.code)
+  if (!res.ok) throw new ApiFailure(
+      res.status,
+      data?.error || `Request failed (${res.status}) — ${init.method ?? "GET"} ${url.split("?")[0]}${res.status === 404 ? " was not found on the server (is the latest code deployed?)" : ""}`,
+      data?.code,
+    )
   return data as T
 }
 
