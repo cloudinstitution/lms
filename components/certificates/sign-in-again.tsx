@@ -3,24 +3,21 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { lastResumeError } from "@/lib/server-session-client"
-import { clearSession } from "@/lib/session-storage"
 
-/** Shown when the server has no secure session for this browser (e.g. logged in before the feature was deployed). */
+/**
+ * Shown only when the server cannot start its session from the LMS login. There is no second login: the user stays signed in
+ * to the LMS, and this just reports what went wrong with a retry button.
+ */
 export function SignInAgain() {
   return (
     <Alert variant="destructive">
-      <AlertTitle>Please sign in again</AlertTitle>
+      <AlertTitle>Couldn't connect to the server</AlertTitle>
       <AlertDescription className="space-y-3">
-        <p>Your secure session for Projects &amp; Certificates has not started or has expired. Sign out and log in once more to continue.{lastResumeError ? ` (${lastResumeError})` : ""}</p>
-        <Button
-          size="sm"
-          onClick={() => {
-            clearSession()
-            window.location.href = "/login"
-          }}
-        >
-          Log out &amp; sign in again
-        </Button>
+        <p>
+          Projects &amp; Certificates could not verify your LMS login{lastResumeError ? ` (${lastResumeError})` : ""}. This is a server
+          configuration issue, not a password problem — please tell the administrator.
+        </p>
+        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>Try again</Button>
       </AlertDescription>
     </Alert>
   )
