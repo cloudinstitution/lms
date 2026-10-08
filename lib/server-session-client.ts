@@ -45,6 +45,7 @@ export function endServerSession(): void {
   }
 }
 
+export let lastResumeError = ""
 let resuming: Promise<boolean> | null = null
 
 /** Silently start the server session from the existing LMS login (no password prompt). */
@@ -56,15 +57,24 @@ export function resumeServerSession(): Promise<boolean> {
       const admin = getAdminSession()
       const student = getStudentSession()
       const payload = admin?.id ? { kind: "staff", id: admin.id } : student?.id ? { kind: "student", id: student.id } : null
-      if (!payload) return false
+      lastResumeError = ""
+      if (!payload) {
+        lastResumeError = "no LMS login found in this browser"
+        return false
+      }
       const res = await fetch("/api/session/resume", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        lastResumeError = `${res.status}${body?.error ? ": " + body.error : ""}`
+      }
       return res.ok
     } catch {
+      lastResumeError = "network error"
       return false
     } finally {
       setTimeout(() => (resuming = null), 1000)

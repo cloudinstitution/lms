@@ -1,5 +1,6 @@
 "use client"
 
+import { AdminTasks } from "@/components/certificates/admin-tasks"
 import { SignInAgain } from "@/components/certificates/sign-in-again"
 import { StatusBadge, fmtDate } from "@/components/certificates/status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -33,6 +34,8 @@ export default function AdminProjectsPage() {
   const [open, setOpen] = useState<any>(null)
   const [remarks, setRemarks] = useState("")
   const [busy, setBusy] = useState(false)
+  const [view, setView] = useState<"reviews" | "assign">("reviews")
+  const markNeedsLogin = useCallback(() => setNeedsLogin(true), [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -85,10 +88,17 @@ export default function AdminProjectsPage() {
   return (
     <div className="space-y-6 p-4 md:p-8">
       <div>
-        <h1 className="text-2xl font-bold">Project Reviews</h1>
-        <p className="text-muted-foreground">Review student project submissions. Accepting a project issues the student's certificate automatically.</p>
+        <h1 className="text-2xl font-bold">Projects</h1>
+        <p className="text-muted-foreground">Assign projects to each course, then review what students submit. Accepting a project issues the student's certificate automatically.</p>
       </div>
       {needsLogin && <SignInAgain />}
+
+      <div className="flex gap-2">
+        <Button variant={view === "reviews" ? "default" : "outline"} onClick={() => setView("reviews")}>Submissions</Button>
+        <Button variant={view === "assign" ? "default" : "outline"} onClick={() => setView("assign")}>Assign projects</Button>
+      </div>
+
+      {view === "assign" ? <AdminTasks onNeedsLogin={markNeedsLogin} /> : <>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {TILES.map((t) => (
@@ -131,6 +141,8 @@ export default function AdminProjectsPage() {
           </table>
         </CardContent>
       </Card>
+
+      </>}
 
       <Dialog open={Boolean(open)} onOpenChange={(v) => !v && setOpen(null)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">

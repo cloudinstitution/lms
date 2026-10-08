@@ -18,8 +18,30 @@ export interface ProjectFile {
   path: string // storage path — never sent to clients
 }
 
+/** Firestore document: project_tasks/{autoId} — a project the admin assigns to a course. */
+export interface ProjectTaskDoc {
+  course_id: number
+  course_name: string
+  title: string
+  description: string
+  category: string
+  due_date: string | null // YYYY-MM-DD
+  resource_url: string | null // optional link to a brief / starter material
+  active: boolean
+  created_by_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProjectTaskView extends ProjectTaskDoc {
+  id: string
+  submissions?: number
+  my_status?: ProjectStatus | null
+}
+
 /** Firestore document: projects/{autoId} */
 export interface ProjectDoc {
+  task_id?: string | null
   student_doc_id: string
   student_id: string // e.g. CI2026001
   student_name: string
@@ -65,6 +87,7 @@ export interface CertificateDoc {
 
 export interface ProjectView {
   id: string
+  task_id?: string | null
   student_doc_id: string
   student_id: string
   student_name: string

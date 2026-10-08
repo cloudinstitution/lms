@@ -15,6 +15,7 @@ export const POST = withApi(async (req) => {
   rateLimit(req, "submit", 20)
   const student = await requireStudent(req)
   const body = await readJson<{
+    task_id?: unknown
     course_id?: unknown
     project_title?: unknown
     project_description?: unknown
@@ -24,6 +25,7 @@ export const POST = withApi(async (req) => {
   }>(req)
 
   const project = await submitProject(student, {
+    task_id: body.task_id,
     course_id: body.course_id,
     project_title: body.project_title,
     project_description: body.project_description,

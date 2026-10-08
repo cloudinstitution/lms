@@ -17,6 +17,8 @@ import type {
   CertificateView,
   ProjectDoc,
   ProjectStatus,
+  ProjectTaskDoc,
+  ProjectTaskView,
   ProjectView,
 } from "./types"
 
@@ -33,6 +35,7 @@ export function toProjectView(
   const linked = cert && cert.project_id === id ? cert : null
   return {
     id,
+    task_id: p.task_id ?? null,
     student_doc_id: p.student_doc_id,
     student_id: p.student_id,
     student_name: p.student_name,
@@ -89,11 +92,135 @@ export async function studentCourses(student: StudentUser): Promise<{ id: number
   return out
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Assigned projects (created by admin / teacher, per course)                */
+/* -------------------------------------------------------------------------- */
+
+const norm = (s: string) => s.trim().toLowerCase()
+
+/** A task belongs to a student's course when the ids or the names match. */
+export function matchesTaskCourse(c: { id: number; name: string }, t: { course_id: number; course_name: string }): boolean {
+  return c.id === t.course_id || norm(c.name) === norm(t.course_name)
+}
+
+export interface TaskInput {
+  course_id?: unknown
+  course_name?: unknown
+  title?: unknown
+  description?: unknown
+  category?: unknown
+  due_date?: unknown
+  resource_url?: unknown
+  active?: unknown
+}
+
+function parseTask(input: TaskInput): Omit<ProjectTaskDoc, "created_by_name" | "created_at" | "updated_at"> {
+  const title = cleanText(input.title, "Project title", 200)
+  const description = cleanText(input.description, "Project details", 5000)
+  const course_name = cleanText(input.course_name, "Course", 200)
+  const n = Number(input.course_id)
+  const course_id = Number.isFinite(n) && input.course_id !== "" && input.course_id != null ? n : 0
+  const category = typeof input.category === "string" && input.category.trim() ? input.category.trim().slice(0, 80) : "General"
+  let due_date: string | null = null
+  if (typeof input.due_date === "string" && input.due_date.trim()) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.due_date.trim())) throw new ApiError(400, "Due date must be YYYY-MM-DD")
+    due_date = input.due_date.trim()
+  }
+  let resource_url: string | null = null
+  if (typeof input.resource_url === "string" && input.resource_url.trim()) {
+    const u = input.resource_url.trim()
+    if (!/^https?:\/\//i.test(u) || u.length > 500) throw new ApiError(400, "Link must start with http:// or https://")
+    resource_url = u
+  }
+  return { course_id, course_name, title, description, category, due_date, resource_url, active: input.active === false ? false : true }
+}
+
+export async function createTask(staff: StaffUser, input: TaskInput): Promise<ProjectTaskView> {
+  const now = iso()
+  const doc: ProjectTaskDoc = { ...parseTask(input), created_by_name: staff.name, created_at: now, updated_at: now }
+  const ref = await getDb().collection(COLLECTIONS.tasks).add(doc)
+  return { id: ref.id, ...doc }
+}
+
+export async function updateTask(id: string, input: TaskInput): Promise<ProjectTaskView> {
+  const ref = getDb().collection(COLLECTIONS.tasks).doc(id)
+  const snap = await ref.get()
+  if (!snap.exists) throw new ApiError(404, "Project not found")
+  const prev = snap.data() as ProjectTaskDoc
+  const next = { ...prev, ...parseTask({ ...prev, ...input }), updated_at: iso() }
+  await ref.set(next)
+  return { id, ...next }
+}
+
+/** Deleting a project that students already submitted for only hides it, so their history stays intact. */
+export async function deleteTask(id: string): Promise<{ deleted: boolean; hidden: boolean }> {
+  const db = getDb()
+  const ref = db.collection(COLLECTIONS.tasks).doc(id)
+  const snap = await ref.get()
+  if (!snap.exists) throw new ApiError(404, "Project not found")
+  const used = await db.collection(COLLECTIONS.projects).where("task_id", "==", id).get()
+  if (!used.empty) {
+    await ref.update({ active: false, updated_at: iso() })
+    return { deleted: false, hidden: true }
+  }
+  await ref.delete()
+  return { deleted: true, hidden: false }
+}
+
+export async function adminListTasks(): Promise<ProjectTaskView[]> {
+  const db = getDb()
+  const [tasks, projects] = await Promise.all([db.collection(COLLECTIONS.tasks).get(), db.collection(COLLECTIONS.projects).get()])
+  const counts = new Map<string, number>()
+  projects.docs.forEach((d) => {
+    const t = (d.data() as ProjectDoc).task_id
+    if (t) counts.set(t, (counts.get(t) ?? 0) + 1)
+  })
+  return tasks.docs
+    .map((d) => ({ id: d.id, ...(d.data() as ProjectTaskDoc), submissions: counts.get(d.id) ?? 0 }))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
+/** Courses the admin can assign a project to: the institute's `courses` collection. */
+export async function listAllCourses(): Promise<{ id: number; name: string }[]> {
+  const snap = await getDb().collection("courses").get()
+  const out: { id: number; name: string }[] = []
+  snap.docs.forEach((d, i) => {
+    const c = d.data() as { title?: unknown; name?: unknown; courseID?: unknown }
+    const name = String(c.title ?? c.name ?? "").trim()
+    const n = Number(c.courseID)
+    if (name) out.push({ id: Number.isFinite(n) && c.courseID !== "" && c.courseID != null ? n : i + 1, name })
+  })
+  return out
+}
+
+/** Active projects assigned to the student's courses, with the student's own submission status for each. */
+export async function listStudentTasks(student: StudentUser): Promise<ProjectTaskView[]> {
+  const db = getDb()
+  const [courses, tasks, mine] = await Promise.all([
+    studentCourses(student),
+    db.collection(COLLECTIONS.tasks).get(),
+    db.collection(COLLECTIONS.projects).where("student_doc_id", "==", student.docId).get(),
+  ])
+  const latest = new Map<string, ProjectDoc>()
+  mine.docs.forEach((d) => {
+    const p = d.data() as ProjectDoc
+    if (!p.task_id) return
+    const cur = latest.get(p.task_id)
+    if (!cur || p.submission_date > cur.submission_date) latest.set(p.task_id, p)
+  })
+  return tasks.docs
+    .map((d) => ({ id: d.id, ...(d.data() as ProjectTaskDoc) }))
+    .filter((t) => t.active !== false && courses.some((c) => matchesTaskCourse(c, t)))
+    .map((t) => ({ ...t, my_status: latest.get(t.id)?.status ?? null }))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
 export interface SubmitInput {
-  course_id: unknown
-  project_title: unknown
-  project_description: unknown
-  category: unknown
+  task_id?: unknown
+  course_id?: unknown
+  project_title?: unknown
+  project_description?: unknown
+  category?: unknown
   project_id?: unknown
   files: SubmittedFile[]
 }
@@ -110,18 +237,32 @@ function cleanText(value: unknown, label: string, max: number): string {
  * The student's identity, status and dates are all decided here — never taken from the request body.
  */
 export async function submitProject(student: StudentUser, input: SubmitInput): Promise<ProjectView> {
-  const title = cleanText(input.project_title, "Project title", 200)
-  const description = cleanText(input.project_description, "Project description", 5000)
-  const category = cleanText(input.category, "Project category", 80)
-  const courseId = Number(input.course_id)
-  const course = (await studentCourses(student)).find((c) => c.id === courseId)
-  if (!Number.isInteger(courseId) || !course) throw new ApiError(403, "You are not enrolled in that course")
-  const courseName = course.name
+  const db = getDb()
   const resubmitId = typeof input.project_id === "string" && input.project_id ? input.project_id : null
+  let taskId = typeof input.task_id === "string" && input.task_id ? input.task_id : null
+  if (!taskId && resubmitId) {
+    const prev = await db.collection(COLLECTIONS.projects).doc(resubmitId).get()
+    const pd = prev.exists ? (prev.data() as ProjectDoc) : null
+    if (pd && pd.student_doc_id === student.docId) taskId = pd.task_id ?? null
+  }
+  if (!taskId) throw new ApiError(400, "Please choose the project you are submitting")
+  const taskSnap = await db.collection(COLLECTIONS.tasks).doc(taskId).get()
+  if (!taskSnap.exists || (taskSnap.data() as ProjectTaskDoc).active === false) throw new ApiError(404, "That project is no longer available")
+  const task = taskSnap.data() as ProjectTaskDoc
+  const course = (await studentCourses(student)).find((c) => matchesTaskCourse(c, task))
+  if (!course) throw new ApiError(403, "This project is not assigned to your course")
+
+  // The title, category and course come from the admin's assignment, not from the student.
+  const title = task.title
+  const category = task.category || "General"
+  const courseId = course.id
+  const courseName = course.name
+  const rawNotes = typeof input.project_description === "string" ? input.project_description.trim() : ""
+  if (rawNotes.length > 5000) throw new ApiError(400, "Notes are too long (max 5000 characters)")
+  const description = rawNotes || "Submitted for the assigned project."
 
   const files = await verifyUploadedFiles(student.docId, input.files)
 
-  const db = getDb()
   const certRef = db.collection(COLLECTIONS.certificates).doc(certKey(student.studentId))
   const mineQuery = db.collection(COLLECTIONS.projects).where("student_doc_id", "==", student.docId)
   const now = iso()
@@ -129,6 +270,7 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
   let oldPaths: string[] = []
 
   const doc: ProjectDoc = {
+    task_id: taskId,
     student_doc_id: student.docId,
     student_id: student.studentId,
     student_name: student.name,
@@ -167,9 +309,10 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
       if (!RESUBMITTABLE.includes(existing.status)) {
         throw new ApiError(409, `A project in status "${existing.status}" cannot be resubmitted`)
       }
-      if (existing.course_id !== courseId) throw new ApiError(400, "The course cannot be changed when resubmitting")
+      if (existing.task_id && existing.task_id !== taskId) throw new ApiError(400, "The project cannot be changed when resubmitting")
       oldPaths = existing.files.map((f) => f.path)
       tx.update(target.ref, {
+        task_id: taskId,
         project_title: title,
         project_description: description,
         category,

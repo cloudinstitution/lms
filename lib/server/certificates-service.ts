@@ -11,6 +11,7 @@ export const COLLECTIONS = {
   certificates: "certificates",
   tokens: "certificate_tokens",
   notifications: "student_notifications",
+  tasks: "project_tasks",
 } as const
 
 /**

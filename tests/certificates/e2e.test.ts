@@ -50,6 +50,8 @@ beforeEach(() => {
   db.seed("students", "docJohn", { studentId: "CI2026001", name: "John Doe", username: "john@x.com", password: "pw-john", courseID: [1, 2], courseName: ["AWS Cloud Practitioner", "DevOps"], status: "Active" })
   db.seed("students", "docPriya", { studentId: "CI2026002", name: "Priya Nair", username: "priya@x.com", password: "pw-priya", courseID: [1], courseName: ["AWS Cloud Practitioner"], status: "Active" })
   db.seed("students", "docGone", { studentId: "CI2026003", name: "Inactive Ian", username: "ian@x.com", password: "pw-ian", courseID: [1], courseName: ["AWS Cloud Practitioner"], status: "Inactive" })
+  db.seed("project_tasks", "t1", { course_id: 1, course_name: "AWS Cloud Practitioner", title: "Serverless Image Pipeline", description: "Build it", category: "Cloud", due_date: null, resource_url: null, active: true, created_by_name: "Asha Admin", created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" })
+  db.seed("project_tasks", "t2", { course_id: 2, course_name: "DevOps", title: "CI/CD Pipeline", description: "Build it", category: "DevOps", due_date: null, resource_url: null, active: true, created_by_name: "Asha Admin", created_at: "2026-01-02T00:00:00.000Z", updated_at: "2026-01-02T00:00:00.000Z" })
   db.seed("admin", "docAdmin", { name: "Asha Admin", username: "admin@x.com", password: "pw-admin", roleId: 1 })
   db.seed("admin", "docTeacher", { name: "Tom Teacher", username: "teacher@x.com", password: "pw-teacher", roleId: 2 })
   // reset rate limiter state by varying IP per test
@@ -92,7 +94,7 @@ async function submitFlow(cookie: string, over: Record<string, unknown> = {}, st
   const res = await json(await call(R.submit, "POST", "/api/projects/submit", {
     cookie,
     body: {
-      course_id: 1, project_title: "Serverless Image Pipeline", project_description: "Lambda + S3 pipeline", category: "Cloud",
+      task_id: "t1", project_description: "Lambda + S3 pipeline",
       files: up.body.slots.map((s: any) => ({ path: s.path, kind: s.kind })), ...over,
     },
   }))
@@ -143,6 +145,35 @@ test("session resume: already-logged-in LMS user gets a session without a passwo
   assert.equal(a.status, 200)
 })
 
+test("assigned projects: admin creates per course, students see only their course, validation, delete hides when used", async () => {
+  const T = { tasks: await import("../../app/api/admin/project-tasks/route"), task: await import("../../app/api/admin/project-tasks/[id]/route"), mine: await import("../../app/api/student/project-tasks/route") }
+  db.seed("courses", "c1", { title: "Data Science", courseID: 5 })
+  const a = await admin(), j = await john(), p = await priya()
+  const body = { course_id: 5, course_name: "Data Science", title: "Churn Model", description: "Predict churn", category: "ML", due_date: "2026-12-31", resource_url: "https://example.com/brief" }
+  assert.equal((await call(T.tasks, "POST", "/api/admin/project-tasks", { cookie: j, body })).status, 403) // students cannot assign
+  assert.equal((await call(T.tasks, "POST", "/api/admin/project-tasks", { cookie: a, body: { ...body, title: " " } })).status, 400)
+  assert.equal((await call(T.tasks, "POST", "/api/admin/project-tasks", { cookie: a, body: { ...body, resource_url: "javascript:alert(1)" } })).status, 400)
+  const made = await json(await call(T.tasks, "POST", "/api/admin/project-tasks", { cookie: a, body }))
+  assert.equal(made.status, 201)
+  const adminList = await json(await call(T.tasks, "GET", "/api/admin/project-tasks", { cookie: a }))
+  assert.ok(adminList.body.tasks.length >= 3); assert.ok(adminList.body.courses.some((c: any) => c.name === "Data Science"))
+  const mineJ = await json(await call(T.mine, "GET", "/api/student/project-tasks", { cookie: j }))
+  assert.deepEqual(mineJ.body.tasks.map((t: any) => t.id).sort(), ["t1", "t2"]) // John: AWS + DevOps, not Data Science
+  const mineP = await json(await call(T.mine, "GET", "/api/student/project-tasks", { cookie: p }))
+  assert.deepEqual(mineP.body.tasks.map((t: any) => t.id), ["t1"])
+  // submitting a task of another course is refused; a missing task id too
+  assert.equal((await submitFlow(p, { task_id: "t2" }, "docPriya")).status, 403)
+  assert.equal((await submitFlow(p, { task_id: undefined }, "docPriya")).status, 400)
+  // hidden tasks disappear for students; deleting a task with submissions only hides it
+  const id = made.body.task.id
+  await call(T.task, "PUT", `/api/admin/project-tasks/${id}`, { cookie: a, body: { active: false } }, { id })
+  assert.equal((await json(await call(T.task, "PUT", `/api/admin/project-tasks/${id}`, { cookie: a, body: { active: true } }, { id }))).body.task.active, true)
+  assert.equal((await submitFlow(j, {}, "docJohn")).status, 201)
+  const del = await json(await call(T.task, "DELETE", "/api/admin/project-tasks/t1", { cookie: a }, { id: "t1" }))
+  assert.equal(del.body.hidden, true)
+  assert.equal((await json(await call(T.task, "DELETE", `/api/admin/project-tasks/${id}`, { cookie: a }, { id }))).body.deleted, true)
+})
+
 test("csrf: cross-origin state change is blocked", async () => {
   const c = await john()
   const r = await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: c, origin: "https://evil.example", body: { files: [] } })
@@ -162,6 +193,7 @@ test("1. upload valid project → status Submitted, stored with files", async ()
 })
 
 test("1b. upload validation: type, size, missing file, not-uploaded, foreign path, not enrolled", async () => {
+  db.seed("project_tasks", "t9", { course_id: 9, course_name: "Other Course", title: "X", description: "d", category: "Other", due_date: null, resource_url: null, active: true, created_by_name: "A", created_at: "2026-01-03T00:00:00.000Z", updated_at: "2026-01-03T00:00:00.000Z" })
   const c = await john()
   const bad = async (files: any[]) => (await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: c, body: { files } })).status
   assert.equal(await bad([{ name: "evil.exe", size: 10, kind: "project" }]), 400)
@@ -170,7 +202,7 @@ test("1b. upload validation: type, size, missing file, not-uploaded, foreign pat
   // submit without uploading
   const up = await json(await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: c, body: { files: [{ name: "a.pdf", size: 10, kind: "project" }] } }))
   const slot = up.body.slots[0]
-  const base = { course_id: 1, project_title: "T", project_description: "D", category: "C" }
+  const base = { task_id: "t1", project_description: "D" }
   assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, files: [{ path: slot.path, kind: "project" }] } })).status, 400) // never PUT
   bucket.put(slot.path, 10)
   // foreign student's path
@@ -178,10 +210,11 @@ test("1b. upload validation: type, size, missing file, not-uploaded, foreign pat
   assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, files: [{ path: foreign, kind: "project" }] } })).status, 400)
   // path traversal
   assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, files: [{ path: "project-submissions/docJohn/../docPriya/x/a.pdf", kind: "project" }] } })).status, 400)
-  // missing title
-  assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, project_title: " ", files: [{ path: slot.path, kind: "project" }] } })).status, 400)
+  // missing / unknown project
+  assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, task_id: undefined, files: [{ path: slot.path, kind: "project" }] } })).status, 400)
+  assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, task_id: "nope", files: [{ path: slot.path, kind: "project" }] } })).status, 404)
   // not enrolled in course 9
-  assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, course_id: 9, files: [{ path: slot.path, kind: "project" }] } })).status, 403)
+  assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, task_id: "t9", files: [{ path: slot.path, kind: "project" }] } })).status, 403)
   // only supporting files
   assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { ...base, files: [{ path: slot.path, kind: "supporting" }] } })).status, 400)
   // happy path afterwards
@@ -243,13 +276,13 @@ test("6. request resubmission → student resubmits same project → Submitted a
   assert.equal((await call(R.resubmit, "PUT", `/api/admin/projects/${id}/resubmit`, { cookie: a, body: {} }, { id })).status, 400)
   const r = await json(await call(R.resubmit, "PUT", `/api/admin/projects/${id}/resubmit`, { cookie: a, body: { remarks: "Add README" } }, { id }))
   assert.equal(r.body.project.status, "Resubmission Required")
-  const again = await submitFlow(c, { project_id: id, project_title: "Serverless Image Pipeline v2" })
+  const again = await submitFlow(c, { project_id: id, project_description: "Added README" })
   assert.equal(again.status, 201, JSON.stringify(again.body))
   assert.equal(again.body.project.id, id)
   assert.equal(again.body.project.status, "Submitted")
   assert.equal(db.all("projects").length, 1)
   assert.equal((await acceptIt(a, id)).status, 200)
-  assert.equal(db.get("certificates", "cert_CI2026001")!.project_title, "Serverless Image Pipeline v2")
+  assert.equal(db.get("certificates", "cert_CI2026001")!.project_title, "Serverless Image Pipeline")
   // cannot resubmit an accepted project
   assert.equal((await submitFlow(c, { project_id: id })).status, 409)
 })
@@ -451,7 +484,7 @@ test("24. admin list: counts, search and filters on certificates", async () => {
   const z = await login("z@x.com", "pw")
   const s = await json(await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: z, body: { files: [{ name: "a.pdf", size: 5, kind: "project" }] } }))
   bucket.put(s.body.slots[0].path, 5)
-  const sub = await json(await call(R.submit, "POST", "/api/projects/submit", { cookie: z, body: { course_id: 2, project_title: "CI/CD Pipeline", project_description: "d", category: "DevOps", files: [{ path: s.body.slots[0].path, kind: "project" }] } }))
+  const sub = await json(await call(R.submit, "POST", "/api/projects/submit", { cookie: z, body: { task_id: "t2", project_description: "d", files: [{ path: s.body.slots[0].path, kind: "project" }] } }))
   await acceptIt(a, sub.body.project.id)
   const list = async (q: string) => (await json(await call(R.aCerts, "GET", `/api/admin/certificates${q}`, { cookie: a }))).body.certificates
   assert.equal((await list("")).length, 2)
@@ -492,9 +525,10 @@ test("27. student with no course on record can pick from the institute course li
   const c = await login("pooja@x.com", "pw")
   const list = await json(await call(R.courses, "GET", "/api/student/courses", { cookie: c }))
   assert.deepEqual(list.body.courses, [{ id: 7, name: "AWS Solutions Architect" }])
-  const s = await submitFlow(c, { course_id: 7 }, "docNoCourse")
+  db.seed("project_tasks", "t7", { course_id: 7, course_name: "AWS Solutions Architect", title: "SA Project", description: "d", category: "Cloud", due_date: null, resource_url: null, active: true, created_by_name: "A", created_at: "2026-01-04T00:00:00.000Z", updated_at: "2026-01-04T00:00:00.000Z" })
+  const s = await submitFlow(c, { task_id: "t7" }, "docNoCourse")
   assert.equal(s.status, 201, JSON.stringify(s.body))
   assert.equal(s.body.project.course_name, "AWS Solutions Architect")
-  const bad = await submitFlow(c, { course_id: 99 }, "docNoCourse")
+  const bad = await submitFlow(c, { task_id: "t1" }, "docNoCourse")
   assert.equal(bad.status, 403)
 })

@@ -59,3 +59,9 @@ The LMS login is client-side, so Projects & Certificates start their own signed 
 returns 401 and the browser has an LMS login, `POST /api/session/resume` re-reads that user from Firestore and issues the
 cookie. Nobody has to log in again. If `SESSION_SECRET` is not set, the signing key is derived from `FIREBASE_PRIVATE_KEY`.
 To require a fresh password login instead, set `LMS_REQUIRE_SERVER_SESSION=true`.
+
+## Assigned projects (per course)
+Admin / teacher: **Projects → Assign projects** creates a project for a course (title, what to build, category, optional due date
+and brief link; collection `project_tasks`). Students pick their course on **My Projects**, choose one of the projects assigned to
+it, upload their work and submit. The title/category/course always come from the assignment. Admin accepts under **Submissions**,
+which issues the certificate the student can then download. Deleting an assignment that already has submissions only hides it.

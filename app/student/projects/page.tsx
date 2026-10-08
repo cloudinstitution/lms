@@ -15,11 +15,23 @@ import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
-const CATEGORIES = ["Cloud Infrastructure", "DevOps / CI-CD", "Web Application", "Data & Analytics", "Machine Learning / AI", "Security", "Networking", "Other"]
 const ACCEPT = ".pdf,.zip,.rar,.7z,.gz,.tar,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg,.ipynb,.py,.js,.ts,.java,.json"
+
+interface Task {
+  id: string
+  course_id: number
+  course_name: string
+  title: string
+  description: string
+  category: string
+  due_date: string | null
+  resource_url: string | null
+  my_status: string | null
+}
 
 interface Project {
   id: string
+  task_id?: string | null
   course_id: number
   course_name: string
   project_title: string
@@ -43,19 +55,20 @@ export default function StudentProjectsPage() {
   const [busy, setBusy] = useState(false)
   const [resubmitId, setResubmitId] = useState<string | null>(null)
 
+  const [tasks, setTasks] = useState<Task[]>([])
   const [courseId, setCourseId] = useState("")
-  const [title, setTitle] = useState("")
+  const [taskId, setTaskId] = useState("")
   const [description, setDescription] = useState("")
-  const [category, setCategory] = useState(CATEGORIES[0])
   const [projectFiles, setProjectFiles] = useState<File[]>([])
   const [supportFiles, setSupportFiles] = useState<File[]>([])
   const formRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
     try {
-      const [c, p] = await Promise.all([api("/api/student/courses"), api("/api/student/projects")])
+      const [c, p, t] = await Promise.all([api("/api/student/courses"), api("/api/student/projects"), api("/api/student/project-tasks")])
       setCourses(c.courses)
       setProjects(p.projects)
+      setTasks(t.tasks)
       setCourseId((cur) => cur || String(c.courses[0]?.id ?? ""))
       setNeedsLogin(false)
     } catch (e) {
@@ -71,13 +84,15 @@ export default function StudentProjectsPage() {
   const accepted = projects.find((p) => p.status === "Accepted")
   const resubmitting = projects.find((p) => p.id === resubmitId) || null
   const canSubmit = !active && !accepted
+  const selectedCourse = courses.find((c) => String(c.id) === courseId)
+  const courseTasks = tasks.filter((t) => !selectedCourse || String(t.course_id) === courseId || t.course_name.trim().toLowerCase() === selectedCourse.name.trim().toLowerCase())
+  const chosen = tasks.find((t) => t.id === taskId) || null
 
   function startResubmit(p: Project) {
     setResubmitId(p.id)
     setCourseId(String(p.course_id))
-    setTitle(p.project_title)
+    setTaskId(p.task_id ?? "")
     setDescription(p.project_description)
-    setCategory(p.category)
     setProjectFiles([])
     setSupportFiles([])
     formRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -85,8 +100,8 @@ export default function StudentProjectsPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!title.trim() || !description.trim()) return toast.error("Title and description are required")
     if (!courseId) return toast.error("Please select a course")
+    if (!taskId) return toast.error("Please choose the project you are submitting")
     if (projectFiles.length === 0) return toast.error("Please attach your project file")
     setBusy(true)
     try {
@@ -106,16 +121,15 @@ export default function StudentProjectsPage() {
       await api("/api/projects/submit", {
         method: "POST",
         body: {
+          task_id: taskId,
           course_id: Number(courseId),
-          project_title: title,
           project_description: description,
-          category,
           project_id: resubmitId ?? undefined,
           files: slots.map((s: any) => ({ path: s.path, kind: s.kind })),
         },
       })
       toast.success(resubmitId ? "Project resubmitted for review" : "Project submitted for review")
-      setTitle(""); setDescription(""); setProjectFiles([]); setSupportFiles([]); setResubmitId(null)
+      setTaskId(""); setDescription(""); setProjectFiles([]); setSupportFiles([]); setResubmitId(null)
       await load()
     } catch (err) {
       if (err instanceof ApiFailure && err.needsLogin) setNeedsLogin(true)
@@ -158,33 +172,48 @@ export default function StudentProjectsPage() {
             <CardHeader>
               <CardTitle>{resubmitting ? "Resubmit Project" : "Submit a Project"}</CardTitle>
               <CardDescription>
-                {resubmitting ? `Update “${resubmitting.project_title}” based on the reviewer's remarks, then upload your files again.` : "Fill in the details and upload your project files."}
+                {resubmitting ? `Update “${resubmitting.project_title}” based on the reviewer's remarks, then upload your files again.` : "Pick your course, choose the project assigned to it, and upload your work."}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={submit} className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="course">Course</Label>
+                  <select id="course" value={courseId} onChange={(e) => { setCourseId(e.target.value); setTaskId("") }} disabled={Boolean(resubmitId)}
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm">
+                    {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Choose your project</Label>
+                  {courseTasks.length === 0 && (
+                    <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">No project has been assigned for this course yet. Please check back later.</p>
+                  )}
                   <div className="space-y-2">
-                    <Label htmlFor="course">Course</Label>
-                    <select id="course" value={courseId} onChange={(e) => setCourseId(e.target.value)} disabled={Boolean(resubmitId)}
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm">
-                      {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="category">Category</Label>
-                    <select id="category" value={category} onChange={(e) => setCategory(e.target.value)} className="h-10 w-full rounded-md border bg-background px-3 text-sm">
-                      {[...new Set([category, ...CATEGORIES])].map((c) => <option key={c}>{c}</option>)}
-                    </select>
+                    {courseTasks.map((t) => {
+                      const locked = Boolean(resubmitId) && t.id !== taskId
+                      return (
+                        <label key={t.id} className={`block cursor-pointer rounded-md border p-3 text-sm ${taskId === t.id ? "border-primary ring-1 ring-primary" : ""} ${locked ? "opacity-50" : ""}`}>
+                          <div className="flex items-start gap-3">
+                            <input type="radio" name="task" className="mt-1" checked={taskId === t.id} disabled={locked} onChange={() => setTaskId(t.id)} />
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold">{t.title}</span>
+                                <span className="text-xs text-muted-foreground">{t.category}{t.due_date ? ` · due ${fmtDate(t.due_date)}` : ""}</span>
+                                {t.my_status && <StatusBadge status={t.my_status} />}
+                              </div>
+                              <p className="whitespace-pre-wrap text-muted-foreground">{t.description}</p>
+                              {t.resource_url && <a href={t.resource_url} target="_blank" rel="noreferrer" className="text-xs font-medium underline">Open project brief</a>}
+                            </div>
+                          </div>
+                        </label>
+                      )
+                    })}
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="title">Project title</Label>
-                  <Input id="title" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Serverless Image Processing Pipeline" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="desc">Description</Label>
-                  <Textarea id="desc" rows={5} value={description} maxLength={5000} onChange={(e) => setDescription(e.target.value)} placeholder="What did you build, which services/tools did you use, and what does it do?" />
+                  <Label htmlFor="desc">Notes for the reviewer (optional)</Label>
+                  <Textarea id="desc" rows={4} value={description} maxLength={5000} onChange={(e) => setDescription(e.target.value)} placeholder="What did you build, which tools did you use, anything the reviewer should know?" />
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
@@ -199,7 +228,7 @@ export default function StudentProjectsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button type="submit" disabled={busy || needsLogin}>
+                  <Button type="submit" disabled={busy || needsLogin || !chosen}>
                     {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
                     {busy ? "Uploading…" : resubmitting ? "Resubmit for review" : "Submit for review"}
                   </Button>
