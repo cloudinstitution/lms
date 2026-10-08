@@ -3,6 +3,7 @@ import QRCode from "qrcode"
 import { certificateConfig } from "./certificate-config"
 import { formatIssueDate, verifyUrlFor } from "./certificates-service"
 import { LOGO_PNG_BASE64 } from "./certificate-logo"
+import { SEAL_PNG_BASE64 } from "./certificate-seal"
 import type { CertificateDoc } from "./types"
 
 const W = 841.89 // A4 landscape, points
@@ -160,16 +161,18 @@ export async function renderCertificatePdf(cert: CertificateDoc, baseUrl: string
   doc.setFont("helvetica", "normal")
   doc.setFontSize(8.5)
   doc.text(signerTitle, sx + 90, 524, { align: "center" })
+  // Company seal beside the signature
+  doc.addImage(`data:image/png;base64,${SEAL_PNG_BASE64}`, "PNG", sx + 170, 448, 66, 69)
 
   // Bottom-centre: ID and date
   doc.setTextColor(NAVY)
   doc.setFont("helvetica", "bold")
   doc.setFontSize(11)
-  doc.text(`Certificate ID: ${cert.certificate_id}`, 421, 480, { align: "center" })
+  doc.text(`Certificate ID: ${cert.certificate_id}`, 480, 480, { align: "center" })
   doc.setTextColor(INK)
   doc.setFont("helvetica", "normal")
   doc.setFontSize(10.5)
-  doc.text(`Date of Issue: ${formatIssueDate(cert.issue_date)}`, 421, 500, { align: "center" })
+  doc.text(`Date of Issue: ${formatIssueDate(cert.issue_date)}`, 480, 500, { align: "center" })
 
   // Bottom-right: QR
   const qrPng = await renderQrPng(baseUrl, cert)
