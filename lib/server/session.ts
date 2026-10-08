@@ -30,13 +30,15 @@ export type SessionUser = StudentUser | StaffUser
 
 function secretKey(): Uint8Array {
   const secret = process.env.SESSION_SECRET
-  if (!secret || secret.length < 32) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("SESSION_SECRET must be set to a random string of at least 32 characters")
-    }
-    return new TextEncoder().encode("dev-only-session-secret-change-me-0123456789")
+  if (secret && secret.length >= 32) return new TextEncoder().encode(secret)
+  // No SESSION_SECRET configured: derive a stable server-only secret from the Firebase service-account key,
+  // so the feature works out of the box. (Setting SESSION_SECRET explicitly is still recommended.)
+  const key = process.env.FIREBASE_PRIVATE_KEY
+  if (key) return new TextEncoder().encode(createHash("sha256").update("lms-session:" + key).digest("hex"))
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Set SESSION_SECRET (32+ chars) or FIREBASE_PRIVATE_KEY so sessions can be signed")
   }
-  return new TextEncoder().encode(secret)
+  return new TextEncoder().encode("dev-only-session-secret-change-me-0123456789")
 }
 
 /** Constant-time string comparison (hash both sides so lengths always match). */
@@ -127,6 +129,22 @@ function toStudentUser(docId: string, d: FirebaseFirestore.DocumentData): Studen
     courseIds,
     courseNames: names,
   }
+}
+
+/** Rebuild a session user from a Firestore document id (used to resume a session for an already-logged-in LMS user). */
+export async function userFromDocId(kind: "student" | "staff", docId: string): Promise<SessionUser | null> {
+  const db = getDb()
+  if (kind === "student") {
+    const snap = await db.collection("students").doc(docId).get()
+    if (!snap.exists || snap.data()!.status === "Inactive") return null
+    return toStudentUser(snap.id, snap.data()!)
+  }
+  const snap = await db.collection("admin").doc(docId).get()
+  if (!snap.exists) return null
+  const d = snap.data()!
+  const role = roleFromRoleId(d.roleId)
+  if (!role) return null
+  return { role, docId: snap.id, name: d.name || d.username, email: d.username }
 }
 
 /**

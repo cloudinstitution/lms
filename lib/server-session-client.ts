@@ -6,6 +6,8 @@
  * server trusts for anything that must be protected (project files, certificates).
  */
 
+import { getAdminSession, getStudentSession } from "@/lib/session-storage"
+
 export let lastServerSessionError = ""
 
 export async function startServerSession(username: string, password: string): Promise<boolean> {
@@ -41,4 +43,32 @@ export function endServerSession(): void {
   } catch {
     /* best effort */
   }
+}
+
+let resuming: Promise<boolean> | null = null
+
+/** Silently start the server session from the existing LMS login (no password prompt). */
+export function resumeServerSession(): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false)
+  if (resuming) return resuming
+  resuming = (async () => {
+    try {
+      const admin = getAdminSession()
+      const student = getStudentSession()
+      const payload = admin?.id ? { kind: "staff", id: admin.id } : student?.id ? { kind: "student", id: student.id } : null
+      if (!payload) return false
+      const res = await fetch("/api/session/resume", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      return res.ok
+    } catch {
+      return false
+    } finally {
+      setTimeout(() => (resuming = null), 1000)
+    }
+  })()
+  return resuming
 }

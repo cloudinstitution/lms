@@ -27,7 +27,7 @@ let R: Record<string, any>
 before(async () => {
   const imp = (p: string) => import(`../../app/api/${p}/route`)
   R = {
-    login: await imp("session/login"), logout: await imp("session/logout"), me: await imp("session/me"),
+    resume: await imp("session/resume"), login: await imp("session/login"), logout: await imp("session/logout"), me: await imp("session/me"),
     courses: await imp("student/courses"), uploadUrls: await imp("projects/upload-urls"), submit: await imp("projects/submit"),
     myProjects: await imp("student/projects"), myFile: await imp("student/projects/[id]/files/[fileId]"),
     notifs: await imp("student/notifications"), notifRead: await imp("student/notifications/[id]/read"),
@@ -128,6 +128,19 @@ test("session: login, me, logout, bad credentials, inactive, demoted", async () 
   assert.equal((await call(R.aCerts, "GET", "/api/admin/certificates", { cookie: a })).status, 401)
   const lo = await call(R.logout, "POST", "/api/session/logout", { cookie: c })
   assert.match(lo.headers.get("set-cookie") ?? "", /Max-Age=0/)
+})
+
+test("session resume: already-logged-in LMS user gets a session without a password", async () => {
+  const r = await call(R.resume, "POST", "/api/session/resume", { body: { kind: "student", id: "docPriya" }, ip: "7.7.7.1" })
+  assert.equal(r.status, 200)
+  const c = r.headers.get("set-cookie")!.split(";")[0]
+  const courses = await json(await call(R.courses, "GET", "/api/student/courses", { cookie: c }))
+  assert.equal(courses.status, 200); assert.ok(courses.body.courses.length >= 1)
+  assert.equal((await call(R.resume, "POST", "/api/session/resume", { body: { kind: "student", id: "nope" }, ip: "7.7.7.2" })).status, 401)
+  assert.equal((await call(R.resume, "POST", "/api/session/resume", { body: { kind: "student", id: "docGone" }, ip: "7.7.7.3" })).status, 401)
+  assert.equal((await call(R.resume, "POST", "/api/session/resume", { body: { kind: "staff", id: "docPriya" }, ip: "7.7.7.4" })).status, 401)
+  const a = await call(R.resume, "POST", "/api/session/resume", { body: { kind: "staff", id: "docAdmin" }, ip: "7.7.7.5" })
+  assert.equal(a.status, 200)
 })
 
 test("csrf: cross-origin state change is blocked", async () => {

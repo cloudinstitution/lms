@@ -1,5 +1,7 @@
 "use client"
 
+import { resumeServerSession } from "@/lib/server-session-client"
+
 /** Small fetch wrapper for the project / certificate APIs (cookie-authenticated, JSON). */
 export class ApiFailure extends Error {
   constructor(public status: number, message: string, public code?: string) {
@@ -11,13 +13,16 @@ export class ApiFailure extends Error {
 }
 
 export async function api<T = any>(url: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  const res = await fetch(url, {
+  const doFetch = () => fetch(url, {
     method: init.method ?? "GET",
     credentials: "same-origin",
     headers: init.body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     cache: "no-store",
   })
+  let res = await doFetch()
+  // No/expired server session but the user is logged in to the LMS: resume silently, then retry once.
+  if (res.status === 401 && (await resumeServerSession())) res = await doFetch()
   let data: any = null
   try {
     data = await res.json()

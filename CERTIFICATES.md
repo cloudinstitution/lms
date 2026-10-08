@@ -53,3 +53,9 @@ Admin: `GET /api/admin/certificates`, `GET …/{id}/download`, `PUT …/{id}/rev
 * Project notifications use a separate `student_notifications` collection; the existing global notifications page is unchanged.
 * The logo file (`public/cloudinstitution_logo.png`) is small (75×80); supply a larger one for sharper print.
 * Not exercised against real Firebase: tests use in-memory fakes that mimic Firestore's strict behaviours; signed-URL uploads need the CORS step above.
+
+## Silent session (no second login)
+The LMS login is client-side, so Projects & Certificates start their own signed session cookie automatically: if an API
+returns 401 and the browser has an LMS login, `POST /api/session/resume` re-reads that user from Firestore and issues the
+cookie. Nobody has to log in again. If `SESSION_SECRET` is not set, the signing key is derived from `FIREBASE_PRIVATE_KEY`.
+To require a fresh password login instead, set `LMS_REQUIRE_SERVER_SESSION=true`.
