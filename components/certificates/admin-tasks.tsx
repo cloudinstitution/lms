@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { db } from "@/lib/firebase"
+import { collection, getDocs } from "firebase/firestore"
 import { ApiFailure, api } from "@/lib/certificate-client"
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
@@ -37,11 +39,29 @@ export function AdminTasks({ onNeedsLogin }: { onNeedsLogin: () => void }) {
   const [f, setF] = useState(empty)
   const [busy, setBusy] = useState(false)
 
+  // Courses come straight from the same Firestore `courses` collection the admin Courses tab uses.
+  const loadCourses = useCallback(async () => {
+    try {
+      const snap = await getDocs(collection(db, "courses"))
+      const list: Course[] = []
+      snap.docs.forEach((d, i) => {
+        const c = d.data() as { title?: unknown; name?: unknown; courseID?: unknown }
+        const name = String(c.title ?? c.name ?? "").trim()
+        const n = Number(c.courseID)
+        if (name) list.push({ id: Number.isFinite(n) && c.courseID !== "" && c.courseID != null ? n : i + 1, name })
+      })
+      setCourses(list)
+    } catch (e) {
+      console.warn("Could not load courses:", e)
+    }
+  }, [])
+  useEffect(() => { loadCourses() }, [loadCourses])
+
   const load = useCallback(async () => {
     try {
       const d = await api("/api/admin/project-tasks")
       setTasks(d.tasks)
-      setCourses(d.courses)
+      setCourses((cur) => (cur.length ? cur : d.courses))
     } catch (e) {
       if (e instanceof ApiFailure && e.needsLogin) onNeedsLogin()
       else toast.error(e instanceof Error ? e.message : "Could not load assigned projects")
