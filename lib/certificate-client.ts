@@ -1,6 +1,6 @@
 "use client"
 
-import { resumeServerSession } from "@/lib/server-session-client"
+import { resumeServerSession, lastResumeError } from "@/lib/server-session-client"
 
 /** Small fetch wrapper for the project / certificate APIs (cookie-authenticated, JSON). */
 export class ApiFailure extends Error {
@@ -22,7 +22,11 @@ export async function api<T = any>(url: string, init: { method?: string; body?: 
   })
   let res = await doFetch()
   // No/expired server session but the user is logged in to the LMS: resume silently, then retry once.
-  if (res.status === 401 && (await resumeServerSession())) res = await doFetch()
+  let resumeFailed = ""
+  if (res.status === 401) {
+    if (await resumeServerSession()) res = await doFetch()
+    else resumeFailed = lastResumeError
+  }
   let data: any = null
   try {
     data = await res.json()
@@ -31,6 +35,7 @@ export async function api<T = any>(url: string, init: { method?: string; body?: 
   }
   if (!res.ok) throw new ApiFailure(
       res.status,
+      (resumeFailed && res.status === 401 ? `Could not start your secure session (${resumeFailed}). ${resumeFailed.startsWith("500") ? "The server cannot reach Firebase — check FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in the deployment's environment variables (for the Preview environment too), then redeploy." : ""}` : "") ||
       data?.error || `Request failed (${res.status}) — ${init.method ?? "GET"} ${url.split("?")[0]}${res.status === 404 ? " was not found on the server (is the latest code deployed?)" : ""}`,
       data?.code,
     )
