@@ -1,20 +1,22 @@
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
-// Initialize Firebase Admin if it hasn't been already
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-  });
+// Lazily initialize Firebase Admin. Doing this inside a function (instead of
+// at module scope) prevents it from running during Next.js's build-time
+// "collecting page data" step, which is what caused the original crash.
+function getDb() {
+  if (!admin.apps?.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+    });
+  }
+  return admin.firestore();
 }
-
-// Get Firestore instance
-const db = admin.firestore();
 
 // Initialize Resend with API key
 const resend = new Resend(process.env.RESEND_API_KEY || 're_123456789');
@@ -170,6 +172,7 @@ export async function POST(request: NextRequest) {
     // Fetch student data from Firestore with enhanced error handling
     let studentsRef;
     try {
+      const db = getDb();
       studentsRef = db.collection('students');
       console.log('✅ Successfully connected to Firestore');
     } catch (firestoreError) {
@@ -408,6 +411,7 @@ export async function POST(request: NextRequest) {
         
         // Log email activity
         try {
+          const db = getDb();
           await db.collection('email_logs').add({
             type: 'bulk_student_email',
             recipient: student.email,
@@ -432,6 +436,7 @@ export async function POST(request: NextRequest) {
         
         // Log failed email
         try {
+          const db = getDb();
           await db.collection('email_logs').add({
             type: 'bulk_student_email',
             recipient: student.email,

@@ -1,8 +1,11 @@
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';   // ← default import fixes the .length crash
 import { NextRequest, NextResponse } from 'next/server';
 
-// Initialize Firebase Admin if it hasn't been already
-if (!admin.apps.length) {
+export const dynamic = 'force-dynamic';
+
+function initFirebaseAdmin() {
+  if (admin.apps.length) return;
+
   try {
     admin.initializeApp({
       credential: admin.credential.cert({
@@ -17,6 +20,8 @@ if (!admin.apps.length) {
 }
 
 export async function GET(request: NextRequest) {
+  initFirebaseAdmin(); // only runs when the route is actually hit
+
   try {
     const healthCheck = {
       timestamp: new Date().toISOString(),
@@ -26,35 +31,36 @@ export async function GET(request: NextRequest) {
         resendApiKey: {
           configured: !!process.env.RESEND_API_KEY,
           keyLength: process.env.RESEND_API_KEY?.length || 0,
-          keyPreview: process.env.RESEND_API_KEY ? 
-            `${process.env.RESEND_API_KEY.substring(0, 8)}...` : 'not set'
+          keyPreview: process.env.RESEND_API_KEY
+            ? `${process.env.RESEND_API_KEY.substring(0, 8)}...`
+            : 'not set',
         },
         firebase: {
           projectId: {
             configured: !!process.env.FIREBASE_PROJECT_ID,
-            value: process.env.FIREBASE_PROJECT_ID || 'not set'
+            value: process.env.FIREBASE_PROJECT_ID || 'not set',
           },
           clientEmail: {
             configured: !!process.env.FIREBASE_CLIENT_EMAIL,
-            value: process.env.FIREBASE_CLIENT_EMAIL ? 
-              `${process.env.FIREBASE_CLIENT_EMAIL.substring(0, 20)}...` : 'not set'
+            value: process.env.FIREBASE_CLIENT_EMAIL
+              ? `${process.env.FIREBASE_CLIENT_EMAIL.substring(0, 20)}...`
+              : 'not set',
           },
           privateKey: {
             configured: !!process.env.FIREBASE_PRIVATE_KEY,
             hasNewlines: process.env.FIREBASE_PRIVATE_KEY?.includes('\n') || false,
-            length: process.env.FIREBASE_PRIVATE_KEY?.length || 0
-          }
+            length: process.env.FIREBASE_PRIVATE_KEY?.length || 0,
+          },
         },
         firebaseAdmin: {
           appsInitialized: admin.apps.length,
           canConnectToFirestore: false,
           documentsFound: undefined as number | undefined,
-          firestoreError: undefined as string | undefined
-        }
-      }
+          firestoreError: undefined as string | undefined,
+        },
+      },
     };
 
-    // Test Firestore connection
     try {
       const db = admin.firestore();
       const testCollection = db.collection('students');
@@ -62,12 +68,11 @@ export async function GET(request: NextRequest) {
       healthCheck.checks.firebaseAdmin.canConnectToFirestore = true;
       healthCheck.checks.firebaseAdmin.documentsFound = snapshot.size;
     } catch (firestoreError) {
-      healthCheck.checks.firebaseAdmin.firestoreError = firestoreError instanceof Error ? 
-        firestoreError.message : 'Unknown Firestore error';
+      healthCheck.checks.firebaseAdmin.firestoreError =
+        firestoreError instanceof Error ? firestoreError.message : 'Unknown Firestore error';
     }
 
-    // Determine overall status
-    const allChecksPass = 
+    const allChecksPass =
       healthCheck.checks.resendApiKey.configured &&
       healthCheck.checks.firebase.projectId.configured &&
       healthCheck.checks.firebase.clientEmail.configured &&
@@ -77,14 +82,13 @@ export async function GET(request: NextRequest) {
     healthCheck.status = allChecksPass ? 'healthy' : 'unhealthy';
 
     return NextResponse.json(healthCheck);
-
   } catch (error) {
     return NextResponse.json(
       {
         timestamp: new Date().toISOString(),
         status: 'error',
         error: error instanceof Error ? error.message : 'Unknown health check error',
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
       },
       { status: 500 }
     );

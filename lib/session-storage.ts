@@ -1,5 +1,7 @@
 "use client"
 
+import { endServerSession } from "./server-session-client"
+
 // Define session storage keys
 export const SESSION_KEYS = {
   STUDENT_ID: 'studentId',
@@ -90,6 +92,8 @@ export function clearSession(): void {
     Object.values(SESSION_KEYS).forEach(key => {
       localStorage.removeItem(key)
     })
+    // Also end the server-side session cookie (Projects & Certificates)
+    endServerSession()
   } catch (error) {
     console.error('Error clearing session from localStorage:', error)
   }

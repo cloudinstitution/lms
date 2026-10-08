@@ -10,8 +10,10 @@ import { collection, DocumentData, onSnapshot, query } from "firebase/firestore"
 import {
   Bell,
   BookOpen,
+  Award,
   Briefcase,
   Code,
+  FolderUp,
   FileText,
   GraduationCap,
   LayoutDashboard,
@@ -101,6 +103,8 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
     { name: "Programming", href: "/student/programming", icon: Code },
     { name: "Company Questions", href: "/student/company-questions", icon: Briefcase },
     { name: "Attendance", href: "/student/attendance", icon: QrCode },
+    { name: "My Projects", href: "/student/projects", icon: FolderUp },
+    { name: "My Certificates", href: "/student/certificates", icon: Award },
     { name: "Profile", href: "/student/profile", icon: User },
   ]
 
