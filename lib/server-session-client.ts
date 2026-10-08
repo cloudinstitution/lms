@@ -6,15 +6,24 @@
  * server trusts for anything that must be protected (project files, certificates).
  */
 
+export let lastServerSessionError = ""
+
 export async function startServerSession(username: string, password: string): Promise<boolean> {
+  lastServerSessionError = ""
   try {
     const res = await fetch("/api/session/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     })
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      lastServerSessionError = `${res.status}${body?.error ? ": " + body.error : ""}`
+      console.warn("Could not start server session:", lastServerSessionError)
+    }
     return res.ok
   } catch (error) {
+    lastServerSessionError = "network error"
     console.warn("Could not start server session:", error)
     return false
   }

@@ -1,5 +1,6 @@
 "use client"
 
+import { SignInAgain } from "@/components/certificates/sign-in-again"
 import { StatusBadge, fmtDate } from "@/components/certificates/status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -87,9 +88,7 @@ export default function AdminProjectsPage() {
         <h1 className="text-2xl font-bold">Project Reviews</h1>
         <p className="text-muted-foreground">Review student project submissions. Accepting a project issues the student's certificate automatically.</p>
       </div>
-      {needsLogin && (
-        <Alert variant="destructive"><AlertTitle>Please sign in again</AlertTitle><AlertDescription>{LOGIN_AGAIN_MESSAGE}</AlertDescription></Alert>
-      )}
+      {needsLogin && <SignInAgain />}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {TILES.map((t) => (

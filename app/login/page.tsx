@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { db } from "@/lib/firebase"
 import { setAdminSession, storeStudentSession, storeAdminSession } from "@/lib/session-storage"
 import { startServerSession } from "@/lib/server-session-client"
+import * as serverSession from "@/lib/server-session-client"
 import { collection, getDocs, query, where } from "firebase/firestore"
 import { ArrowLeft, GraduationCap, Lock, Mail, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
@@ -66,7 +67,7 @@ export default function LoginPage() {
           // Store student data in localStorage
           storeStudentSession(studentData)
           // Also start the server-verified session used by Projects & Certificates
-          await startServerSession(formData.email, formData.password)
+          if (!(await startServerSession(formData.email, formData.password))) toast.warning(`Logged in, but Projects & Certificates could not start a secure session (${serverSession.lastServerSessionError || "unknown"}). Please tell the administrator.`)
           // Navigate to student dashboard
           router.push("/student/dashboard")
           return
@@ -95,7 +96,7 @@ export default function LoginPage() {
           // Use the proper session storage method
           storeAdminSession(adminData)
           // Also start the server-verified session used by Projects & Certificates
-          await startServerSession(formData.email, formData.password)
+          if (!(await startServerSession(formData.email, formData.password))) toast.warning(`Logged in, but Projects & Certificates could not start a secure session (${serverSession.lastServerSessionError || "unknown"}). Please tell the administrator.`)
           console.log('Login successful as:', role, 'Admin data:', adminData)
           router.push("/admin/dashboard")
           return

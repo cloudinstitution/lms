@@ -1,5 +1,6 @@
 "use client"
 
+import { SignInAgain } from "@/components/certificates/sign-in-again"
 import { StatusBadge, fmtDate } from "@/components/certificates/status-badge"
 import StudentLayout from "@/components/student-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -132,12 +133,7 @@ export default function StudentProjectsPage() {
           <p className="text-muted-foreground">Submit your project for review. Once it is accepted your certificate is issued automatically.</p>
         </div>
 
-        {needsLogin && (
-          <Alert variant="destructive">
-            <AlertTitle>Please sign in again</AlertTitle>
-            <AlertDescription>{LOGIN_AGAIN_MESSAGE}</AlertDescription>
-          </Alert>
-        )}
+        {needsLogin && <SignInAgain />}
 
         {accepted && (
           <Alert>

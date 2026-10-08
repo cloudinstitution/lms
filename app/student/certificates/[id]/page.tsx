@@ -1,5 +1,6 @@
 "use client"
 
+import { SignInAgain } from "@/components/certificates/sign-in-again"
 import { StatusBadge } from "@/components/certificates/status-badge"
 import StudentLayout from "@/components/student-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -35,9 +36,7 @@ export default function CertificateDetailPage() {
     <StudentLayout>
       <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-8">
         <Button variant="ghost" size="sm" asChild><Link href="/student/certificates"><ArrowLeft className="mr-2 h-4 w-4" />All certificates</Link></Button>
-        {needsLogin && (
-          <Alert variant="destructive"><AlertTitle>Please sign in again</AlertTitle><AlertDescription>{LOGIN_AGAIN_MESSAGE}</AlertDescription></Alert>
-        )}
+        {needsLogin && <SignInAgain />}
         {error && <Alert variant="destructive"><AlertTitle>Certificate unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
         {cert && (
           <>

@@ -1,5 +1,6 @@
 "use client"
 
+import { SignInAgain } from "@/components/certificates/sign-in-again"
 import { StatusBadge } from "@/components/certificates/status-badge"
 import StudentLayout from "@/components/student-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -41,12 +42,7 @@ export default function MyCertificatesPage() {
           <h1 className="text-2xl font-bold">My Certificates</h1>
           <p className="text-muted-foreground">Certificates are issued automatically when your project is accepted.</p>
         </div>
-        {needsLogin && (
-          <Alert variant="destructive">
-            <AlertTitle>Please sign in again</AlertTitle>
-            <AlertDescription>{LOGIN_AGAIN_MESSAGE}</AlertDescription>
-          </Alert>
-        )}
+        {needsLogin && <SignInAgain />}
         {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {!loading && !needsLogin && certs.length === 0 && (
           <Card>
