@@ -13,7 +13,24 @@ import { createWebBucket, createWebDb } from "./web-backend"
  * Same env vars as the existing /api/admin/* routes: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL,
  * FIREBASE_PRIVATE_KEY — plus the storage bucket already configured for the client SDK.
  */
+let adminBroken = false
+
+/** Credentials are present but Google rejected them (wrong project / revoked / bad key): use the web backend from now on. */
+export function markAdminBroken() {
+  adminBroken = true
+}
+export function isAdminBroken() {
+  return adminBroken
+}
+
+/** True for errors that mean "the service-account credentials are not accepted", as opposed to a bug in a request. */
+export function isCredentialFailure(err: unknown): boolean {
+  const msg = err instanceof Error ? `${err.message} ${(err as any).code ?? ""}` : String(err)
+  return /UNAUTHENTICATED|invalid authentication credentials|invalid_grant|invalid_rapt|Could not load the default credentials|Getting metadata from plugin failed|DECODER routines|Invalid PEM|error:1E08010C/i.test(msg)
+}
+
 function hasAdminCredentials(): boolean {
+  if (adminBroken) return false
   const key = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n") ?? ""
   // A malformed key (e.g. pasted without its BEGIN/END lines) is treated as "not configured" so the web backend is used instead.
   return Boolean(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+-----END [A-Z ]*PRIVATE KEY-----/.test(key))

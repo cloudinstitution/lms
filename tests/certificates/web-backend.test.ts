@@ -107,3 +107,22 @@ test("web bucket adapter: write slots use client-upload, reads use download URLs
   await bucket.file("a/b.pdf").delete()
   assert.deepEqual(await bucket.file("a/b.pdf").exists(), [false])
 })
+
+test("withApi replays once on the web backend when service-account credentials are rejected", async () => {
+  const { NextRequest } = await import("next/server")
+  const { withApi } = await import("../../lib/server/http")
+  const { isAdminBroken, isCredentialFailure } = await import("../../lib/server/firebase-admin")
+  assert.equal(isCredentialFailure(new Error("16 UNAUTHENTICATED: Request had invalid authentication credentials.")), true)
+  assert.equal(isCredentialFailure(new Error("something else")), false)
+  let calls = 0
+  const h = withApi(async (req) => {
+    calls++
+    const body = await req.json()
+    if (calls === 1) throw new Error("16 UNAUTHENTICATED: Request had invalid authentication credentials.")
+    return Response.json({ ok: true, body, cookie: req.cookies.get("a")?.value })
+  })
+  const res = await h(new NextRequest("https://x.test/api/y", { method: "POST", headers: { cookie: "a=1", "content-type": "application/json" }, body: JSON.stringify({ n: 5 }) }))
+  const j: any = await res.json()
+  assert.equal(res.status, 200); assert.deepEqual(j.body, { n: 5 }); assert.equal(j.cookie, "1"); assert.equal(calls, 2)
+  assert.equal(isAdminBroken(), true)
+})

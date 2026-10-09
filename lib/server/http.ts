@@ -1,4 +1,6 @@
+import * as nextServer from "next/server"
 import { NextRequest, NextResponse } from "next/server"
+import { isAdminBroken, isCredentialFailure, markAdminBroken } from "./firebase-admin"
 
 /** An error that maps directly to an HTTP response. */
 export class ApiError extends Error {
@@ -16,15 +18,30 @@ type Handler<P> = (req: NextRequest, params: P) => Promise<Response>
 
 /**
  * Wrap a route handler: resolves Next 15's async `params`, and turns thrown ApiErrors
- * into `{ error }` JSON responses. Anything unexpected becomes a generic 500 (details are logged,
- * never sent to the client).
+ * into `{ error }` JSON responses. Anything unexpected becomes a 500 with a short, secret-free hint. If the
+ * service-account credentials are rejected the request is replayed once on the credential-free web backend.
  */
 export function withApi<P extends Record<string, string> = Record<string, never>>(handler: Handler<P>) {
   return async (req: NextRequest, ctx?: { params?: Promise<any> }): Promise<Response> => {
-    try {
+    // Keep a copy so the request can be replayed once if the configured service-account credentials turn out to be unusable.
+    const replay = req.method === "GET" || req.method === "HEAD" ? req : new (nextServer as any).NextRequest(req.clone())
+    const attempt = async (r: NextRequest): Promise<Response> => {
       const params = (ctx?.params ? await ctx.params : {}) as P
-      return await handler(req, params)
-    } catch (err) {
+      return handler(r, params)
+    }
+    try {
+      return await attempt(req)
+    } catch (first) {
+      let err = first
+      if (!(first instanceof ApiError) && isCredentialFailure(first) && !isAdminBroken()) {
+        console.warn("[api] service-account credentials were rejected; switching to the web SDK backend:", first instanceof Error ? first.message.slice(0, 200) : first)
+        markAdminBroken()
+        try {
+          return await attempt(replay)
+        } catch (second) {
+          err = second
+        }
+      }
       if (err instanceof ApiError) {
         return NextResponse.json({ error: err.message, code: err.code }, { status: err.status })
       }
