@@ -70,7 +70,7 @@ export function resumeServerSession(): Promise<boolean> {
       })
       if (!res.ok) {
         const body = await res.json().catch(() => null)
-        lastResumeError = `${res.status}${body?.error ? ": " + body.error : ""}`
+        lastResumeError = `${res.status}${body?.error ? ": " + body.error : ""}${body?.detail ? " — " + body.detail : ""}`
       }
       return res.ok
     } catch {

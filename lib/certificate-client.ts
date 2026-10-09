@@ -35,8 +35,8 @@ export async function api<T = any>(url: string, init: { method?: string; body?: 
   }
   if (!res.ok) throw new ApiFailure(
       res.status,
-      (resumeFailed && res.status === 401 ? `Could not start your secure session (${resumeFailed}). ${resumeFailed.startsWith("500") ? "The server cannot reach Firebase — check FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY in the deployment's environment variables (for the Preview environment too), then redeploy." : ""}` : "") ||
-      data?.error || `Request failed (${res.status}) — ${init.method ?? "GET"} ${url.split("?")[0]}${res.status === 404 ? " was not found on the server (is the latest code deployed?)" : ""}`,
+      (resumeFailed && res.status === 401 ? `Could not start your session (${resumeFailed})` : "") ||
+      (data?.error ? data.error + (data.detail ? ` — ${data.detail}` : "") : "") || `Request failed (${res.status}) — ${init.method ?? "GET"} ${url.split("?")[0]}${res.status === 404 ? " was not found on the server (is the latest code deployed?)" : ""}`,
       data?.code,
     )
   return data as T

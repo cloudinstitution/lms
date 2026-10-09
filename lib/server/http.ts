@@ -29,7 +29,9 @@ export function withApi<P extends Record<string, string> = Record<string, never>
         return NextResponse.json({ error: err.message, code: err.code }, { status: err.status })
       }
       console.error("[api] unexpected error:", err)
-      return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+      // A short, secret-free hint so a misconfigured deployment can be diagnosed from the browser.
+      const detail = (err instanceof Error ? err.message : String(err)).replace(/-----BEGIN[\s\S]*?END [A-Z ]*KEY-----/g, "[key]").slice(0, 240)
+      return NextResponse.json({ error: "Internal server error", detail }, { status: 500 })
     }
   }
 }

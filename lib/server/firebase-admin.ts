@@ -14,7 +14,9 @@ import { createWebBucket, createWebDb } from "./web-backend"
  * FIREBASE_PRIVATE_KEY — plus the storage bucket already configured for the client SDK.
  */
 function hasAdminCredentials(): boolean {
-  return Boolean(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY)
+  const key = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n") ?? ""
+  // A malformed key (e.g. pasted without its BEGIN/END lines) is treated as "not configured" so the web backend is used instead.
+  return Boolean(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+-----END [A-Z ]*PRIVATE KEY-----/.test(key))
 }
 
 /** Firebase web app (public config) used when no service-account credentials are configured. */
