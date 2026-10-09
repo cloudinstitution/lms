@@ -13,8 +13,7 @@ import { ApiFailure, LOGIN_AGAIN_MESSAGE, api } from "@/lib/certificate-client"
 import { Award, FileUp, Loader2, MessageSquareWarning, Paperclip } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { storage } from "@/lib/firebase"
-import { ref as storageRef, uploadBytes } from "firebase/storage"
+import { explainStorageError, uploadWithProgress } from "@/lib/upload-client"
 import { toast } from "sonner"
 
 const ACCEPT = ".pdf,.zip,.rar,.7z,.gz,.tar,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg,.ipynb,.py,.js,.ts,.java,.json"
@@ -58,6 +57,7 @@ export default function StudentProjectsPage() {
   const [loading, setLoading] = useState(true)
   const [needsLogin, setNeedsLogin] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState(0)
   const [resubmitId, setResubmitId] = useState<string | null>(null)
 
   const [tasks, setTasks] = useState<Task[]>([])
@@ -109,6 +109,7 @@ export default function StudentProjectsPage() {
     if (!taskId) return toast.error("Please choose the project you are submitting")
     if (projectFiles.length === 0) return toast.error("Please attach your project file")
     setBusy(true)
+    setProgress(0)
     try {
       const wanted = [
         ...projectFiles.map((f) => ({ f, kind: "project" as const })),
@@ -123,15 +124,16 @@ export default function StudentProjectsPage() {
         if (String(slots[i].upload_url).startsWith("client-upload://")) {
           // No server credentials configured: upload straight to Firebase Storage with the web SDK.
           try {
-            await uploadBytes(storageRef(storage, slots[i].path), wanted[i].f, { contentType: slots[i].content_type })
+            await uploadWithProgress(wanted[i].f, slots[i].path, slots[i].content_type, (frac) => setProgress(Math.round(((i + frac) / slots.length) * 100)))
           } catch (err: any) {
-            throw new Error(`Upload of "${wanted[i].f.name}" failed (${err?.code || err?.message || "storage error"}). Check the Firebase Storage rules allow uploads.`)
+            throw new Error(`Upload of "${wanted[i].f.name}" failed: ${explainStorageError(err)}`)
           }
           continue
         }
         const res = await fetch(slots[i].upload_url, { method: "PUT", headers: { "Content-Type": slots[i].content_type }, body: wanted[i].f })
         if (!res.ok) throw new Error(`Upload of "${wanted[i].f.name}" failed (${res.status}). Please try again.`)
       }
+      setProgress(100)
       await api("/api/projects/submit", {
         method: "POST",
         body: {
@@ -276,7 +278,7 @@ export default function StudentProjectsPage() {
                 <div className="flex gap-2">
                   <Button type="submit" disabled={busy || needsLogin || !chosen}>
                     {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-                    {busy ? "Uploading…" : resubmitting ? "Resubmit for review" : "Submit for review"}
+                    {busy ? (progress >= 100 ? "Saving…" : `Uploading… ${progress}%`) : resubmitting ? "Resubmit for review" : "Submit for review"}
                   </Button>
                   {resubmitting && <Button type="button" variant="outline" onClick={() => setResubmitId(null)}>Cancel</Button>}
                 </div>

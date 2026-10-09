@@ -101,7 +101,12 @@ export function getBucket(): StorageBucketLike {
   const override = getBackendsOverride()
   if (override) return override.bucket
   if (!hasAdminCredentials()) {
-    webBucketCache ??= createWebBucket(webStorage, webStorage.getStorage(webApp())) as unknown as StorageBucketLike
+    if (!webBucketCache) {
+      const st = webStorage.getStorage(webApp())
+      st.maxOperationRetryTime = 10_000 // fail fast instead of hanging the request when the bucket is unreachable
+      st.maxUploadRetryTime = 10_000
+      webBucketCache = createWebBucket(webStorage, st) as unknown as StorageBucketLike
+    }
     return webBucketCache
   }
   initAdmin()
