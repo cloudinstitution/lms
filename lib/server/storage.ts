@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto"
-import { getBucket } from "./firebase-admin"
+import { getBucket, getDb } from "./firebase-admin"
+import { STORED_URL_PREFIX, getStoredMeta, streamStoredFile } from "./stored-files"
 import { ApiError } from "./http"
 import type { ProjectFile } from "./types"
 
@@ -142,4 +143,20 @@ export async function deleteStoredFiles(paths: string[]): Promise<void> {
         .catch((e) => console.warn("Could not delete stored file", p, e?.message)),
     ),
   )
+}
+
+/** Response for downloading a stored file: a redirect to a short-lived link, or the bytes themselves for Firestore-stored files. */
+export async function fileResponse(path: string, downloadName: string): Promise<Response> {
+  const url = await signedReadUrl(path, downloadName)
+  if (!url.startsWith(STORED_URL_PREFIX)) return new Response(null, { status: 302, headers: { Location: url, "Cache-Control": "no-store" } })
+  const meta = await getStoredMeta(getDb(), path)
+  if (!meta) throw new ApiError(404, "File not found")
+  return new Response(streamStoredFile(getDb(), meta), {
+    headers: {
+      "Content-Type": meta.content_type || "application/octet-stream",
+      "Content-Length": String(meta.size),
+      "Content-Disposition": `attachment; filename="${downloadName.replace(/["\r\n]/g, "")}"`,
+      "Cache-Control": "no-store",
+    },
+  })
 }

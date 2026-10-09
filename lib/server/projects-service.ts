@@ -142,7 +142,8 @@ function parseTask(input: TaskInput): Omit<ProjectTaskDoc, "created_by_name" | "
   let file_size: number | null = null
   if (typeof input.file_url === "string" && input.file_url.trim()) {
     const u = input.file_url.trim()
-    if (!/^https:\/\/(firebasestorage\.googleapis\.com|storage\.googleapis\.com|[a-z0-9-]+\.firebasestorage\.app)\//i.test(u) || u.length > 2000) {
+    const own = /^\/api\/task-files\?path=project-tasks%2F[^&\s]+$/.test(u)
+    if (!own && !/^https:\/\/(firebasestorage\.googleapis\.com|storage\.googleapis\.com|[a-z0-9-]+\.firebasestorage\.app)\//i.test(u) || u.length > 2000) {
       throw new ApiError(400, "Uploaded file link is not valid")
     }
     file_url = u

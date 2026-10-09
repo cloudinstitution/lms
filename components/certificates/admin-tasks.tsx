@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { db, storage } from "@/lib/firebase"
-import { explainStorageError, uploadWithProgress } from "@/lib/upload-client"
+import { explainStorageError, uploadSmart } from "@/lib/upload-client"
 import { collection, getDocs } from "firebase/firestore"
 import { getDownloadURL, ref as storageRef } from "firebase/storage"
 import { ApiFailure, api } from "@/lib/certificate-client"
@@ -107,11 +107,11 @@ export function AdminTasks({ onNeedsLogin }: { onNeedsLogin: () => void }) {
         const safe = file.name.replace(/[^\w.\- ()]+/g, "_").slice(0, 120) || "project-file"
         const path = `project-tasks/${saved.id}/${Date.now()}-${safe}`
         try {
-          await uploadWithProgress(file, path, file.type || "application/octet-stream")
-          const url = await getDownloadURL(storageRef(storage, path))
+          const via = await uploadSmart(file, path, file.type || "application/octet-stream")
+          const url = via === "storage" ? await getDownloadURL(storageRef(storage, path)) : `/api/task-files?path=${encodeURIComponent(path)}`
           await api(`/api/admin/project-tasks/${saved.id}`, { method: "PUT", body: { ...body, file_url: url, file_name: file.name, file_size: file.size } })
         } catch (upErr: any) {
-          toast.error(`Project saved, but the file upload failed: ${explainStorageError(upErr)}`)
+          toast.error(`Project saved, but the file upload failed: ${upErr?.code === "lms/too-large" ? upErr.message : explainStorageError(upErr)}`)
           setEditing(null)
           await load()
           return

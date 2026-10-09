@@ -13,7 +13,7 @@ import { ApiFailure, LOGIN_AGAIN_MESSAGE, api } from "@/lib/certificate-client"
 import { Award, FileUp, Loader2, MessageSquareWarning, Paperclip } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { explainStorageError, uploadWithProgress } from "@/lib/upload-client"
+import { explainStorageError, uploadSmart, uploadViaFirestore } from "@/lib/upload-client"
 import { toast } from "sonner"
 
 const ACCEPT = ".pdf,.zip,.rar,.7z,.gz,.tar,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg,.ipynb,.py,.js,.ts,.java,.json"
@@ -124,14 +124,27 @@ export default function StudentProjectsPage() {
         if (String(slots[i].upload_url).startsWith("client-upload://")) {
           // No server credentials configured: upload straight to Firebase Storage with the web SDK.
           try {
-            await uploadWithProgress(wanted[i].f, slots[i].path, slots[i].content_type, (frac) => setProgress(Math.round(((i + frac) / slots.length) * 100)))
+            await uploadSmart(wanted[i].f, slots[i].path, slots[i].content_type, (frac) => setProgress(Math.round(((i + frac) / slots.length) * 100)))
           } catch (err: any) {
-            throw new Error(`Upload of "${wanted[i].f.name}" failed: ${explainStorageError(err)}`)
+            throw new Error(err?.code === "lms/too-large" ? err.message : `Upload of "${wanted[i].f.name}" failed: ${explainStorageError(err)}`)
           }
           continue
         }
-        const res = await fetch(slots[i].upload_url, { method: "PUT", headers: { "Content-Type": slots[i].content_type }, body: wanted[i].f })
-        if (!res.ok) throw new Error(`Upload of "${wanted[i].f.name}" failed (${res.status}). Please try again.`)
+        let ok = false
+        try {
+          const res = await fetch(slots[i].upload_url, { method: "PUT", headers: { "Content-Type": slots[i].content_type }, body: wanted[i].f })
+          ok = res.ok
+        } catch {
+          ok = false
+        }
+        if (!ok) {
+          // Cloud Storage not reachable from the browser: keep the file in Firestore instead.
+          try {
+            await uploadViaFirestore(wanted[i].f, slots[i].path, slots[i].content_type, (frac) => setProgress(Math.round(((i + frac) / slots.length) * 100)))
+          } catch (err: any) {
+            throw new Error(err?.code === "lms/too-large" ? err.message : `Upload of "${wanted[i].f.name}" failed. Please try again.`)
+          }
+        }
       }
       setProgress(100)
       await api("/api/projects/submit", {

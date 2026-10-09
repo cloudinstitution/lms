@@ -183,6 +183,28 @@ test("assigned projects match the student's course by name (punctuation/case-ins
   assert.equal(r.body.tasks[0].student_course, "aws cloud-practitioner")
 })
 
+test("files kept in Firestore (Storage unreachable from the browser): submit verifies them and download streams the bytes", async () => {
+  const c = await john()
+  const up = await json(await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: c, body: { files: [{ name: "shot.png", size: 11, type: "image/png", kind: "project" }] } }))
+  const slot = up.body.slots[0]
+  const key = encodeURIComponent(slot.path)
+  const payload = Buffer.from("hello world")
+  db.seed("file_chunks", `${key}__0`, { file_key: key, index: 0, data: payload.subarray(0, 6).toString("base64") })
+  db.seed("file_chunks", `${key}__1`, { file_key: key, index: 1, data: payload.subarray(6).toString("base64") })
+  // not complete yet: no metadata => submit must refuse
+  assert.equal((await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { task_id: "t1", files: [{ path: slot.path, kind: "project" }] } })).status, 400)
+  db.seed("stored_files", key, { path: slot.path, size: 11, content_type: "image/png", chunks: 2 })
+  const s = await json(await call(R.submit, "POST", "/api/projects/submit", { cookie: c, body: { task_id: "t1", files: [{ path: slot.path, kind: "project" }] } }))
+  assert.equal(s.status, 201, JSON.stringify(s.body))
+  const pid = s.body.project.id, fid = s.body.project.files[0].id
+  const dl = await call(R.myFile, "GET", `/api/student/projects/${pid}/files/${fid}`, { cookie: c }, { id: pid, fileId: fid })
+  assert.equal(dl.status, 200); assert.equal(dl.headers.get("content-type"), "image/png")
+  assert.equal(Buffer.from(await dl.arrayBuffer()).toString(), "hello world")
+  // another student cannot read it
+  const p = await priya()
+  assert.equal((await call(R.myFile, "GET", `/api/student/projects/${pid}/files/${fid}`, { cookie: p }, { id: pid, fileId: fid })).status, 404)
+})
+
 test("csrf: cross-origin state change is blocked", async () => {
   const c = await john()
   const r = await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: c, origin: "https://evil.example", body: { files: [] } })

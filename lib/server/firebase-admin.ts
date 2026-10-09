@@ -5,6 +5,7 @@ import { getApp, getApps as getWebApps, initializeApp as initializeWebApp } from
 import * as webFirestore from "firebase/firestore"
 import * as webStorage from "firebase/storage"
 import { getBackendsOverride, type StorageBucketLike } from "./backends"
+import { wrapBucket } from "./stored-files"
 import { createWebBucket, createWebDb } from "./web-backend"
 
 /**
@@ -97,7 +98,7 @@ export function getDb(): Firestore {
   return getFirestore()
 }
 
-export function getBucket(): StorageBucketLike {
+function getRealBucket(): StorageBucketLike {
   const override = getBackendsOverride()
   if (override) return override.bucket
   if (!hasAdminCredentials()) {
@@ -115,4 +116,9 @@ export function getBucket(): StorageBucketLike {
     throw new Error("No storage bucket configured (set FIREBASE_STORAGE_BUCKET or NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET).")
   }
   return getStorage().bucket(name) as unknown as StorageBucketLike
+}
+
+/** Storage bucket (or its web-SDK stand-in), plus files that the browser had to keep in Firestore. */
+export function getBucket(): StorageBucketLike {
+  return wrapBucket(getRealBucket(), getDb)
 }
