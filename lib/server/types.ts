@@ -40,6 +40,7 @@ export interface ProjectTaskView extends ProjectTaskDoc {
   id: string
   submissions?: number
   my_status?: ProjectStatus | null
+  student_course?: string // the student's own course this project matched
 }
 
 /** Firestore document: projects/{autoId} */

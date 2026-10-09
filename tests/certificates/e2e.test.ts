@@ -174,6 +174,15 @@ test("assigned projects: admin creates per course, students see only their cours
   assert.equal((await json(await call(T.task, "DELETE", `/api/admin/project-tasks/${id}`, { cookie: a }, { id }))).body.deleted, true)
 })
 
+test("assigned projects match the student's course by name (punctuation/case-insensitive), never by a guessed id", async () => {
+  const mine = await import("../../app/api/student/project-tasks/route")
+  db.seed("students", "docNoId", { studentId: "CI2026030", name: "Nia", username: "nia@x.com", password: "pw", courseName: ["aws cloud-practitioner"], status: "Active" }) // no courseID at all
+  const c = await login("nia@x.com", "pw")
+  const r = await json(await call(mine, "GET", "/api/student/project-tasks", { cookie: c }))
+  assert.deepEqual(r.body.tasks.map((t: any) => t.id), ["t1"]) // not t2 (DevOps, course_id 2 == guessed index)
+  assert.equal(r.body.tasks[0].student_course, "aws cloud-practitioner")
+})
+
 test("csrf: cross-origin state change is blocked", async () => {
   const c = await john()
   const r = await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: c, origin: "https://evil.example", body: { files: [] } })

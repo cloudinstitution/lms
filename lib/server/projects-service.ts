@@ -79,8 +79,8 @@ async function addNotification(studentDocId: string, title: string, message: str
  * The courses a student may submit a project for: the ones on their record. If their record has none (e.g. the account was
  * created without a course), fall back to the institute's course list so they are not blocked; the reviewer sees the chosen course.
  */
-export async function studentCourses(student: StudentUser): Promise<{ id: number; name: string }[]> {
-  if (student.courseNames.length) return student.courseNames.map((name, i) => ({ id: student.courseIds[i], name }))
+export async function studentCourses(student: StudentUser): Promise<{ id: number; name: string; idKnown?: boolean }[]> {
+  if (student.courseNames.length) return student.courseNames.map((name, i) => ({ id: student.courseIds[i], name, idKnown: student.courseIdKnown?.[i] ?? true }))
   const snap = await getDb().collection("courses").get()
   const out: { id: number; name: string }[] = []
   snap.docs.forEach((d, i) => {
@@ -96,11 +96,13 @@ export async function studentCourses(student: StudentUser): Promise<{ id: number
 /*  Assigned projects (created by admin / teacher, per course)                */
 /* -------------------------------------------------------------------------- */
 
-const norm = (s: string) => s.trim().toLowerCase()
+/** Compare course names ignoring case, spaces and punctuation ("AWS Solution Architect" == "aws-solution architect"). */
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "")
 
-/** A task belongs to a student's course when the ids or the names match. */
-export function matchesTaskCourse(c: { id: number; name: string }, t: { course_id: number; course_name: string }): boolean {
-  return c.id === t.course_id || norm(c.name) === norm(t.course_name)
+/** A task belongs to a student's course when the names match, or the (real, recorded) course ids match. */
+export function matchesTaskCourse(c: { id: number; name: string; idKnown?: boolean }, t: { course_id: number; course_name: string }): boolean {
+  if (norm(c.name) && norm(c.name) === norm(t.course_name)) return true
+  return c.idKnown !== false && t.course_id > 0 && c.id === t.course_id
 }
 
 export interface TaskInput {
@@ -227,7 +229,7 @@ export async function listStudentTasks(student: StudentUser): Promise<ProjectTas
   return tasks.docs
     .map((d) => ({ id: d.id, ...(d.data() as ProjectTaskDoc) }))
     .filter((t) => t.active !== false && courses.some((c) => matchesTaskCourse(c, t)))
-    .map((t) => ({ ...t, my_status: latest.get(t.id)?.status ?? null }))
+    .map((t) => ({ ...t, student_course: courses.find((c) => matchesTaskCourse(c, t))?.name ?? t.course_name, my_status: latest.get(t.id)?.status ?? null }))
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
 }
 

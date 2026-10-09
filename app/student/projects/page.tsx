@@ -31,6 +31,7 @@ interface Task {
   file_name?: string | null
   file_url?: string | null
   my_status: string | null
+  student_course?: string
 }
 
 interface Project {
@@ -89,7 +90,7 @@ export default function StudentProjectsPage() {
   const resubmitting = projects.find((p) => p.id === resubmitId) || null
   const canSubmit = !active && !accepted
   const selectedCourse = courses.find((c) => String(c.id) === courseId)
-  const courseTasks = tasks.filter((t) => !selectedCourse || String(t.course_id) === courseId || t.course_name.trim().toLowerCase() === selectedCourse.name.trim().toLowerCase())
+  const courseTasks = tasks.filter((t) => !selectedCourse || t.student_course === selectedCourse.name)
   const chosen = tasks.find((t) => t.id === taskId) || null
 
   function startResubmit(p: Project) {
@@ -180,6 +181,54 @@ export default function StudentProjectsPage() {
           </Alert>
         )}
 
+        {!loading && !needsLogin && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Projects assigned to your course</CardTitle>
+              <CardDescription>
+                {selectedCourse ? `For ${selectedCourse.name}. ` : ""}Your instructor adds these. Choose one, then upload your work below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {courses.length > 1 && (
+                <select aria-label="Course" value={courseId} onChange={(e) => { setCourseId(e.target.value); setTaskId("") }} disabled={Boolean(resubmitId)}
+                  className="h-10 w-full rounded-md border bg-background px-3 text-sm">
+                  {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              )}
+              {courseTasks.length === 0 && (
+                <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  No project has been assigned for {selectedCourse ? `“${selectedCourse.name}”` : "your course"} yet. Please check back later.
+                </p>
+              )}
+              {courseTasks.map((t) => {
+                const mine = t.my_status
+                const blocked = !canSubmit && taskId !== t.id
+                return (
+                  <div key={t.id} className={`space-y-2 rounded-md border p-4 text-sm ${taskId === t.id ? "border-primary ring-1 ring-primary" : ""}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-base font-semibold">{t.title}</span>
+                      <span className="text-xs text-muted-foreground">{t.category}{t.due_date ? ` · due ${fmtDate(t.due_date)}` : ""}</span>
+                      {mine && <StatusBadge status={mine} />}
+                    </div>
+                    <p className="whitespace-pre-wrap text-muted-foreground">{t.description}</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {t.file_url && <a href={t.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium underline"><Paperclip className="h-3 w-3" />Download project file{t.file_name ? ` (${t.file_name})` : ""}</a>}
+                      {t.resource_url && <a href={t.resource_url} target="_blank" rel="noreferrer" className="text-xs font-medium underline">Open project brief</a>}
+                      {canSubmit && !resubmitId && (
+                        <Button size="sm" variant={taskId === t.id ? "default" : "outline"} onClick={() => { setTaskId(t.id); formRef.current?.scrollIntoView({ behavior: "smooth" }) }}>
+                          {taskId === t.id ? "Selected" : "Submit this project"}
+                        </Button>
+                      )}
+                      {blocked && <span className="text-xs text-muted-foreground">Finish your current submission first.</span>}
+                    </div>
+                  </div>
+                )
+              })}
+            </CardContent>
+          </Card>
+        )}
+
         {canSubmit && (
           <div ref={formRef}><Card>
             <CardHeader>
@@ -198,34 +247,15 @@ export default function StudentProjectsPage() {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Choose your project</Label>
-                  {courseTasks.length === 0 && (
-                    <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">No project has been assigned for this course yet. Please check back later.</p>
+                  <Label>Project you are submitting</Label>
+                  {chosen ? (
+                    <div className="rounded-md border border-primary p-3 text-sm">
+                      <div className="font-semibold">{chosen.title}</div>
+                      <div className="text-xs text-muted-foreground">{chosen.course_name}</div>
+                    </div>
+                  ) : (
+                    <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Pick a project from “Projects assigned to your course” above.</p>
                   )}
-                  <div className="space-y-2">
-                    {courseTasks.map((t) => {
-                      const locked = Boolean(resubmitId) && t.id !== taskId
-                      return (
-                        <label key={t.id} className={`block cursor-pointer rounded-md border p-3 text-sm ${taskId === t.id ? "border-primary ring-1 ring-primary" : ""} ${locked ? "opacity-50" : ""}`}>
-                          <div className="flex items-start gap-3">
-                            <input type="radio" name="task" className="mt-1" checked={taskId === t.id} disabled={locked} onChange={() => setTaskId(t.id)} />
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-semibold">{t.title}</span>
-                                <span className="text-xs text-muted-foreground">{t.category}{t.due_date ? ` · due ${fmtDate(t.due_date)}` : ""}</span>
-                                {t.my_status && <StatusBadge status={t.my_status} />}
-                              </div>
-                              <p className="whitespace-pre-wrap text-muted-foreground">{t.description}</p>
-                              <div className="flex flex-wrap gap-3">
-                                {t.file_url && <a href={t.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium underline"><Paperclip className="h-3 w-3" />Download project file{t.file_name ? ` (${t.file_name})` : ""}</a>}
-                                {t.resource_url && <a href={t.resource_url} target="_blank" rel="noreferrer" className="text-xs font-medium underline">Open project brief</a>}
-                              </div>
-                            </div>
-                          </div>
-                        </label>
-                      )
-                    })}
-                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="desc">Notes for the reviewer (optional)</Label>

@@ -16,6 +16,7 @@ export interface StudentUser {
   name: string
   email: string
   courseIds: number[]
+  courseIdKnown: boolean[] // false when the id was guessed (record has no usable courseID)
   courseNames: string[]
 }
 
@@ -117,6 +118,7 @@ function toList(v: unknown): unknown[] {
 function toStudentUser(docId: string, d: FirebaseFirestore.DocumentData): StudentUser {
   const names = toList(d.courseName ?? d.courses).map((n) => String(n).trim()).filter(Boolean)
   const rawIds = toList(d.courseID ?? d.courseId)
+  const courseIdKnown = names.map((_, i) => Number.isFinite(Number(rawIds[i])) && rawIds[i] !== "" && rawIds[i] != null)
   const courseIds = names.map((_, i) => {
     const n = Number(rawIds[i])
     return Number.isFinite(n) && rawIds[i] !== "" && rawIds[i] != null ? n : i + 1
@@ -128,6 +130,7 @@ function toStudentUser(docId: string, d: FirebaseFirestore.DocumentData): Studen
     name: String(d.name ?? ""),
     email: String(d.username ?? ""),
     courseIds,
+    courseIdKnown,
     courseNames: names,
   }
 }
