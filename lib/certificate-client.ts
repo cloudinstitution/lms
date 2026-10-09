@@ -1,5 +1,6 @@
 "use client"
 
+import { toast } from "sonner"
 import { resumeServerSession, lastResumeError } from "@/lib/server-session-client"
 
 /** Small fetch wrapper for the project / certificate APIs (cookie-authenticated, JSON). */
@@ -32,6 +33,9 @@ export async function api<T = any>(url: string, init: { method?: string; body?: 
     data = await res.json()
   } catch {
     /* non-JSON */
+  }
+  if (res.status === 401 && typeof window !== "undefined") {
+    toast.error(resumeFailed ? `Could not reach the server (${resumeFailed})` : "Could not reach the server. Please try again.", { id: "server-session" })
   }
   if (!res.ok) throw new ApiFailure(
       res.status,
