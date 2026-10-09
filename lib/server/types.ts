@@ -27,6 +27,9 @@ export interface ProjectTaskDoc {
   category: string
   due_date: string | null // YYYY-MM-DD
   resource_url: string | null // optional link to a brief / starter material
+  file_name?: string | null // optional project file uploaded by the admin
+  file_url?: string | null
+  file_size?: number | null
   active: boolean
   created_by_name: string
   created_at: string

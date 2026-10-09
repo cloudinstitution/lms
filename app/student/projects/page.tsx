@@ -13,6 +13,8 @@ import { ApiFailure, LOGIN_AGAIN_MESSAGE, api } from "@/lib/certificate-client"
 import { Award, FileUp, Loader2, MessageSquareWarning, Paperclip } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { storage } from "@/lib/firebase"
+import { ref as storageRef, uploadBytes } from "firebase/storage"
 import { toast } from "sonner"
 
 const ACCEPT = ".pdf,.zip,.rar,.7z,.gz,.tar,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg,.ipynb,.py,.js,.ts,.java,.json"
@@ -26,6 +28,8 @@ interface Task {
   category: string
   due_date: string | null
   resource_url: string | null
+  file_name?: string | null
+  file_url?: string | null
   my_status: string | null
 }
 
@@ -115,6 +119,15 @@ export default function StudentProjectsPage() {
       })
       // Slots come back in request order; upload each file straight to Firebase Storage.
       for (let i = 0; i < slots.length; i++) {
+        if (String(slots[i].upload_url).startsWith("client-upload://")) {
+          // No server credentials configured: upload straight to Firebase Storage with the web SDK.
+          try {
+            await uploadBytes(storageRef(storage, slots[i].path), wanted[i].f, { contentType: slots[i].content_type })
+          } catch (err: any) {
+            throw new Error(`Upload of "${wanted[i].f.name}" failed (${err?.code || err?.message || "storage error"}). Check the Firebase Storage rules allow uploads.`)
+          }
+          continue
+        }
         const res = await fetch(slots[i].upload_url, { method: "PUT", headers: { "Content-Type": slots[i].content_type }, body: wanted[i].f })
         if (!res.ok) throw new Error(`Upload of "${wanted[i].f.name}" failed (${res.status}). Please try again.`)
       }
@@ -203,7 +216,10 @@ export default function StudentProjectsPage() {
                                 {t.my_status && <StatusBadge status={t.my_status} />}
                               </div>
                               <p className="whitespace-pre-wrap text-muted-foreground">{t.description}</p>
-                              {t.resource_url && <a href={t.resource_url} target="_blank" rel="noreferrer" className="text-xs font-medium underline">Open project brief</a>}
+                              <div className="flex flex-wrap gap-3">
+                                {t.file_url && <a href={t.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium underline"><Paperclip className="h-3 w-3" />Download project file{t.file_name ? ` (${t.file_name})` : ""}</a>}
+                                {t.resource_url && <a href={t.resource_url} target="_blank" rel="noreferrer" className="text-xs font-medium underline">Open project brief</a>}
+                              </div>
                             </div>
                           </div>
                         </label>

@@ -7,10 +7,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { db } from "@/lib/firebase"
+import { db, storage } from "@/lib/firebase"
 import { collection, getDocs } from "firebase/firestore"
+import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage"
 import { ApiFailure, api } from "@/lib/certificate-client"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Paperclip, Pencil, Plus, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -23,6 +24,9 @@ interface Task {
   category: string
   due_date: string | null
   resource_url: string | null
+  file_name?: string | null
+  file_url?: string | null
+  file_size?: number | null
   active: boolean
   submissions?: number
 }
@@ -38,6 +42,8 @@ export function AdminTasks({ onNeedsLogin }: { onNeedsLogin: () => void }) {
   const [editing, setEditing] = useState<string | null>(null) // task id, or "new"
   const [f, setF] = useState(empty)
   const [busy, setBusy] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [keepFile, setKeepFile] = useState(true)
 
   // Courses come straight from the same Firestore `courses` collection the admin Courses tab uses.
   const loadCourses = useCallback(async () => {
@@ -73,10 +79,14 @@ export function AdminTasks({ onNeedsLogin }: { onNeedsLogin: () => void }) {
 
   function startNew() {
     setF({ ...empty, course: courses[0] ? String(courses[0].id) : "" })
+    setFile(null)
+    setKeepFile(true)
     setEditing("new")
   }
   function startEdit(t: Task) {
     setF({ course: String(t.course_id), title: t.title, description: t.description, category: t.category, due_date: t.due_date ?? "", resource_url: t.resource_url ?? "" })
+    setFile(null)
+    setKeepFile(true)
     setEditing(t.id)
   }
 
@@ -88,8 +98,24 @@ export function AdminTasks({ onNeedsLogin }: { onNeedsLogin: () => void }) {
     setBusy(true)
     try {
       const body = { course_id: Number(f.course), course_name, title: f.title, description: f.description, category: f.category, due_date: f.due_date, resource_url: f.resource_url }
-      if (editing === "new") await api("/api/admin/project-tasks", { method: "POST", body })
-      else await api(`/api/admin/project-tasks/${editing}`, { method: "PUT", body })
+      let saved: any
+      if (editing === "new") saved = (await api("/api/admin/project-tasks", { method: "POST", body })).task
+      else saved = (await api(`/api/admin/project-tasks/${editing}`, { method: "PUT", body: { ...body, ...(keepFile || file ? {} : { file_url: "" }) } })).task
+      if (file) {
+        // The admin's project file goes straight to Firebase Storage, then its link is stored on the project.
+        const safe = file.name.replace(/[^\w.\- ()]+/g, "_").slice(0, 120) || "project-file"
+        const path = `project-tasks/${saved.id}/${Date.now()}-${safe}`
+        try {
+          await uploadBytes(storageRef(storage, path), file, { contentType: file.type || "application/octet-stream" })
+          const url = await getDownloadURL(storageRef(storage, path))
+          await api(`/api/admin/project-tasks/${saved.id}`, { method: "PUT", body: { ...body, file_url: url, file_name: file.name, file_size: file.size } })
+        } catch (upErr: any) {
+          toast.error(`Project saved, but the file upload failed (${upErr?.code || upErr?.message || "storage error"}). Check the Firebase Storage rules allow uploads.`)
+          setEditing(null)
+          await load()
+          return
+        }
+      }
       toast.success(editing === "new" ? "Project assigned to the course" : "Project updated")
       setEditing(null)
       await load()
@@ -164,6 +190,17 @@ export function AdminTasks({ onNeedsLogin }: { onNeedsLogin: () => void }) {
                   <Input id="t-url" type="url" value={f.resource_url} onChange={(e) => setF({ ...f, resource_url: e.target.value })} placeholder="https://drive.google.com/…" />
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="t-file">Upload project file (optional)</Label>
+                <Input id="t-file" type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                <p className="text-xs text-muted-foreground">PDF, ZIP, document… students can download it from My Projects.</p>
+                {editing !== "new" && tasks.find((t) => t.id === editing)?.file_url && !file && (
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={keepFile} onChange={(e) => setKeepFile(e.target.checked)} />
+                    Keep current file ({tasks.find((t) => t.id === editing)?.file_name})
+                  </label>
+                )}
+              </div>
               <div className="flex gap-2">
                 <Button type="submit" disabled={busy}>{busy ? "Saving…" : editing === "new" ? "Assign project" : "Save changes"}</Button>
                 <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
@@ -186,6 +223,7 @@ export function AdminTasks({ onNeedsLogin }: { onNeedsLogin: () => void }) {
               {!t.active && <Badge variant="secondary">Hidden</Badge>}
             </div>
             <p className="whitespace-pre-wrap text-sm">{t.description}</p>
+            {t.file_url && <a href={t.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium underline"><Paperclip className="h-3 w-3" />{t.file_name || "Project file"}</a>}
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => startEdit(t)}><Pencil className="mr-1 h-3 w-3" />Edit</Button>
               <Button size="sm" variant="outline" onClick={() => toggle(t)}>{t.active ? "Hide" : "Show"}</Button>

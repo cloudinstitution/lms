@@ -65,3 +65,10 @@ Admin / teacher: **Projects → Assign projects** creates a project for a course
 and brief link; collection `project_tasks`). Students pick their course on **My Projects**, choose one of the projects assigned to
 it, upload their work and submit. The title/category/course always come from the assignment. Admin accepts under **Submissions**,
 which issues the certificate the student can then download. Deleting an assignment that already has submissions only hides it.
+
+## No service-account credentials required
+If `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` are not set, the server uses the same public Firebase web config
+(`NEXT_PUBLIC_FIREBASE_*`) the rest of the LMS already uses (`lib/server/web-backend.ts`). Project files are then uploaded by the browser
+with the Storage SDK, so your Firestore and Storage **rules must allow** reads/writes for `projects`, `project_tasks`, `certificates`,
+`certificate_tokens`, `student_notifications` and the Storage paths `project-submissions/**` and `project-tasks/**`. When the service-account
+variables are set, they are used instead (stricter). `GET /api/session/health` shows which mode is active.

@@ -111,6 +111,9 @@ export interface TaskInput {
   category?: unknown
   due_date?: unknown
   resource_url?: unknown
+  file_name?: unknown
+  file_url?: unknown
+  file_size?: unknown
   active?: unknown
 }
 
@@ -132,7 +135,20 @@ function parseTask(input: TaskInput): Omit<ProjectTaskDoc, "created_by_name" | "
     if (!/^https?:\/\//i.test(u) || u.length > 500) throw new ApiError(400, "Link must start with http:// or https://")
     resource_url = u
   }
-  return { course_id, course_name, title, description, category, due_date, resource_url, active: input.active === false ? false : true }
+  let file_name: string | null = null
+  let file_url: string | null = null
+  let file_size: number | null = null
+  if (typeof input.file_url === "string" && input.file_url.trim()) {
+    const u = input.file_url.trim()
+    if (!/^https:\/\/(firebasestorage\.googleapis\.com|storage\.googleapis\.com|[a-z0-9-]+\.firebasestorage\.app)\//i.test(u) || u.length > 2000) {
+      throw new ApiError(400, "Uploaded file link is not valid")
+    }
+    file_url = u
+    file_name = typeof input.file_name === "string" && input.file_name.trim() ? input.file_name.trim().slice(0, 200) : "project-file"
+    const n = Number(input.file_size)
+    file_size = Number.isFinite(n) && n > 0 ? n : null
+  }
+  return { course_id, course_name, title, description, category, due_date, resource_url, file_name, file_url, file_size, active: input.active === false ? false : true }
 }
 
 export async function createTask(staff: StaffUser, input: TaskInput): Promise<ProjectTaskView> {

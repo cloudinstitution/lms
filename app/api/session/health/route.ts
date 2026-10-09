@@ -14,11 +14,12 @@ export async function GET() {
     FIREBASE_STORAGE_BUCKET: has("FIREBASE_STORAGE_BUCKET") || has("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET"),
     SESSION_SECRET: has("SESSION_SECRET"),
   }
+  const mode = env.FIREBASE_PROJECT_ID && env.FIREBASE_CLIENT_EMAIL && env.FIREBASE_PRIVATE_KEY ? "service-account" : "web-sdk (no server credentials needed)"
   let firestore: string = "ok"
   try {
     await getDb().collection("courses").limit(1).get()
   } catch (e) {
     firestore = e instanceof Error ? e.message.replace(/-----BEGIN[\s\S]*?END PRIVATE KEY-----/g, "[key]").slice(0, 300) : "failed"
   }
-  return NextResponse.json({ env, firestore }, { headers: { "Cache-Control": "no-store" } })
+  return NextResponse.json({ mode, env, firestore }, { headers: { "Cache-Control": "no-store" } })
 }
