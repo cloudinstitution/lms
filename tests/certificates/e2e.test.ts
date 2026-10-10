@@ -444,16 +444,16 @@ test("17. file downloads redirect (302) to short-lived signed URLs for owner and
   assert.equal(r2.status, 302)
 })
 
-test("18. one certificate per student: second project's accept → 409 until the first is... (conflict, nothing created)", async () => {
+test("18. several projects per student: a further project is accepted but no second certificate is issued", async () => {
   const { c, a } = await submitAndAccept()
-  // blocked at submit already
+  // same project cannot be submitted twice
   assert.equal((await submitFlow(c)).status, 409)
   // force a second project into the db (e.g. legacy data) and try to accept it
   db.seed("projects", "legacy2", { ...db.all("projects")[0], id: undefined, status: "Submitted", certificate_id: null, project_title: "Another" })
   const r = await acceptIt(a, "legacy2")
-  assert.equal(r.status, 409)
+  assert.equal(r.status, 200)
   assert.equal(db.all("certificates").length, 1); assert.equal(db.all("certificate_tokens").length, 1)
-  assert.equal(db.get("projects", "legacy2")!.status, "Submitted")
+  assert.equal(db.get("projects", "legacy2")!.status, "Accepted")
 })
 
 test("19. concurrent accepts → exactly one certificate, one token; every call succeeds idempotently", async () => {

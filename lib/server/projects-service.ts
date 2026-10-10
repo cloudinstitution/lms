@@ -282,7 +282,6 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
 
   const files = await verifyUploadedFiles(student.docId, input.files)
 
-  const certRef = db.collection(COLLECTIONS.certificates).doc(certKey(student.studentId))
   const mineQuery = db.collection(COLLECTIONS.projects).where("student_doc_id", "==", student.docId)
   const now = iso()
   let projectId = ""
@@ -313,13 +312,7 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
   }
 
   await db.runTransaction(async (tx) => {
-    const certSnap = await tx.get(certRef)
     const mine = await tx.get(mineQuery)
-
-    // One certificate per student (the certificate code IS the student ID).
-    if (certSnap.exists) {
-      throw new ApiError(409, `You already hold certificate ${student.studentId}. A new project submission is not needed.`)
-    }
 
     if (resubmitId) {
       const target = mine.docs.find((d) => d.id === resubmitId)
@@ -346,9 +339,13 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
       })
       projectId = target.id
     } else {
-      const active = mine.docs.find((d) => ACTIVE_STATUSES.includes((d.data() as ProjectDoc).status))
-      if (active) {
-        throw new ApiError(409, `You already have a project in status "${(active.data() as ProjectDoc).status}". Only one active submission is allowed.`)
+      // A student may submit several different projects; only one live submission per project.
+      const dup = mine.docs.find((d) => {
+        const p = d.data() as ProjectDoc
+        return p.task_id === taskId && (ACTIVE_STATUSES.includes(p.status) || p.status === "Accepted")
+      })
+      if (dup) {
+        throw new ApiError(409, `You already have this project in status "${(dup.data() as ProjectDoc).status}".`)
       }
       const ref = db.collection(COLLECTIONS.projects).doc()
       tx.create(ref, doc)
@@ -558,10 +555,14 @@ export async function acceptProject(id: string, reviewer: StaffUser, remarks: un
         if (certSnap.exists) {
           const existing = certSnap.data() as CertificateDoc
           if (existing.project_id !== id) {
-            throw new ApiError(
-              409,
-              `${project.student_name} already holds certificate ${existing.certificate_id} (for another project). Revoke it before accepting a different project.`,
-            )
+            // Additional project: accept it; the student keeps their single certificate.
+            if (project.status !== "Accepted") {
+              const t = iso()
+              const patch = { status: "Accepted" as const, admin_remarks: note, reviewed_by: reviewer.docId, reviewed_by_name: reviewer.name, reviewed_at: t, certificate_id: existing.certificate_id, updated_at: t }
+              tx.update(projectRef, patch)
+              return { project: { ...project, ...patch }, cert: existing, created: false }
+            }
+            return { project, cert: existing, created: false }
           }
           if (project.status === "Accepted") {
             return { project, cert: existing, created: false } // idempotent

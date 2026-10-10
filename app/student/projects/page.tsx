@@ -88,7 +88,7 @@ export default function StudentProjectsPage() {
   const active = projects.find((p) => p.status === "Submitted" || p.status === "Under Review")
   const accepted = projects.find((p) => p.status === "Accepted")
   const resubmitting = projects.find((p) => p.id === resubmitId) || null
-  const canSubmit = !active && !accepted
+  const canSubmit = true
   const selectedCourse = courses.find((c) => String(c.id) === courseId)
   const courseTasks = tasks.filter((t) => !selectedCourse || t.student_course === selectedCourse.name)
   const chosen = tasks.find((t) => t.id === taskId) || null
@@ -220,7 +220,7 @@ export default function StudentProjectsPage() {
               )}
               {courseTasks.map((t) => {
                 const mine = t.my_status
-                const blocked = !canSubmit && taskId !== t.id
+                const blocked = mine === "Submitted" || mine === "Under Review" || mine === "Accepted"
                 return (
                   <div key={t.id} className={`space-y-2 rounded-md border p-4 text-sm ${taskId === t.id ? "border-primary ring-1 ring-primary" : ""}`}>
                     <div className="flex flex-wrap items-center gap-2">
@@ -232,12 +232,12 @@ export default function StudentProjectsPage() {
                     <div className="flex flex-wrap items-center gap-3">
                       {t.file_url && <a href={t.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium underline"><Paperclip className="h-3 w-3" />Download project file{t.file_name ? ` (${t.file_name})` : ""}</a>}
                       {t.resource_url && <a href={t.resource_url} target="_blank" rel="noreferrer" className="text-xs font-medium underline">Open project brief</a>}
-                      {canSubmit && !resubmitId && (
+                      {!blocked && !resubmitId && (
                         <Button size="sm" variant={taskId === t.id ? "default" : "outline"} onClick={() => { setTaskId(t.id); formRef.current?.scrollIntoView({ behavior: "smooth" }) }}>
                           {taskId === t.id ? "Selected" : "Submit this project"}
                         </Button>
                       )}
-                      {blocked && <span className="text-xs text-muted-foreground">Finish your current submission first.</span>}
+                      {blocked && <span className="text-xs text-muted-foreground">Already submitted for this project.</span>}
                     </div>
                   </div>
                 )
@@ -305,7 +305,7 @@ export default function StudentProjectsPage() {
         {active && (
           <Alert>
             <AlertTitle>Your project is {active.status === "Under Review" ? "being reviewed" : "waiting for review"}</AlertTitle>
-            <AlertDescription>You can submit again only if the reviewer asks for changes.</AlertDescription>
+            <AlertDescription>You can still submit your other assigned projects.</AlertDescription>
           </Alert>
         )}
 
@@ -339,7 +339,7 @@ export default function StudentProjectsPage() {
                   </Alert>
                 )}
                 <div className="flex gap-2">
-                  {(p.status === "Rejected" || p.status === "Resubmission Required") && !active && (
+                  {(p.status === "Rejected" || p.status === "Resubmission Required") && (
                     <Button size="sm" onClick={() => startResubmit(p)}>Update &amp; resubmit</Button>
                   )}
                   {p.status === "Accepted" && p.certificate_available && (
