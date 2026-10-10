@@ -110,9 +110,23 @@ export async function renderCertificatePdf(cert: CertificateDoc, baseUrl: string
   doc.setFontSize(titleSize)
   lines.forEach((line, i) => centered(line, 360 + i * (titleSize + 4)))
 
-  // Bottom-left: company seal only
+  // Bottom-left: company seal with the signatory's name and title beneath it
   const sx = 100
-  doc.addImage(`data:image/png;base64,${SEAL_PNG_BASE64}`, "PNG", sx + 30, 440, 80, 84)
+  const signer = certificateConfig.signatoryName()
+  const signerTitle = certificateConfig.signatoryTitle()
+  const sealCx = sx + 90
+  doc.addImage(`data:image/png;base64,${SEAL_PNG_BASE64}`, "PNG", sealCx - 38, 424, 76, 80)
+  doc.setDrawColor(INK)
+  doc.setLineWidth(0.8)
+  doc.line(sx - 10, 516, sx + 190, 516)
+  doc.setTextColor(NAVY)
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(11)
+  doc.text(signer, sealCx, 532, { align: "center" })
+  doc.setTextColor(INK)
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(8.5)
+  doc.text(signerTitle, sealCx, 545, { align: "center" })
 
   // Bottom-centre: ID and date
   doc.setTextColor(NAVY)

@@ -347,7 +347,7 @@ test("9. PDF content: text fields + QR decodes to the verify URL (token only)", 
   const dir = mkdtempSync(path.join(tmpdir(), "certpdf-"))
   const f = path.join(dir, "c.pdf"); writeFileSync(f, Buffer.from(await pdf.arrayBuffer()))
   const text = execFileSync("pdftotext", ["-layout", f, "-"]).toString()
-  for (const needle of ["CLOUD INSTITUTION", "John Doe", "AWS Cloud Practitioner", "COURSE COMPLETION", "successfully completing the course", "CI2026001"]) {
+  for (const needle of ["CLOUD INSTITUTION", "John Doe", "AWS Cloud Practitioner", "COURSE COMPLETION", "successfully completing the course", "CI2026001", "Dilip D", "CEO"]) {
     assert.ok(text.includes(needle), `PDF should contain "${needle}"`)
   }
   execFileSync("pdftoppm", ["-r", "200", "-png", f, path.join(dir, "p")])
