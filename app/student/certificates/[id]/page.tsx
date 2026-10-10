@@ -53,7 +53,6 @@ export default function CertificateDetailPage() {
                   {[
                     ["Student", cert.student_name],
                     ["Course", cert.course_name],
-                    ["Project", cert.project_title],
                     ["Issued", cert.issue_date_display],
                     ["Certificate ID", cert.certificate_id],
                   ].map(([k, v]) => (

@@ -59,10 +59,10 @@ export default function MyCertificatesPage() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Award className="h-5 w-5 text-amber-600" />
-                  <span className="font-semibold">{c.project_title}</span>
+                  <span className="font-semibold">{c.course_name}</span>
                   <StatusBadge status={c.status} />
                 </div>
-                <div className="text-sm text-muted-foreground">{c.course_name} · Issued {c.issue_date_display}</div>
+                <div className="text-sm text-muted-foreground">Issued {c.issue_date_display}</div>
                 <div className="font-mono text-sm">{c.certificate_id}</div>
               </div>
               <div className="flex gap-2">

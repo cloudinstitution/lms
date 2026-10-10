@@ -45,7 +45,6 @@ export default function VerifyCertificatePage() {
                 {[
                   ["Student", result.student_name],
                   ["Course", result.course_name],
-                  ["Project", result.project_title],
                   ["Issued", result.issue_date_display],
                   ["Certificate ID", result.certificate_id],
                   ["Issued by", result.organization],

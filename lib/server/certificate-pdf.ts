@@ -40,7 +40,7 @@ export async function renderCertificatePdf(cert: CertificateDoc, baseUrl: string
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4", compress: true })
   doc.setProperties({
     title: `Certificate ${cert.certificate_id}`,
-    subject: "Certificate of Project Completion",
+    subject: "Certificate of Course Completion",
     author: org,
   })
   const cx = W / 2
@@ -72,7 +72,7 @@ export async function renderCertificatePdf(cert: CertificateDoc, baseUrl: string
   // Title
   doc.setFont("times", "bold")
   doc.setFontSize(29)
-  centered("CERTIFICATE OF PROJECT COMPLETION", 164, 1)
+  centered("CERTIFICATE OF COURSE COMPLETION", 164, 1)
   doc.setDrawColor(GOLD)
   doc.setLineWidth(1)
   doc.line(cx - 140, 192, cx + 140, 192)
@@ -95,53 +95,22 @@ export async function renderCertificatePdf(cert: CertificateDoc, baseUrl: string
   doc.setTextColor(INK)
   doc.setFont("times", "italic")
   doc.setFontSize(15)
-  centered("for successfully completing and submitting the project", 310)
+  centered("for successfully completing the course", 318)
 
-  // Project title: up to two lines, shrinking to fit
+  // Course name: up to two lines, shrinking to fit
   const titleW = W - 200
-  let titleSize = 24
+  let titleSize = 28
   let lines: string[] = []
   doc.setFont("times", "bold")
   for (; titleSize >= 12; titleSize--) {
     doc.setFontSize(titleSize)
-    lines = doc.splitTextToSize(cert.project_title, titleW) as string[]
+    lines = doc.splitTextToSize(cert.course_name, titleW) as string[]
     if (lines.length <= 2) break
   }
   if (lines.length > 2) lines = [lines[0], `${lines[1].slice(0, Math.max(0, lines[1].length - 1))}…`]
   doc.setTextColor(NAVY)
   doc.setFontSize(titleSize)
-  lines.forEach((line, i) => centered(line, 342 + i * (titleSize + 4)))
-
-  // "as part of the <COURSE> program." — three fonts on one centred line
-  const maxLine = W - 200
-  let courseSize = 18
-  const seg = (style: string, size: number, text: string) => {
-    doc.setFont("times", style)
-    doc.setFontSize(size)
-    return doc.getTextWidth(text)
-  }
-  // jsPDF measures a lone space as zero width, so the gap before "program." is an explicit 7.5pt (a normal word space plus the italic p's side-bearing).
-  const gap = 7.5
-  const total = () =>
-    seg("italic", 15, "as part of the ") + seg("bold", courseSize, cert.course_name) + gap + seg("italic", 15, "program.")
-  while (total() > maxLine && courseSize > 10) courseSize--
-  let x = (W - total()) / 2
-  const y = 404
-  doc.setTextColor(INK)
-  doc.setFont("times", "italic")
-  doc.setFontSize(15)
-  doc.text("as part of the ", x, y)
-  x += seg("italic", 15, "as part of the ")
-  doc.setTextColor(NAVY)
-  doc.setFont("times", "bold")
-  doc.setFontSize(courseSize)
-  doc.text(cert.course_name, x, y)
-  x += seg("bold", courseSize, cert.course_name)
-  doc.setTextColor(INK)
-  doc.setFont("times", "italic")
-  doc.setFontSize(15)
-  x += gap
-  doc.text("program.", x, y)
+  lines.forEach((line, i) => centered(line, 360 + i * (titleSize + 4)))
 
   // Bottom-left: signature
   const sx = 100

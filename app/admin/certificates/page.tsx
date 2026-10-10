@@ -77,17 +77,16 @@ export default function AdminCertificatesPage() {
         <CardContent className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/50 text-left">
-              <tr>{["Certificate ID", "Student", "Course", "Project", "Issued", "Status", ""].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr>
+              <tr>{["Certificate ID", "Student", "Course", "Issued", "Status", ""].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
-              {!loading && rows.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">No certificates found.</td></tr>}
+              {loading && <tr><td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">No certificates found.</td></tr>}
               {rows.map((c) => (
                 <tr key={c.certificate_id} className="border-b last:border-0">
                   <td className="px-4 py-3 font-mono">{c.certificate_id}</td>
                   <td className="px-4 py-3">{c.student_name}</td>
                   <td className="px-4 py-3">{c.course_name}</td>
-                  <td className="px-4 py-3">{c.project_title}</td>
                   <td className="px-4 py-3 whitespace-nowrap">{c.issue_date_display}</td>
                   <td className="px-4 py-3"><StatusBadge status={c.status} />{c.revoke_reason && <div className="mt-1 text-xs text-muted-foreground">{c.revoke_reason}</div>}</td>
                   <td className="px-4 py-3">
