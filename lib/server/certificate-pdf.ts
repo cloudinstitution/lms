@@ -35,8 +35,6 @@ function fitSize(doc: jsPDF, font: [string, string], text: string, max: number, 
  */
 export async function renderCertificatePdf(cert: CertificateDoc, baseUrl: string): Promise<Buffer> {
   const org = certificateConfig.orgName()
-  const signer = certificateConfig.signatoryName()
-  const signerTitle = certificateConfig.signatoryTitle()
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4", compress: true })
   doc.setProperties({
     title: `Certificate ${cert.certificate_id}`,
@@ -112,26 +110,9 @@ export async function renderCertificatePdf(cert: CertificateDoc, baseUrl: string
   doc.setFontSize(titleSize)
   lines.forEach((line, i) => centered(line, 360 + i * (titleSize + 4)))
 
-  // Bottom-left: signature
+  // Bottom-left: company seal only
   const sx = 100
-  doc.setTextColor(PEN)
-  doc.setFont("times", "bolditalic")
-  doc.setFontSize(30)
-  const sigW = doc.getTextWidth(signer)
-  doc.text(signer, sx + 90 - sigW / 2, 486, { angle: 4 })
-  doc.setDrawColor(INK)
-  doc.setLineWidth(0.8)
-  doc.line(sx - 10, 494, sx + 190, 494)
-  doc.setTextColor(NAVY)
-  doc.setFont("helvetica", "bold")
-  doc.setFontSize(11)
-  doc.text(signer, sx + 90, 510, { align: "center" })
-  doc.setTextColor(INK)
-  doc.setFont("helvetica", "normal")
-  doc.setFontSize(8.5)
-  doc.text(signerTitle, sx + 90, 524, { align: "center" })
-  // Company seal beside the signature
-  doc.addImage(`data:image/png;base64,${SEAL_PNG_BASE64}`, "PNG", sx + 170, 448, 66, 69)
+  doc.addImage(`data:image/png;base64,${SEAL_PNG_BASE64}`, "PNG", sx + 30, 440, 80, 84)
 
   // Bottom-centre: ID and date
   doc.setTextColor(NAVY)
