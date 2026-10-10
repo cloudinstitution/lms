@@ -32,7 +32,7 @@ export function toProjectView(
   p: ProjectDoc,
   cert: Pick<CertificateDoc, "certificate_id" | "status" | "project_id"> | null | undefined,
 ): ProjectView {
-  const linked = cert && cert.project_id === id ? cert : null
+  const linked = cert && (cert.project_id === id || (p.status === "Accepted" && p.certificate_id === cert.certificate_id)) ? cert : null
   return {
     id,
     task_id: p.task_id ?? null,

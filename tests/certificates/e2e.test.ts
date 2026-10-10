@@ -454,6 +454,9 @@ test("18. several projects per student: a further project is accepted but no sec
   assert.equal(r.status, 200)
   assert.equal(db.all("certificates").length, 1); assert.equal(db.all("certificate_tokens").length, 1)
   assert.equal(db.get("projects", "legacy2")!.status, "Accepted")
+  const { toProjectView } = await import("../../lib/server/projects-service")
+  const v = toProjectView("legacy2", db.get("projects", "legacy2") as any, db.all("certificates")[0] as any)
+  assert.equal(v.certificate_available, true, "any accepted project offers the same certificate")
 })
 
 test("19. concurrent accepts → exactly one certificate, one token; every call succeeds idempotently", async () => {
