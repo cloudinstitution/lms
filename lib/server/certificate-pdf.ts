@@ -4,7 +4,7 @@ import { certificateConfig } from "./certificate-config"
 import { formatIssueDate, verifyUrlFor } from "./certificates-service"
 import { LOGO_PNG_BASE64 } from "./certificate-logo"
 import { SEAL_PNG_BASE64 } from "./certificate-seal"
-import { MSME_PNG_BASE64 } from "./certificate-msme"
+import { MSME_PNG_BASE64, MSME_ASPECT } from "./certificate-msme"
 import type { CertificateDoc } from "./types"
 
 const W = 841.89 // A4 landscape, points
@@ -133,17 +133,18 @@ export async function renderCertificatePdf(cert: CertificateDoc, baseUrl: string
   doc.setTextColor(NAVY)
   doc.setFont("helvetica", "bold")
   doc.setFontSize(11)
-  doc.text(`Certificate ID: ${cert.certificate_id}`, 480, 480, { align: "center" })
+  doc.text(`Certificate ID: ${cert.certificate_id}`, 480, 462, { align: "center" })
   doc.setTextColor(INK)
   doc.setFont("helvetica", "normal")
   doc.setFontSize(10.5)
-  doc.text(`Date of Issue: ${formatIssueDate(cert.issue_date)}`, 480, 500, { align: "center" })
+  doc.text(`Date of Issue: ${formatIssueDate(cert.issue_date)}`, 480, 479, { align: "center" })
 
   // MSME registration (logo when provided, then the Udyam number)
   let msmeY = 524
   if (MSME_PNG_BASE64) {
-    doc.addImage(`data:image/png;base64,${MSME_PNG_BASE64}`, "PNG", 480 - 22, 510, 44, 30)
-    msmeY = 552
+    const mh = 40
+    doc.addImage(`data:image/png;base64,${MSME_PNG_BASE64}`, "PNG", 480 - (mh * MSME_ASPECT) / 2, 490, mh * MSME_ASPECT, mh)
+    msmeY = 548
   }
   doc.setTextColor(INK)
   doc.setFont("helvetica", "normal")
