@@ -5,6 +5,8 @@ export const certificateConfig = {
   orgName: () => process.env.CERT_ORG_NAME || "Cloud Institution",
   signatoryName: () => process.env.CERT_SIGNATORY_NAME || "Dilip D",
   signatoryTitle: () => process.env.CERT_SIGNATORY_TITLE || "CEO",
+  /** MSME / Udyam registration number printed on the certificate. */
+  udyamNumber: () => process.env.CERT_UDYAM_NUMBER || "UDYAM-KR-03-0512728",
   /** Time zone used to decide the issue date (so an approval at 02:00 IST isn't dated "yesterday"). */
   timeZone: () => process.env.CERT_TIMEZONE || "Asia/Kolkata",
   /** Let anyone holding the verify link download the PDF (privacy setting; off by default). */
