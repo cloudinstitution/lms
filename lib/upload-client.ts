@@ -6,7 +6,7 @@ import { ref, uploadBytesResumable } from "firebase/storage"
 
 const STALL_MS = 12_000
 /** Largest file kept in Firestore when Cloud Storage cannot be used (512 KB chunks). */
-export const FIRESTORE_FALLBACK_MAX_BYTES = 10 * 1024 * 1024
+export const FIRESTORE_FALLBACK_MAX_BYTES = 50 * 1024 * 1024
 const CHUNK_BYTES = 512 * 1024
 const STORAGE_DOWN_KEY = "lms.storageDownUntil"
 
@@ -76,7 +76,7 @@ function readAsBase64(blob: Blob): Promise<string> {
 /** Keep a file in Firestore (chunked base64) under the same virtual path Cloud Storage would have used. */
 export async function uploadViaFirestore(file: File, path: string, contentType: string, onProgress?: (fraction: number) => void): Promise<void> {
   if (file.size > FIRESTORE_FALLBACK_MAX_BYTES) {
-    throw Object.assign(new Error(`"${file.name}" is larger than ${FIRESTORE_FALLBACK_MAX_BYTES / 1024 / 1024} MB, which is the limit while Cloud Storage is unavailable.`), { code: "lms/too-large" })
+    throw Object.assign(new Error(`"${file.name}" is larger than ${FIRESTORE_FALLBACK_MAX_BYTES / 1024 / 1024} MB. Files that big (up to 500 MB) need Firebase Storage: ask the administrator to enable it (Firebase console → Build → Storage → Get started).`), { code: "lms/too-large" })
   }
   const key = storedKey(path)
   const chunks = Math.max(1, Math.ceil(file.size / CHUNK_BYTES))

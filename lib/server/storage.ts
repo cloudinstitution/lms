@@ -8,7 +8,7 @@ export const ALLOWED_EXTENSIONS = new Set([
   ".pdf", ".zip", ".rar", ".7z", ".gz", ".tar", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx",
   ".csv", ".txt", ".md", ".png", ".jpg", ".jpeg", ".ipynb", ".py", ".js", ".ts", ".java", ".json",
 ])
-export const MAX_FILE_BYTES = 50 * 1024 * 1024
+export const MAX_FILE_BYTES = 500 * 1024 * 1024
 export const MAX_FILES_PER_KIND = 10
 const UPLOAD_URL_TTL_MS = 15 * 60 * 1000
 const READ_URL_TTL_MS = 5 * 60 * 1000

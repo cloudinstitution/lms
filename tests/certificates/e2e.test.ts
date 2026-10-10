@@ -228,7 +228,8 @@ test("1b. upload validation: type, size, missing file, not-uploaded, foreign pat
   const c = await john()
   const bad = async (files: any[]) => (await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: c, body: { files } })).status
   assert.equal(await bad([{ name: "evil.exe", size: 10, kind: "project" }]), 400)
-  assert.equal(await bad([{ name: "big.zip", size: 51 * 1024 * 1024, kind: "project" }]), 400)
+  assert.equal(await bad([{ name: "big.zip", size: 501 * 1024 * 1024, kind: "project" }]), 400)
+  assert.equal(await bad([{ name: "ok.zip", size: 500 * 1024 * 1024, kind: "project" }]), 200) // 500 MB is allowed
   assert.equal(await bad([]), 400)
   // submit without uploading
   const up = await json(await call(R.uploadUrls, "POST", "/api/projects/upload-urls", { cookie: c, body: { files: [{ name: "a.pdf", size: 10, kind: "project" }] } }))

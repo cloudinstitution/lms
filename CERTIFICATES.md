@@ -74,7 +74,7 @@ with the Storage SDK, so your Firestore and Storage **rules must allow** reads/w
 variables are set, they are used instead (stricter). `GET /api/session/health` shows which mode is active.
 
 ## When Cloud Storage can't be used
-If the browser cannot reach Firebase Storage (bucket not set up, CORS, rules), uploads of up to 10 MB per file automatically fall back to
+If the browser cannot reach Firebase Storage (bucket not set up, CORS, rules), uploads of up to 50 MB per file automatically fall back to
 Firestore (`stored_files` + `file_chunks` collections, same virtual path). Submitting, reviewing and downloading work the same;
-downloads are streamed by the server (`lib/server/stored-files.ts`). Larger files need Storage to be set up. Admin project files in this
+downloads are streamed by the server (`lib/server/stored-files.ts`). Files up to 500 MB (the normal limit) need Storage to be set up. Admin project files in this
 mode are served from `/api/task-files`. Your Firestore rules must allow those two collections.

@@ -108,6 +108,8 @@ export default function StudentProjectsPage() {
     if (!courseId) return toast.error("Please select a course")
     if (!taskId) return toast.error("Please choose the project you are submitting")
     if (projectFiles.length === 0) return toast.error("Please attach your project file")
+    const tooBig = [...projectFiles, ...supportFiles].find((f) => f.size > 500 * 1024 * 1024)
+    if (tooBig) return toast.error(`"${tooBig.name}" is larger than 500 MB`)
     setBusy(true)
     setProgress(0)
     try {
@@ -280,7 +282,7 @@ export default function StudentProjectsPage() {
                   <div className="space-y-2">
                     <Label htmlFor="pf">Project file(s) <span className="text-red-600">*</span></Label>
                     <Input id="pf" type="file" accept={ACCEPT} multiple onChange={(e) => setProjectFiles(Array.from(e.target.files ?? []))} />
-                    <p className="text-xs text-muted-foreground">Max 50 MB each, up to 10 files.</p>
+                    <p className="text-xs text-muted-foreground">Max 500 MB each, up to 10 files.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="sf">Supporting files (optional)</Label>
