@@ -97,6 +97,45 @@ export async function assertEnrolled(learner: LearnerUser, courseId: number) {
   if (!snap.exists) throw new ApiError(403, "Buy this course to access it")
 }
 
+// ---------- manual payments (Razorpay.me page; an admin confirms) ----------
+export const manualPaymentUrl = () => process.env.PAYMENT_LINK_URL || "https://razorpay.me/@shwetadevaraddikanaki"
+export const paymentsEnabled = () => Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET)
+
+export async function createPaymentRequest(learner: LearnerUser, courseIdRaw: unknown, referenceRaw: unknown) {
+  const course = findCourse(courseIdRaw)
+  if (!course) throw new ApiError(404, "Course not found")
+  const reference = typeof referenceRaw === "string" ? referenceRaw.trim() : ""
+  if (reference.length < 6 || reference.length > 60) throw new ApiError(400, "Enter the payment ID or UTR number from your payment receipt")
+  const db = getDb()
+  if ((await db.collection("enrollments").doc(enrollKey(learner.docId, course.id)).get()).exists) throw new ApiError(409, "You already own this course")
+  const ref = db.collection("payment_requests").doc(`${learner.docId}__c${course.id}`)
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref)
+    if (snap.exists && (snap.data() as any).status === "pending") throw new ApiError(409, "Your payment for this course is already waiting for confirmation")
+    const data = { learner_id: learner.docId, course_id: course.id, amount: course.price, reference, status: "pending", created_at: iso() }
+    if (snap.exists) tx.set(ref, data)
+    else tx.create(ref, data)
+  })
+  return { id: ref.id, status: "pending" }
+}
+
+export async function decidePaymentRequest(adminName: string, id: string, action: unknown) {
+  if (action !== "approve" && action !== "reject") throw new ApiError(400, "Choose approve or reject")
+  const db = getDb()
+  const ref = db.collection("payment_requests").doc(id)
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref)
+    if (!snap.exists) throw new ApiError(404, "Request not found")
+    const r = snap.data() as any
+    if (r.status !== "pending") throw new ApiError(409, `This request was already ${r.status}`)
+    const eRef = db.collection("enrollments").doc(enrollKey(r.learner_id, r.course_id))
+    const e = action === "approve" ? await tx.get(eRef) : null
+    tx.update(ref, { status: action === "approve" ? "approved" : "rejected", decided_by: adminName, decided_at: iso() })
+    if (e && !e.exists) tx.create(eRef, { learner_id: r.learner_id, course_id: r.course_id, order_id: null, payment_id: r.reference, amount: r.amount, enrolled_at: iso(), method: "manual" })
+  })
+  return { ok: true }
+}
+
 // ---------- payments (Razorpay) ----------
 function razorpayKeys() {
   const id = process.env.RAZORPAY_KEY_ID
@@ -226,5 +265,13 @@ export async function adminListEnrollments() {
     .map((d) => d.data() as any)
     .map((l) => ({ name: String(l.name ?? ""), email: String(l.email ?? ""), phone: l.phone ? String(l.phone) : "", created_at: String(l.created_at ?? ""), purchased: enrollments.docs.filter((e) => (e.data() as any).learner_id === learnerId(String(l.email ?? ""))).length }))
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
-  return { enrollments: rows, signups, revenue: rows.reduce((s, r) => s + r.amount, 0) }
+  const reqSnap = await db.collection("payment_requests").get()
+  const requests = reqSnap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as any) }))
+    .map((r) => {
+      const l = learners.docs.find((x) => x.id === r.learner_id)?.data() as any
+      return { id: r.id as string, name: String(l?.name ?? "(deleted)"), email: String(l?.email ?? ""), phone: l?.phone ? String(l.phone) : "", course: findCourse(r.course_id)?.title ?? `Course ${r.course_id}`, amount: Number(r.amount ?? 0), reference: String(r.reference ?? ""), status: String(r.status), created_at: String(r.created_at ?? "") }
+    })
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+  return { enrollments: rows, signups, requests, revenue: rows.reduce((s, r) => s + r.amount, 0) }
 }

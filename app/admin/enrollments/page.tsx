@@ -14,12 +14,21 @@ const fmt = (iso: string) => (iso ? new Date(iso).toLocaleString("en-IN", { date
 const csvCell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
 
 export default function AdminEnrollmentsPage() {
-  const [data, setData] = useState<{ enrollments: any[]; signups: any[]; revenue: number } | null>(null)
+  const [data, setData] = useState<{ enrollments: any[]; signups: any[]; requests: any[]; revenue: number } | null>(null)
   const [q, setQ] = useState("")
 
-  useEffect(() => {
-    api("/api/admin/enrollments").then(setData).catch((e) => toast.error(e instanceof ApiFailure || e instanceof Error ? e.message : "Could not load enrollments"))
-  }, [])
+  const load = () => api("/api/admin/enrollments").then(setData).catch((e) => toast.error(e instanceof ApiFailure || e instanceof Error ? e.message : "Could not load enrollments"))
+  useEffect(() => { load() }, [])
+
+  const decide = async (id: string, action: "approve" | "reject") => {
+    if (action === "approve" && !confirm("Approve only after you have seen this payment in your Razorpay dashboard. Unlock the course?")) return
+    try {
+      await api(`/api/admin/payment-requests/${id}`, { method: "PUT", body: { action } })
+      toast.success(action === "approve" ? "Course unlocked for the learner" : "Request rejected")
+      load()
+    } catch (e: any) { toast.error(e?.message || "Could not update the request") }
+  }
+  const pending = (data?.requests ?? []).filter((r) => r.status === "pending")
 
   const match = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase())
   const rows = useMemo(() => (data?.enrollments ?? []).filter((r) => !q || match(`${r.name} ${r.email} ${r.phone} ${r.course} ${r.payment_id}`)), [data, q])
@@ -47,6 +56,29 @@ export default function AdminEnrollmentsPage() {
           <Card key={String(k)}><CardContent className="pt-6"><div className="text-sm text-muted-foreground">{k}</div><div className="text-2xl font-bold">{v}</div></CardContent></Card>
         ))}
       </div>
+
+      {pending.length > 0 && (
+        <Card className="border-amber-300">
+          <CardContent className="space-y-3 pt-6">
+            <div className="font-semibold">Payments waiting for confirmation ({pending.length})</div>
+            <p className="text-sm text-muted-foreground">Match the reference with a payment in your Razorpay dashboard, then approve.</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead><tr className="border-b">{["Name", "Email", "Course", "Amount", "Reference", "Sent", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
+                <tbody>
+                  {pending.map((r) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="px-3 py-2">{r.name}</td><td className="px-3 py-2">{r.email}</td><td className="px-3 py-2">{r.course}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{rupees(r.amount)}</td><td className="px-3 py-2 font-mono text-xs">{r.reference}</td><td className="px-3 py-2 whitespace-nowrap">{fmt(r.created_at)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" onClick={() => decide(r.id, "approve")}>Approve</Button> <Button size="sm" variant="outline" onClick={() => decide(r.id, "reject")}>Reject</Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Input placeholder="Search name, email, phone, course or payment ID" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-md" />
 

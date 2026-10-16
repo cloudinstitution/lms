@@ -710,3 +710,47 @@ test("payments webhook: signed capture grants the course; bad signature refused"
     assert.equal(db.all("enrollments").length, 1)
   } finally { restore() }
 })
+
+test("manual payment (Razorpay.me page): request → admin approves → course unlocks; no self-approval", async () => {
+  const L = await learnerRoutes()
+  const PR = await import("../../app/api/payments/request/route")
+  const AR = await import("../../app/api/admin/payment-requests/[id]/route")
+  const AE = await import("../../app/api/admin/enrollments/route")
+  delete process.env.RAZORPAY_KEY_ID; delete process.env.RAZORPAY_KEY_SECRET
+  const cat = await json(await call(L.catalog, "GET", "/api/catalog"))
+  assert.equal(cat.body.payments_enabled, false); assert.match(cat.body.payment_link_url, /^https:\/\/razorpay\.me\//)
+
+  const cookie = await learnerCookie(L)
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 4, reference: "x" } })).status, 400)
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 99, reference: "pay_123456" } })).status, 404)
+  const r = await json(await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 4, reference: "pay_ABC12345" } }))
+  assert.equal(r.status, 201)
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 4, reference: "pay_ABC12345" } })).status, 409) // already pending
+  // asking does not unlock anything
+  assert.equal(db.all("enrollments").length, 0)
+  assert.equal((await call(L.videos, "GET", "/api/learner/courses/4/videos", { cookie }, { id: "4" })).status, 403)
+  // learners/students cannot approve
+  assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie, body: { action: "approve" } }, { id: r.body.id })).status, 403)
+  const ad = await admin()
+  const list = await json(await call(AE, "GET", "/api/admin/enrollments", { cookie: ad }))
+  assert.equal(list.body.requests.length, 1); assert.equal(list.body.requests[0].course, "Azure"); assert.equal(list.body.requests[0].amount, 20000)
+  assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie: ad, body: { action: "maybe" } }, { id: r.body.id })).status, 400)
+  assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie: ad, body: { action: "approve" } }, { id: r.body.id })).status, 200)
+  assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie: ad, body: { action: "approve" } }, { id: r.body.id })).status, 409) // decided once
+  assert.equal(db.all("enrollments").length, 1)
+  const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
+  assert.deepEqual(me.body.enrollments.map((e: any) => e.course_id), [4])
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 4, reference: "pay_ZZZ99999" } })).status, 409) // already owned
+})
+
+test("manual payment: rejected request can be re-sent", async () => {
+  const L = await learnerRoutes()
+  const PR = await import("../../app/api/payments/request/route")
+  const AR = await import("../../app/api/admin/payment-requests/[id]/route")
+  const cookie = await learnerCookie(L)
+  const r = await json(await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 2, reference: "pay_FIRST111" } }))
+  const ad = await admin()
+  assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie: ad, body: { action: "reject" } }, { id: r.body.id })).status, 200)
+  assert.equal(db.all("enrollments").length, 0)
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 2, reference: "pay_SECOND22" } })).status, 201)
+})
