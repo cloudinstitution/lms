@@ -48,6 +48,16 @@ export default function AdminEnrollmentsPage() {
       load()
     } catch (e: any) { toast.error(e?.message || "Could not add the enrollment") }
   }
+  const [content, setContent] = useState<{ courses: { id: number; title: string; lessons_course: string; lessons: number }[]; options: string[] }>({ courses: [], options: [] })
+  const loadContent = () => api("/api/admin/course-content").then(setContent).catch(() => {})
+  useEffect(() => { loadContent() }, [])
+  const saveContent = async (id: number, name: string) => {
+    try {
+      const r = await api("/api/admin/course-content", { method: "PUT", body: { course_id: id, lessons_course: name } })
+      toast.success(r.lessons ? `Linked. ${r.lessons} lessons will show for buyers.` : "Linked, but that course has no videos yet. Add them under Courses.")
+      loadContent()
+    } catch (e: any) { toast.error(e?.message || "Could not save") }
+  }
   const pending = (data?.requests ?? []).filter((r) => r.status === "pending")
 
   const match = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase())
@@ -106,6 +116,25 @@ export default function AdminEnrollmentsPage() {
             </select>
             <Input placeholder="Payment ID / UTR (optional)" value={add.reference} onChange={(e) => setAdd({ ...add, reference: e.target.value })} />
             <Button onClick={addEnrollment} disabled={!add.email || !add.course_id}>Unlock course</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-3 pt-6">
+          <div className="font-semibold">Lessons shown to buyers</div>
+          <p className="text-sm text-muted-foreground">Each purchasable course plays the videos of one course you set up under Courses. If a buyer sees "Lessons will appear here soon", pick the right course here.</p>
+          <div className="space-y-2">
+            {content.courses.map((c) => (
+              <div key={c.id} className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm">
+                <span className="min-w-[220px] flex-1">{c.title}</span>
+                <select className="h-9 min-w-[220px] rounded-md border bg-background px-2 text-sm" value={c.lessons_course} onChange={(e) => saveContent(c.id, e.target.value)}>
+                  {!content.options.includes(c.lessons_course) && <option value={c.lessons_course}>{c.lessons_course} (no such course)</option>}
+                  {content.options.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <span className={c.lessons ? "text-emerald-700" : "text-amber-700"}>{c.lessons} lessons</span>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>

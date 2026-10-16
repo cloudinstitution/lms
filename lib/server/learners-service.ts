@@ -274,20 +274,67 @@ export async function handleWebhook(rawBody: string, signature: string | null) {
 
 // ---------- course content ----------
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
+const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
+const similarity = (a: string, b: string) => {
+  const A = words(a), B = words(b)
+  const inter = [...A].filter((x) => B.has(x)).length
+  const union = new Set([...A, ...B]).size
+  return union ? inter / union : 0
+}
 
-export async function listCourseVideos(courseId: number) {
-  const course = findCourse(courseId)
-  if (!course) throw new ApiError(404, "Course not found")
+/** Names of the courses the institute has set up under Admin → Courses (lessons are stored per course name). */
+export async function contentCourseNames(): Promise<string[]> {
+  const snap = await getDb().collection("courses").get()
+  const names = snap.docs.map((d) => String((d.data() as any).title ?? (d.data() as any).name ?? "").trim()).filter(Boolean)
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b))
+}
+
+/** Which Firestore course holds this catalogue course's lessons: the admin's choice, else the closest name. */
+async function lessonsCourseName(course: CatalogCourse): Promise<string> {
   const db = getDb()
-  let name = course.title
-  const all = await db.collection("courses").get()
-  const match = all.docs.map((d) => String((d.data() as any).name ?? (d.data() as any).title ?? d.id)).find((n) => norm(n) === norm(course.title))
-  if (match) name = match
-  const snap = await db.collection(`courses/${encodeURIComponent(name)}/videos`).get()
+  const chosen = await db.collection("course_content_map").doc(String(course.id)).get()
+  const picked = chosen.exists ? String((chosen.data() as any).name ?? "").trim() : ""
+  if (picked) return picked
+  const names = await contentCourseNames()
+  const exact = names.find((n) => norm(n) === norm(course.title))
+  if (exact) return exact
+  const best = names.map((n) => ({ n, score: similarity(n, course.title) })).sort((x, y) => y.score - x.score)[0]
+  return best && best.score >= 0.6 ? best.n : course.title
+}
+
+async function videosOf(name: string) {
+  const snap = await getDb().collection(`courses/${encodeURIComponent(name)}/videos`).get()
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as any) }))
     .map((v) => ({ id: v.id as string, title: String(v.title ?? "Lesson"), link: String(v.link ?? ""), serialNo: Number(v.serialNo ?? 0), sourceType: v.sourceType === "gdrive" ? "gdrive" : "youtube" }))
     .sort((a, b) => a.serialNo - b.serialNo)
+}
+
+export async function listCourseVideos(courseId: number) {
+  const course = findCourse(courseId)
+  if (!course) throw new ApiError(404, "Course not found")
+  return videosOf(await lessonsCourseName(course))
+}
+
+/** Admin: every course with the lessons course it uses and how many lessons that has. */
+export async function adminCourseContent() {
+  const names = await contentCourseNames()
+  const courses = await Promise.all(
+    CATALOG.map(async (c) => {
+      const lessons_course = await lessonsCourseName(c)
+      return { id: c.id, title: c.title, lessons_course, lessons: (await videosOf(lessons_course)).length }
+    }),
+  )
+  return { courses, options: names }
+}
+
+export async function setCourseContent(adminName: string, courseId: unknown, nameRaw: unknown) {
+  const base = findCourse(courseId)
+  if (!base) throw new ApiError(404, "Course not found")
+  const name = typeof nameRaw === "string" ? nameRaw.trim() : ""
+  if (!name || name.length > 150) throw new ApiError(400, "Choose the course that holds the lessons")
+  await getDb().collection("course_content_map").doc(String(base.id)).set({ name, updated_by: adminName, updated_at: iso() })
+  return { course_id: base.id, lessons_course: name, lessons: (await videosOf(name)).length }
 }
 
 export { CATALOG }
