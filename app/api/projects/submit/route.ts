@@ -19,6 +19,7 @@ export const POST = withApi(async (req) => {
     course_id?: unknown
     project_title?: unknown
     project_description?: unknown
+    repository_url?: unknown
     category?: unknown
     project_id?: unknown
     files?: unknown
@@ -29,6 +30,7 @@ export const POST = withApi(async (req) => {
     course_id: body.course_id,
     project_title: body.project_title,
     project_description: body.project_description,
+    repository_url: body.repository_url,
     category: body.category,
     project_id: body.project_id,
     files: Array.isArray(body.files) ? (body.files as SubmittedFile[]) : [],

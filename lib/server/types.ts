@@ -54,6 +54,7 @@ export interface ProjectDoc {
   course_name: string
   project_title: string
   project_description: string
+  repository_url?: string | null
   category: string
   files: ProjectFile[]
   project_file: string | null // first project file path (kept for parity with the spec's field list)
@@ -99,6 +100,7 @@ export interface ProjectView {
   course_name: string
   project_title: string
   project_description: string
+  repository_url?: string | null
   category: string
   submission_date: string
   status: ProjectStatus

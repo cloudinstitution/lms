@@ -43,6 +43,7 @@ export function toProjectView(
     course_name: p.course_name,
     project_title: p.project_title,
     project_description: p.project_description,
+    repository_url: p.repository_url ?? null,
     category: p.category,
     submission_date: p.submission_date,
     status: p.status,
@@ -239,6 +240,7 @@ export interface SubmitInput {
   course_id?: unknown
   project_title?: unknown
   project_description?: unknown
+  repository_url?: unknown
   category?: unknown
   project_id?: unknown
   files: SubmittedFile[]
@@ -280,6 +282,20 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
   if (rawNotes.length > 5000) throw new ApiError(400, "Notes are too long (max 5000 characters)")
   const description = rawNotes || "Submitted for the assigned project."
 
+  let repositoryUrl: string | null = null
+  if (typeof input.repository_url === "string" && input.repository_url.trim()) {
+    const raw = input.repository_url.trim()
+    let ok = raw.length <= 500
+    try {
+      const u = new URL(raw)
+      ok = ok && (u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password
+    } catch {
+      ok = false
+    }
+    if (!ok) throw new ApiError(400, "Enter a valid repository link, for example https://github.com/you/project")
+    repositoryUrl = raw
+  }
+
   const files = await verifyUploadedFiles(student.docId, input.files)
 
   const mineQuery = db.collection(COLLECTIONS.projects).where("student_doc_id", "==", student.docId)
@@ -297,6 +313,7 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
     course_name: courseName,
     project_title: title,
     project_description: description,
+    repository_url: repositoryUrl,
     category,
     files,
     project_file: files.find((f) => f.kind === "project")?.path ?? null,
@@ -327,6 +344,7 @@ export async function submitProject(student: StudentUser, input: SubmitInput): P
         task_id: taskId,
         project_title: title,
         project_description: description,
+        repository_url: repositoryUrl,
         category,
         files,
         project_file: doc.project_file,

@@ -567,3 +567,19 @@ test("27. student with no course on record can pick from the institute course li
   const bad = await submitFlow(c, { task_id: "t1" }, "docNoCourse")
   assert.equal(bad.status, 403)
 })
+
+test("repository link: optional, validated, stored and shown", async () => {
+  const c = await john()
+  const bad = await submitFlow(c, { repository_url: "javascript:alert(1)" })
+  assert.equal(bad.status, 400)
+  const ok = await submitFlow(c, { repository_url: " https://github.com/pooja/demo " })
+  assert.equal(ok.status, 201, JSON.stringify(ok.body))
+  assert.equal(ok.body.project.repository_url, "https://github.com/pooja/demo")
+  assert.equal(db.all("projects")[0].repository_url, "https://github.com/pooja/demo")
+})
+
+test("repository link is optional", async () => {
+  const c = await john()
+  const r = await submitFlow(c)
+  assert.equal(r.status, 201); assert.equal(r.body.project.repository_url, null)
+})

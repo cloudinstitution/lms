@@ -40,6 +40,7 @@ interface Project {
   course_name: string
   project_title: string
   project_description: string
+  repository_url?: string | null
   category: string
   submission_date: string
   status: string
@@ -64,6 +65,7 @@ export default function StudentProjectsPage() {
   const [courseId, setCourseId] = useState("")
   const [taskId, setTaskId] = useState("")
   const [description, setDescription] = useState("")
+  const [repoUrl, setRepoUrl] = useState("")
   const [projectFiles, setProjectFiles] = useState<File[]>([])
   const [supportFiles, setSupportFiles] = useState<File[]>([])
   const formRef = useRef<HTMLDivElement>(null)
@@ -98,6 +100,7 @@ export default function StudentProjectsPage() {
     setCourseId(String(p.course_id))
     setTaskId(p.task_id ?? "")
     setDescription(p.project_description)
+    setRepoUrl(p.repository_url || "")
     setProjectFiles([])
     setSupportFiles([])
     formRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -155,12 +158,13 @@ export default function StudentProjectsPage() {
           task_id: taskId,
           course_id: Number(courseId),
           project_description: description,
+          repository_url: repoUrl.trim() || undefined,
           project_id: resubmitId ?? undefined,
           files: slots.map((s: any) => ({ path: s.path, kind: s.kind })),
         },
       })
       toast.success(resubmitId ? "Project resubmitted for review" : "Project submitted for review")
-      setTaskId(""); setDescription(""); setProjectFiles([]); setSupportFiles([]); setResubmitId(null)
+      setTaskId(""); setDescription(""); setRepoUrl(""); setProjectFiles([]); setSupportFiles([]); setResubmitId(null)
       await load()
     } catch (err) {
       if (err instanceof ApiFailure && err.needsLogin) setNeedsLogin(true)
@@ -275,6 +279,10 @@ export default function StudentProjectsPage() {
                   )}
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="repo">Repository link (optional)</Label>
+                  <Input id="repo" type="url" inputMode="url" maxLength={500} value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://github.com/your-name/your-project" />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="desc">Notes for the reviewer (optional)</Label>
                   <Textarea id="desc" rows={4} value={description} maxLength={5000} onChange={(e) => setDescription(e.target.value)} placeholder="What did you build, which tools did you use, anything the reviewer should know?" />
                 </div>
@@ -324,6 +332,7 @@ export default function StudentProjectsPage() {
                   <StatusBadge status={p.status} />
                 </div>
                 <p className="whitespace-pre-wrap text-sm">{p.project_description}</p>
+                {p.repository_url && <a href={p.repository_url} target="_blank" rel="noreferrer" className="block break-all text-xs font-medium underline">Repository: {p.repository_url}</a>}
                 <div className="flex flex-wrap gap-2 text-xs">
                   {p.files.map((f) => (
                     <a key={f.id} href={`/api/student/projects/${p.id}/files/${f.id}`} className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-muted">

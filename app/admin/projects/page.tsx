@@ -153,6 +153,7 @@ export default function AdminProjectsPage() {
                 <DialogDescription>{open.student_name} ({open.student_id}) · {open.course_name} · {open.category} · {fmtDate(open.submission_date)}</DialogDescription>
               </DialogHeader>
               <p className="whitespace-pre-wrap text-sm">{open.project_description}</p>
+              {open.repository_url && <a href={open.repository_url} target="_blank" rel="noreferrer" className="block break-all text-sm font-medium underline">Repository: {open.repository_url}</a>}
               <div className="flex flex-wrap gap-2 text-xs">
                 {open.files.map((f: any) => (
                   <a key={f.id} href={`/api/admin/projects/${open.id}/files/${f.id}`} className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-muted">
