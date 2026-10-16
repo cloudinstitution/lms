@@ -38,6 +38,7 @@ export const roleConfigs: Record<string, RoleConfig> = {
       { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
       { name: "Students", href: "/admin/students", icon: Users },
       { name: "Enrollments", href: "/admin/enrollments", icon: ShoppingCart },
+      { name: "Course Quizzes", href: "/admin/course-quizzes", icon: FileText },
       { name: "Courses", href: "/admin/courses", icon: BookOpen },
       { name: "Schedule", href: "/admin/schedule", icon: Calendar },
       { name: "Assessments", href: "/admin/assessments", icon: FileText },

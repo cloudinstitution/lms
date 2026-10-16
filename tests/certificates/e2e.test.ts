@@ -864,3 +864,69 @@ test("lessons: close name match, admin can link a different course, counts shown
   assert.equal(info.body.courses.find((c: any) => c.id === 1).lessons, 2)
   assert.ok(info.body.options.includes("Core Java Basics"))
 })
+
+test("learning: progress status, quizzes between lessons, server-side grading, admin sees progress", async () => {
+  const L = await learnerRoutes()
+  const AQ = await import("../../app/api/admin/course-quizzes/route")
+  const AQi = await import("../../app/api/admin/course-quizzes/[id]/route")
+  const PG = await import("../../app/api/learner/courses/[id]/progress/route")
+  const QZ = await import("../../app/api/learner/quizzes/[id]/route")
+  const AE = await import("../../app/api/admin/enrollments/route")
+  const ad = await admin()
+  const cookie = await learnerCookie(L)
+  const other = await learnerCookie(L, { ...signupBody, email: "other@example.com" })
+  for (const [i, t] of ["L1", "L2", "L3"].entries()) db.seed("courses/AWS/videos", `v${i + 1}`, { title: t, link: "https://youtu.be/abcdefghijk", serialNo: i + 1, sourceType: "youtube" })
+  db.seed("courses", "cA", { title: "AWS" })
+  await call(AE, "POST", "/api/admin/enrollments", { cookie: ad, body: { email: "ravi@example.com", course_id: 3 } })
+
+  // authoring: admin only + validation
+  const quiz = { course_id: 3, title: "Checkpoint 1", after_lesson: 2, pass_mark: 50, questions: [
+    { question: "What does S3 store?", options: ["Objects", "VMs", "DNS"], answer: 0 },
+    { question: "EC2 is a…", options: ["Database", "Virtual server"], answer: 1 },
+  ] }
+  assert.equal((await call(AQ, "POST", "/api/admin/course-quizzes", { cookie, body: quiz })).status, 401)
+  assert.equal((await call(AQ, "POST", "/api/admin/course-quizzes", { cookie: ad, body: { ...quiz, questions: [{ question: "q", options: ["a"], answer: 0 }] } })).status, 400)
+  assert.equal((await call(AQ, "POST", "/api/admin/course-quizzes", { cookie: ad, body: { ...quiz, questions: [{ question: "q", options: ["a", "b"], answer: 5 }] } })).status, 400)
+  assert.equal((await call(AQ, "POST", "/api/admin/course-quizzes", { cookie: ad, body: { ...quiz, after_lesson: 0 } })).status, 400)
+  const made = await json(await call(AQ, "POST", "/api/admin/course-quizzes", { cookie: ad, body: quiz }))
+  assert.equal(made.status, 201); const qid = made.body.quiz.id
+
+  // player: nothing done yet; quiz carries no answers
+  let pl = await json(await call(PG, "GET", "/api/learner/courses/3/progress", { cookie }, { id: "3" }))
+  assert.equal(pl.status, 200); assert.equal(pl.body.progress.status, "Not started"); assert.equal(pl.body.videos.length, 3)
+  assert.equal(pl.body.quizzes.length, 1); assert.equal(pl.body.quizzes[0].after_lesson, 2)
+  assert.ok(!JSON.stringify(pl.body).includes("answer"), "answers never leave the server")
+  assert.equal((await call(PG, "GET", "/api/learner/courses/3/progress", { cookie: other }, { id: "3" })).status, 403) // not enrolled
+
+  // mark lessons done
+  const done = (id: string, d = true) => json(call(PG, "POST", "/api/learner/courses/3/progress", { cookie, body: { lesson_id: id, done: d } }, { id: "3" }) as any)
+  assert.equal((await call(PG, "POST", "/api/learner/courses/3/progress", { cookie, body: { lesson_id: "nope" } }, { id: "3" })).status, 404)
+  let r = await json(await call(PG, "POST", "/api/learner/courses/3/progress", { cookie, body: { lesson_id: "v1" } }, { id: "3" }))
+  assert.equal(r.body.progress.status, "In progress"); assert.equal(r.body.progress.lessons_done, 1); assert.equal(r.body.progress.percent, 25) // 1 of 3 lessons + 1 quiz
+  await call(PG, "POST", "/api/learner/courses/3/progress", { cookie, body: { lesson_id: "v1" } }, { id: "3" }) // idempotent
+  r = await json(await call(PG, "POST", "/api/learner/courses/3/progress", { cookie, body: { lesson_id: "v1", done: false } }, { id: "3" }))
+  assert.equal(r.body.progress.lessons_done, 0); assert.equal(r.body.progress.status, "Not started")
+  for (const id of ["v1", "v2", "v3"]) r = await json(await call(PG, "POST", "/api/learner/courses/3/progress", { cookie, body: { lesson_id: id } }, { id: "3" }))
+  assert.equal(r.body.progress.percent, 75); assert.equal(r.body.progress.status, "In progress", "all lessons done but quiz still open")
+
+  // quiz: questions without answers, graded on the server
+  const q = await json(await call(QZ, "GET", `/api/learner/quizzes/${qid}`, { cookie }, { id: qid }))
+  assert.equal(q.status, 200); assert.equal(q.body.quiz.questions.length, 2); assert.ok(!JSON.stringify(q.body).includes("correct"))
+  assert.equal((await call(QZ, "GET", `/api/learner/quizzes/${qid}`, { cookie: other }, { id: qid })).status, 403)
+  assert.equal((await call(QZ, "POST", `/api/learner/quizzes/${qid}`, { cookie, body: { answers: [0] } }, { id: qid })).status, 400)
+  const fail = await json(await call(QZ, "POST", `/api/learner/quizzes/${qid}`, { cookie, body: { answers: [2, 0] } }, { id: qid }))
+  assert.equal(fail.body.percent, 0); assert.equal(fail.body.passed, false); assert.equal(fail.body.progress.status, "In progress")
+  const half = await json(await call(QZ, "POST", `/api/learner/quizzes/${qid}`, { cookie, body: { answers: [0, 0] } }, { id: qid }))
+  assert.equal(half.body.percent, 50); assert.equal(half.body.passed, true); assert.deepEqual(half.body.review.map((x: any) => x.correct), [true, false])
+  assert.equal(half.body.progress.status, "Completed"); assert.equal(half.body.progress.percent, 100)
+
+  // admin sees each buyer's status
+  const list = await json(await call(AE, "GET", "/api/admin/enrollments", { cookie: ad }))
+  assert.equal(list.body.enrollments[0].progress.status, "Completed")
+  const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
+  assert.equal(me.body.enrollments[0].progress.percent, 100)
+  // deleting the quiz is admin only
+  assert.equal((await call(AQi, "DELETE", `/api/admin/course-quizzes/${qid}`, { cookie }, { id: qid })).status, 401)
+  assert.equal((await call(AQi, "DELETE", `/api/admin/course-quizzes/${qid}`, { cookie: ad }, { id: qid })).status, 200)
+  assert.equal((await json(await call(AQ, "GET", "/api/admin/course-quizzes?course_id=3", { cookie: ad }))).body.quizzes.length, 0)
+})

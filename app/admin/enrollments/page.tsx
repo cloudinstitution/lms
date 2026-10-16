@@ -169,15 +169,15 @@ export default function AdminEnrollmentsPage() {
         <TabsContent value="paid">
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-left text-sm">
-              <thead className="border-b bg-muted/50"><tr>{["Name", "Email", "Phone", "Course", "Amount", "Payment ID", "Enrolled"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
+              <thead className="border-b bg-muted/50"><tr>{["Name", "Email", "Phone", "Course", "Amount", "Payment ID", "Progress", "Enrolled"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
               <tbody>
-                {!data && <tr><td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
-                {data && rows.length === 0 && <tr><td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">No enrollments yet.</td></tr>}
+                {!data && <tr><td colSpan={8} className="px-4 py-6 text-center text-muted-foreground">Loading…</td></tr>}
+                {data && rows.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-muted-foreground">No enrollments yet.</td></tr>}
                 {rows.map((r, i) => (
                   <tr key={i} className="border-b last:border-0">
                     <td className="px-4 py-3">{r.name}</td><td className="px-4 py-3">{r.email}</td><td className="px-4 py-3 whitespace-nowrap">{r.phone}</td>
                     <td className="px-4 py-3">{r.course}</td><td className="px-4 py-3 whitespace-nowrap">{rupees(r.amount)}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{r.payment_id}</td><td className="px-4 py-3 whitespace-nowrap">{fmt(r.enrolled_at)}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{r.payment_id}</td><td className="px-4 py-3 whitespace-nowrap">{r.progress ? `${r.progress.status} · ${r.progress.percent}%` : "—"}</td><td className="px-4 py-3 whitespace-nowrap">{fmt(r.enrolled_at)}</td>
                   </tr>
                 ))}
               </tbody>

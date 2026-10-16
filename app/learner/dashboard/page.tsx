@@ -37,9 +37,16 @@ export default function LearnerDashboard() {
                       <CardTitle className="text-base">{e.title}</CardTitle>
                       <CardDescription>{e.category} · {e.duration} · {e.level}</CardDescription>
                     </CardHeader>
+                    <CardContent className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className={`rounded-full px-2.5 py-0.5 font-medium ${e.progress?.status === "Completed" ? "bg-emerald-100 text-emerald-800" : e.progress?.status === "In progress" ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-700"}`}>{e.progress?.status ?? "Not started"}</span>
+                        <span className="text-muted-foreground">{e.progress?.percent ?? 0}%</span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className="h-full bg-emerald-600" style={{ width: `${e.progress?.percent ?? 0}%` }} /></div>
+                    </CardContent>
                     <CardFooter>
                       <Link href={`/learner/courses/${e.course_id}`} className="w-full">
-                        <Button className="w-full bg-emerald-600 hover:bg-emerald-700"><BookOpen className="mr-2 h-4 w-4" />Start learning</Button>
+                        <Button className="w-full bg-emerald-600 hover:bg-emerald-700"><BookOpen className="mr-2 h-4 w-4" />{e.progress?.status === "In progress" ? "Continue learning" : e.progress?.status === "Completed" ? "Review course" : "Start learning"}</Button>
                       </Link>
                     </CardFooter>
                   </Card>
