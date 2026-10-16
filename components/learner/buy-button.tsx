@@ -49,6 +49,8 @@ export default function BuyButton({ courseId, label = "Buy now", showPrice, clas
       if (!cat.payments_enabled) {
         const c = (cat.courses || []).find((x: any) => x.id === courseId)
         if (!c || !cat.payment_link_url) throw new Error("Online payments are not enabled yet. Please contact the institute.")
+        // Tell the institute right away that this learner is about to pay (the reference is added afterwards).
+        await learnerApi("/api/payments/request", { body: { course_id: courseId } })
         setManual({ url: cat.payment_link_url, title: c.title, price: c.price })
         setBusy(false)
         return

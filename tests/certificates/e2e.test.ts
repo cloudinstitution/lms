@@ -728,7 +728,8 @@ test("manual payment (Razorpay.me page): request → admin approves → course u
   assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 99, reference: "pay_123456" } })).status, 404)
   const r = await json(await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 4, reference: "pay_ABC12345" } }))
   assert.equal(r.status, 201)
-  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 4, reference: "pay_ABC12345" } })).status, 409) // already pending
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 4, reference: "pay_ABC12345" } })).status, 200) // same pending request, updated
+  assert.equal(db.all("payment_requests").length, 1)
   // asking does not unlock anything
   assert.equal(db.all("enrollments").length, 0)
   assert.equal((await call(L.videos, "GET", "/api/learner/courses/4/videos", { cookie }, { id: "4" })).status, 403)
@@ -781,4 +782,38 @@ test("course fees: admin changes a fee → catalog, Razorpay order and manual re
   } finally { restore(); delete process.env.RAZORPAY_KEY_ID; delete process.env.RAZORPAY_KEY_SECRET }
   const r = await json(await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 3, reference: "pay_FEE12345" } }))
   assert.equal(r.status, 201); assert.equal(db.get("payment_requests", r.body.id)!.amount, 25000)
+})
+
+
+test("payment requests appear for the admin as soon as the payment page is opened; admin can also add an enrollment by hand", async () => {
+  const L = await learnerRoutes()
+  const PR = await import("../../app/api/payments/request/route")
+  const AE = await import("../../app/api/admin/enrollments/route")
+  delete process.env.RAZORPAY_KEY_ID; delete process.env.RAZORPAY_KEY_SECRET
+  const cookie = await learnerCookie(L)
+  const ad = await admin()
+
+  // 1. learner opens the payment page -> pending request with no reference yet
+  const opened = await json(await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 5 } }))
+  assert.equal(opened.status, 201)
+  let list = await json(await call(AE, "GET", "/api/admin/enrollments", { cookie: ad }))
+  assert.equal(list.body.requests.length, 1); assert.equal(list.body.requests[0].reference, ""); assert.equal(list.body.requests[0].status, "pending")
+  // opening again is harmless; then the reference is added to the same request
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 5 } })).status, 200)
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 5, reference: "pay_LATE12345" } })).status, 200)
+  list = await json(await call(AE, "GET", "/api/admin/enrollments", { cookie: ad }))
+  assert.equal(list.body.requests.length, 1); assert.equal(list.body.requests[0].reference, "pay_LATE12345")
+  assert.equal(db.all("enrollments").length, 0, "nothing unlocks without the admin")
+
+  // 2. admin adds the enrollment by hand (payment seen in Razorpay) -> unlocked, pending request closed
+  const add = (body: any, c = ad) => call(AE, "POST", "/api/admin/enrollments", { cookie: c, body })
+  assert.equal((await add({ email: "ravi@example.com", course_id: 5 }, cookie)).status, 403) // learner cannot
+  assert.equal((await add({ email: "nobody@example.com", course_id: 5 })).status, 404)
+  assert.equal((await add({ email: "ravi@example.com", course_id: 99 })).status, 404)
+  assert.equal((await add({ email: "RAVI@example.com", course_id: 5, reference: "UTR998877" })).status, 201)
+  assert.equal((await add({ email: "ravi@example.com", course_id: 5 })).status, 409)
+  assert.equal(db.all("enrollments").length, 1); assert.equal(db.all("enrollments")[0].method, "manual")
+  assert.equal(db.all("payment_requests")[0].status, "approved")
+  const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
+  assert.deepEqual(me.body.enrollments.map((e: any) => e.course_id), [5])
 })

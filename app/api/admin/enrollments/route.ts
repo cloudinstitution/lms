@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server"
-import { withApi } from "@/lib/server/http"
-import { adminListEnrollments } from "@/lib/server/learners-service"
-import { requireAdmin } from "@/lib/server/session"
+import { readJson, withApi } from "@/lib/server/http"
+import { adminAddEnrollment, adminListEnrollments } from "@/lib/server/learners-service"
+import { assertSameOrigin, requireAdmin } from "@/lib/server/session"
 
 /** GET /api/admin/enrollments — online buyers, their courses and payments (admin only). */
 export const GET = withApi(async (req) => {
   await requireAdmin(req)
   return NextResponse.json(await adminListEnrollments())
+})
+
+/** POST /api/admin/enrollments { email, course_id, reference? } — unlock a course for a payment seen in the Razorpay dashboard. */
+export const POST = withApi(async (req) => {
+  assertSameOrigin(req)
+  const admin = await requireAdmin(req)
+  const body = await readJson<{ email?: unknown; course_id?: unknown; reference?: unknown }>(req)
+  return NextResponse.json(await adminAddEnrollment(admin.name, body), { status: 201 })
 })

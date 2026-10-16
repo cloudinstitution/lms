@@ -39,6 +39,15 @@ export default function AdminEnrollmentsPage() {
       loadFees()
     } catch (e: any) { toast.error(e?.message || "Could not update the fee") }
   }
+  const [add, setAdd] = useState({ email: "", course_id: "", reference: "" })
+  const addEnrollment = async () => {
+    try {
+      await api("/api/admin/enrollments", { method: "POST", body: { email: add.email, course_id: Number(add.course_id), reference: add.reference } })
+      toast.success("Course unlocked for the learner")
+      setAdd({ email: "", course_id: "", reference: "" })
+      load()
+    } catch (e: any) { toast.error(e?.message || "Could not add the enrollment") }
+  }
   const pending = (data?.requests ?? []).filter((r) => r.status === "pending")
 
   const match = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase())
@@ -85,6 +94,22 @@ export default function AdminEnrollmentsPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardContent className="space-y-3 pt-6">
+          <div className="font-semibold">Add an enrollment manually</div>
+          <p className="text-sm text-muted-foreground">Use this when you see a payment in your Razorpay dashboard that is not listed below. The learner must have signed up with this email.</p>
+          <div className="grid gap-2 md:grid-cols-4">
+            <Input placeholder="Learner email" value={add.email} onChange={(e) => setAdd({ ...add, email: e.target.value })} />
+            <select className="h-10 rounded-md border bg-background px-3 text-sm" value={add.course_id} onChange={(e) => setAdd({ ...add, course_id: e.target.value })}>
+              <option value="">Choose course</option>
+              {fees.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+            </select>
+            <Input placeholder="Payment ID / UTR (optional)" value={add.reference} onChange={(e) => setAdd({ ...add, reference: e.target.value })} />
+            <Button onClick={addEnrollment} disabled={!add.email || !add.course_id}>Unlock course</Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {pending.length > 0 && (
         <Card className="border-amber-300">
           <CardContent className="space-y-3 pt-6">
@@ -97,7 +122,7 @@ export default function AdminEnrollmentsPage() {
                   {pending.map((r) => (
                     <tr key={r.id} className="border-b last:border-0">
                       <td className="px-3 py-2">{r.name}</td><td className="px-3 py-2">{r.email}</td><td className="px-3 py-2">{r.course}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{rupees(r.amount)}</td><td className="px-3 py-2 font-mono text-xs">{r.reference}</td><td className="px-3 py-2 whitespace-nowrap">{fmt(r.created_at)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{rupees(r.amount)}</td><td className="px-3 py-2 font-mono text-xs">{r.reference || <span className="font-sans text-muted-foreground">not entered yet</span>}</td><td className="px-3 py-2 whitespace-nowrap">{fmt(r.created_at)}</td>
                       <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" onClick={() => decide(r.id, "approve")}>Approve</Button> <Button size="sm" variant="outline" onClick={() => decide(r.id, "reject")}>Reject</Button></td>
                     </tr>
                   ))}

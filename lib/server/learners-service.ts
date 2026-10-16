@@ -125,22 +125,53 @@ export async function setCourseFee(adminName: string, courseId: unknown, priceRa
 export const manualPaymentUrl = () => process.env.PAYMENT_LINK_URL || "https://razorpay.me/@shwetadevaraddikanaki"
 export const paymentsEnabled = () => Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET)
 
-export async function createPaymentRequest(learner: LearnerUser, courseIdRaw: unknown, referenceRaw: unknown) {
+/**
+ * A learner's pending payment. Created as soon as they open the payment page (no reference yet) so an admin can see it,
+ * then completed with the payment ID / UTR when they tap "I have paid".
+ */
+export async function createPaymentRequest(learner: LearnerUser, courseIdRaw: unknown, referenceRaw?: unknown) {
   const course = await getCourse(courseIdRaw)
   if (!course) throw new ApiError(404, "Course not found")
   const reference = typeof referenceRaw === "string" ? referenceRaw.trim() : ""
-  if (reference.length < 6 || reference.length > 60) throw new ApiError(400, "Enter the payment ID or UTR number from your payment receipt")
+  if (reference && (reference.length < 6 || reference.length > 60)) throw new ApiError(400, "Enter the payment ID or UTR number from your payment receipt")
   const db = getDb()
   if ((await db.collection("enrollments").doc(enrollKey(learner.docId, course.id)).get()).exists) throw new ApiError(409, "You already own this course")
   const ref = db.collection("payment_requests").doc(`${learner.docId}__c${course.id}`)
+  let created = false
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref)
-    if (snap.exists && (snap.data() as any).status === "pending") throw new ApiError(409, "Your payment for this course is already waiting for confirmation")
+    const cur = snap.exists ? (snap.data() as any) : null
+    if (cur && cur.status === "pending") {
+      if (reference) tx.update(ref, { reference, amount: course.price, referenced_at: iso() })
+      return
+    }
     const data = { learner_id: learner.docId, course_id: course.id, amount: course.price, reference, status: "pending", created_at: iso() }
-    if (snap.exists) tx.set(ref, data)
+    created = true
+    if (cur) tx.set(ref, data)
     else tx.create(ref, data)
   })
-  return { id: ref.id, status: "pending" }
+  return { id: ref.id, status: "pending", created }
+}
+
+/** Admin adds an enrollment for a payment they found in the Razorpay dashboard (no learner action needed). */
+export async function adminAddEnrollment(adminName: string, input: { email?: unknown; course_id?: unknown; reference?: unknown }) {
+  const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : ""
+  const course = await getCourse(input.course_id)
+  if (!course) throw new ApiError(404, "Course not found")
+  const db = getDb()
+  const lid = learnerId(email)
+  if (!email || !(await db.collection("learners").doc(lid).get()).exists) throw new ApiError(404, "No learner account with this email. Ask them to sign up first.")
+  const reference = typeof input.reference === "string" ? input.reference.trim().slice(0, 60) : ""
+  const eRef = db.collection("enrollments").doc(enrollKey(lid, course.id))
+  const rRef = db.collection("payment_requests").doc(`${lid}__c${course.id}`)
+  await db.runTransaction(async (tx) => {
+    const e = await tx.get(eRef)
+    if (e.exists) throw new ApiError(409, "This learner already has the course")
+    const r = await tx.get(rRef)
+    tx.create(eRef, { learner_id: lid, course_id: course.id, order_id: null, payment_id: reference || "added by admin", amount: course.price, enrolled_at: iso(), method: "manual", added_by: adminName })
+    if (r.exists && (r.data() as any).status === "pending") tx.update(rRef, { status: "approved", decided_by: adminName, decided_at: iso() })
+  })
+  return { ok: true }
 }
 
 export async function decidePaymentRequest(adminName: string, id: string, action: unknown) {
