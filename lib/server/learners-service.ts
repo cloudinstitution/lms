@@ -97,12 +97,36 @@ export async function assertEnrolled(learner: LearnerUser, courseId: number) {
   if (!snap.exists) throw new ApiError(403, "Buy this course to access it")
 }
 
+// ---------- course fees (admin-editable; falls back to lib/server/catalog.ts) ----------
+export async function loadCatalog(): Promise<CatalogCourse[]> {
+  const snap = await getDb().collection("course_prices").get()
+  const over = new Map(snap.docs.map((d) => [d.id, Number((d.data() as any).price)]))
+  return CATALOG.map((c) => {
+    const p = over.get(String(c.id))
+    return p !== undefined && Number.isFinite(p) && p >= 1 ? { ...c, price: p } : c
+  })
+}
+
+export async function getCourse(id: unknown): Promise<CatalogCourse | null> {
+  const n = Number(id)
+  return (await loadCatalog()).find((c) => c.id === n) ?? null
+}
+
+export async function setCourseFee(adminName: string, courseId: unknown, priceRaw: unknown) {
+  const base = findCourse(courseId)
+  if (!base) throw new ApiError(404, "Course not found")
+  const price = Number(priceRaw)
+  if (!Number.isInteger(price) || price < 1 || price > 1_000_000) throw new ApiError(400, "Enter the fee in whole rupees (1 to 10,00,000)")
+  await getDb().collection("course_prices").doc(String(base.id)).set({ price, updated_by: adminName, updated_at: iso() })
+  return { course_id: base.id, price }
+}
+
 // ---------- manual payments (Razorpay.me page; an admin confirms) ----------
 export const manualPaymentUrl = () => process.env.PAYMENT_LINK_URL || "https://razorpay.me/@shwetadevaraddikanaki"
 export const paymentsEnabled = () => Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET)
 
 export async function createPaymentRequest(learner: LearnerUser, courseIdRaw: unknown, referenceRaw: unknown) {
-  const course = findCourse(courseIdRaw)
+  const course = await getCourse(courseIdRaw)
   if (!course) throw new ApiError(404, "Course not found")
   const reference = typeof referenceRaw === "string" ? referenceRaw.trim() : ""
   if (reference.length < 6 || reference.length > 60) throw new ApiError(400, "Enter the payment ID or UTR number from your payment receipt")
@@ -145,7 +169,7 @@ function razorpayKeys() {
 }
 
 export async function createOrder(learner: LearnerUser, courseIdRaw: unknown) {
-  const course = findCourse(courseIdRaw)
+  const course = await getCourse(courseIdRaw)
   if (!course) throw new ApiError(404, "Course not found")
   const keys = razorpayKeys()
   const db = getDb()

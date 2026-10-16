@@ -757,3 +757,28 @@ test("manual payment: rejected request can be re-sent", async () => {
   assert.equal(db.all("enrollments").length, 0)
   assert.equal((await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 2, reference: "pay_SECOND22" } })).status, 201)
 })
+
+test("course fees: admin changes a fee → catalog, Razorpay order and manual request all use it", async () => {
+  const L = await learnerRoutes()
+  const F = await import("../../app/api/admin/course-fees/route")
+  const PR = await import("../../app/api/payments/request/route")
+  const ad = await admin()
+  const cookie = await learnerCookie(L)
+  assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie, body: { course_id: 3, price: 5 } })).status, 403)
+  assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie: ad, body: { course_id: 3, price: 0 } })).status, 400)
+  assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie: ad, body: { course_id: 3, price: 12.5 } })).status, 400)
+  assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie: ad, body: { course_id: 99, price: 100 } })).status, 404)
+  assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie: ad, body: { course_id: 3, price: 25000 } })).status, 200)
+  const cat = await json(await call(L.catalog, "GET", "/api/catalog"))
+  assert.equal(cat.body.courses.find((c: any) => c.id === 3).price, 25000)
+  assert.equal(cat.body.courses.find((c: any) => c.id === 4).price, price(4)) // others unchanged
+
+  process.env.RAZORPAY_KEY_ID = "rzp_key"; process.env.RAZORPAY_KEY_SECRET = "rzp_secret"
+  const restore = stubRazorpay()
+  try {
+    const o = await json(await call(L.order, "POST", "/api/payments/create-order", { cookie, body: { course_id: 3 } }))
+    assert.equal(o.body.amount, 25000 * 100); assert.equal(stubRazorpay.last.amount, 2500000)
+  } finally { restore(); delete process.env.RAZORPAY_KEY_ID; delete process.env.RAZORPAY_KEY_SECRET }
+  const r = await json(await call(PR, "POST", "/api/payments/request", { cookie, body: { course_id: 3, reference: "pay_FEE12345" } }))
+  assert.equal(r.status, 201); assert.equal(db.get("payment_requests", r.body.id)!.amount, 25000)
+})

@@ -28,6 +28,17 @@ export default function AdminEnrollmentsPage() {
       load()
     } catch (e: any) { toast.error(e?.message || "Could not update the request") }
   }
+  const [fees, setFees] = useState<{ id: number; title: string; price: number }[]>([])
+  const [draft, setDraft] = useState<Record<number, string>>({})
+  const loadFees = () => api("/api/admin/course-fees").then((d: any) => { setFees(d.courses); setDraft({}) }).catch(() => {})
+  useEffect(() => { loadFees() }, [])
+  const saveFee = async (id: number) => {
+    try {
+      await api("/api/admin/course-fees", { method: "PUT", body: { course_id: id, price: Number(draft[id]) } })
+      toast.success("Fee updated. New purchases use it right away.")
+      loadFees()
+    } catch (e: any) { toast.error(e?.message || "Could not update the fee") }
+  }
   const pending = (data?.requests ?? []).filter((r) => r.status === "pending")
 
   const match = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase())
@@ -56,6 +67,23 @@ export default function AdminEnrollmentsPage() {
           <Card key={String(k)}><CardContent className="pt-6"><div className="text-sm text-muted-foreground">{k}</div><div className="text-2xl font-bold">{v}</div></CardContent></Card>
         ))}
       </div>
+
+      <Card>
+        <CardContent className="space-y-3 pt-6">
+          <div className="font-semibold">Course fees</div>
+          <p className="text-sm text-muted-foreground">The amount shown to buyers and charged for each course. Change it here whenever the fee changes.</p>
+          <div className="grid gap-2 md:grid-cols-2">
+            {fees.map((c) => (
+              <div key={c.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                <span className="flex-1">{c.title}</span>
+                <span className="text-muted-foreground">₹</span>
+                <Input type="number" min={1} className="h-8 w-28" value={draft[c.id] ?? String(c.price)} onChange={(e) => setDraft({ ...draft, [c.id]: e.target.value })} />
+                <Button size="sm" disabled={draft[c.id] === undefined || Number(draft[c.id]) === c.price} onClick={() => saveFee(c.id)}>Save</Button>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {pending.length > 0 && (
         <Card className="border-amber-300">
