@@ -197,3 +197,34 @@ export async function listCourseVideos(courseId: number) {
 }
 
 export { CATALOG }
+
+// ---------- admin view ----------
+export async function adminListEnrollments() {
+  const db = getDb()
+  const [learners, enrollments] = await Promise.all([db.collection("learners").get(), db.collection("enrollments").get()])
+  const byId = new Map(learners.docs.map((d) => [d.id, d.data() as any]))
+  const rows = enrollments.docs
+    .map((d) => d.data() as any)
+    .map((e) => {
+      const l = byId.get(e.learner_id)
+      const c = findCourse(e.course_id)
+      return {
+        learner_id: e.learner_id as string,
+        name: String(l?.name ?? "(deleted)"),
+        email: String(l?.email ?? ""),
+        phone: l?.phone ? String(l.phone) : "",
+        course_id: e.course_id as number,
+        course: c?.title ?? `Course ${e.course_id}`,
+        amount: Number(e.amount ?? 0),
+        payment_id: String(e.payment_id ?? ""),
+        order_id: String(e.order_id ?? ""),
+        enrolled_at: String(e.enrolled_at ?? ""),
+      }
+    })
+    .sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at))
+  const signups = learners.docs
+    .map((d) => d.data() as any)
+    .map((l) => ({ name: String(l.name ?? ""), email: String(l.email ?? ""), phone: l.phone ? String(l.phone) : "", created_at: String(l.created_at ?? ""), purchased: enrollments.docs.filter((e) => (e.data() as any).learner_id === learnerId(String(l.email ?? ""))).length }))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+  return { enrollments: rows, signups, revenue: rows.reduce((s, r) => s + r.amount, 0) }
+}

@@ -6,6 +6,7 @@ import {
     BookOpen,
     Briefcase,
     Building2,
+    ShoppingCart,
     Calendar,
     FileText,
     FolderCheck,
@@ -36,6 +37,7 @@ export const roleConfigs: Record<string, RoleConfig> = {
     navigation: [
       { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
       { name: "Students", href: "/admin/students", icon: Users },
+      { name: "Enrollments", href: "/admin/enrollments", icon: ShoppingCart },
       { name: "Courses", href: "/admin/courses", icon: BookOpen },
       { name: "Schedule", href: "/admin/schedule", icon: Calendar },
       { name: "Assessments", href: "/admin/assessments", icon: FileText },

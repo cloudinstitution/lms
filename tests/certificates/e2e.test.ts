@@ -675,6 +675,18 @@ test("payments: server price, signature check, idempotent grant, gated lessons",
     assert.equal((await call(L.verify, "POST", "/api/payments/verify", { cookie, body: good })).status, 200) // idempotent
     assert.equal(db.all("enrollments").length, 1); assert.equal(db.get("orders", o.body.order_id)!.status, "paid")
 
+    // admin sees who enrolled; students/learners cannot
+    const AE = await import("../../app/api/admin/enrollments/route")
+    const ad = await admin()
+    const list = await json(await call(AE, "GET", "/api/admin/enrollments", { cookie: ad }))
+    assert.equal(list.status, 200)
+    assert.equal(list.body.enrollments.length, 1)
+    assert.equal(list.body.enrollments[0].email, "ravi@example.com"); assert.equal(list.body.enrollments[0].course, "AWS")
+    assert.equal(list.body.revenue, 20000); assert.equal(list.body.signups.length, 2); assert.equal(list.body.signups.find((x: any) => x.email === "ravi@example.com").purchased, 1)
+    assert.ok(!JSON.stringify(list.body).includes("scrypt"), "no password data")
+    assert.equal((await call(AE, "GET", "/api/admin/enrollments", { cookie })).status, 403)
+    assert.equal((await call(AE, "GET", "/api/admin/enrollments", { cookie: await john() })).status, 403)
+
     const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
     assert.deepEqual(me.body.enrollments.map((e: any) => e.course_id), [3])
     const vids = await json(await call(L.videos, "GET", "/api/learner/courses/3/videos", { cookie }, { id: "3" }))
