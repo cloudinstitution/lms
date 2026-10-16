@@ -7,7 +7,7 @@ import { ApiError } from "./http"
 export const SESSION_COOKIE = "lms_session"
 export const SESSION_TTL_SECONDS = 4 * 60 * 60 // matches the 4h client session in lib/session-storage.ts
 
-export type SessionRole = "student" | "admin" | "teacher"
+export type SessionRole = "student" | "admin" | "teacher" | "learner"
 
 export interface StudentUser {
   role: "student"
@@ -27,7 +27,15 @@ export interface StaffUser {
   email: string
 }
 
-export type SessionUser = StudentUser | StaffUser
+/** A self-registered outsider who buys courses online (collection `learners`). */
+export interface LearnerUser {
+  role: "learner"
+  docId: string
+  name: string
+  email: string
+}
+
+export type SessionUser = StudentUser | StaffUser | LearnerUser
 
 function secretKey(): Uint8Array {
   const secret = process.env.SESSION_SECRET
@@ -178,6 +186,12 @@ export async function readSessionUser(req: NextRequest): Promise<SessionUser | n
     if (d.status === "Inactive") return null
     return toStudentUser(snap.id, d)
   }
+  if (role === "learner") {
+    const snap = await db.collection("learners").doc(sub).get()
+    if (!snap.exists || snap.data()!.status === "Inactive") return null
+    const d = snap.data()!
+    return { role: "learner", docId: snap.id, name: String(d.name ?? ""), email: String(d.email ?? "") }
+  }
   if (role === "admin" || role === "teacher") {
     const snap = await db.collection("admin").doc(sub).get()
     if (!snap.exists) return null
@@ -201,10 +215,16 @@ export async function requireStudent(req: NextRequest): Promise<StudentUser> {
   return user
 }
 
+export async function requireLearner(req: NextRequest): Promise<LearnerUser> {
+  const user = await requireUser(req)
+  if (user.role !== "learner") throw new ApiError(403, "This action is for learner accounts only")
+  return user
+}
+
 /** Admin or teacher (the people who may review projects). */
 export async function requireReviewer(req: NextRequest): Promise<StaffUser> {
   const user = await requireUser(req)
-  if (user.role === "student") throw new ApiError(403, "Not allowed for your role")
+  if (user.role === "student" || user.role === "learner") throw new ApiError(403, "Not allowed for your role")
   return user
 }
 

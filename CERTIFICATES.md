@@ -78,3 +78,18 @@ If the browser cannot reach Firebase Storage (bucket not set up, CORS, rules), u
 Firestore (`stored_files` + `file_chunks` collections, same virtual path). Submitting, reviewing and downloading work the same;
 downloads are streamed by the server (`lib/server/stored-files.ts`). Files up to 500 MB (the normal limit) need Storage to be set up. Admin project files in this
 mode are served from `/api/task-files`. Your Firestore rules must allow those two collections.
+
+## Self-signup learners and paid courses
+
+Outsiders can create an account at `/signup` and buy a course with Razorpay. Learner accounts live in the `learners` collection
+(scrypt-hashed passwords, separate from `students`) and see only the courses they bought (`enrollments`). Prices come from
+`lib/server/catalog.ts` — the server decides the amount, never the browser.
+
+Environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Required for payments (without them "Buy now" says payments are not enabled) |
+| `RAZORPAY_WEBHOOK_SECRET` | Optional but recommended: set the Razorpay webhook to `https://<site>/api/payments/webhook` (events `payment.captured`, `order.paid`) so a course is granted even if the buyer closes the tab right after paying |
+
+If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders` and `enrollments`.

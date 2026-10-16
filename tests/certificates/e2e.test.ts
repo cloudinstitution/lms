@@ -583,3 +583,118 @@ test("repository link is optional", async () => {
   const r = await submitFlow(c)
   assert.equal(r.status, 201); assert.equal(r.body.project.repository_url, null)
 })
+
+// ---------------- learners: self-signup + paid courses ----------------
+import { createHmac } from "node:crypto"
+
+async function learnerRoutes() {
+  const imp = (p: string) => import(`../../app/api/${p}/route`)
+  return {
+    signup: await imp("learner/signup"), llogin: await imp("learner/login"), me: await imp("learner/me"), videos: await imp("learner/courses/[id]/videos"),
+    order: await imp("payments/create-order"), verify: await imp("payments/verify"), hook: await imp("payments/webhook"), catalog: await imp("catalog"),
+  }
+}
+const signupBody = { name: "Ravi Kumar", email: "Ravi@Example.com", phone: "+91 98765 43210", password: "s3cret-pass" }
+async function learnerCookie(L: any, body: any = signupBody) {
+  const r = await call(L.signup, "POST", "/api/learner/signup", { body })
+  assert.equal(r.status, 201, await r.clone().text())
+  return r.headers.get("set-cookie")!.split(";")[0]
+}
+function stubRazorpay() {
+  const real = globalThis.fetch
+  let n = 0
+  ;(globalThis as any).fetch = async (url: any, init: any) => {
+    if (String(url).startsWith("https://api.razorpay.com/v1/orders")) {
+      const b = JSON.parse(init.body); stubRazorpay.last = b
+      return new Response(JSON.stringify({ id: `order_T${++n}`, amount: b.amount }), { status: 200 })
+    }
+    return real(url, init)
+  }
+  return () => { (globalThis as any).fetch = real }
+}
+stubRazorpay.last = null as any
+const sign = (o: string, p: string) => createHmac("sha256", "rzp_secret").update(`${o}|${p}`).digest("hex")
+
+test("learner signup: validation, hashed password, duplicates, clash with student/staff emails", async () => {
+  const L = await learnerRoutes()
+  assert.equal((await call(L.signup, "POST", "/api/learner/signup", { body: { ...signupBody, password: "short" } })).status, 400)
+  assert.equal((await call(L.signup, "POST", "/api/learner/signup", { body: { ...signupBody, email: "nope" } })).status, 400)
+  assert.equal((await call(L.signup, "POST", "/api/learner/signup", { body: { ...signupBody, email: "john@x.com" } })).status, 409)
+  assert.equal((await call(L.signup, "POST", "/api/learner/signup", { body: { ...signupBody, email: "admin@x.com" } })).status, 409)
+  const cookie = await learnerCookie(L)
+  const rows = db.all("learners")
+  assert.equal(rows.length, 1); assert.equal(rows[0].email, "ravi@example.com")
+  assert.ok(!JSON.stringify(rows[0]).includes("s3cret-pass"), "password must not be stored in clear")
+  assert.match(rows[0].password_hash, /^scrypt\$/)
+  assert.equal((await call(L.signup, "POST", "/api/learner/signup", { body: signupBody })).status, 409)
+  const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
+  assert.equal(me.status, 200); assert.deepEqual(me.body.enrollments, [])
+})
+
+test("learner login: right/wrong password, unknown email, students are not learners", async () => {
+  const L = await learnerRoutes()
+  await learnerCookie(L)
+  assert.equal((await call(L.llogin, "POST", "/api/learner/login", { body: { email: "ravi@example.com", password: "s3cret-pass" } })).status, 200)
+  assert.equal((await call(L.llogin, "POST", "/api/learner/login", { body: { email: "RAVI@example.com", password: "bad-password" } })).status, 401)
+  assert.equal((await call(L.llogin, "POST", "/api/learner/login", { body: { email: "nobody@example.com", password: "s3cret-pass" } })).status, 404)
+  const j = await john()
+  assert.equal((await call(L.me, "GET", "/api/learner/me", { cookie: j })).status, 403)
+  assert.equal((await call(L.order, "POST", "/api/payments/create-order", { cookie: j, body: { course_id: 1 } })).status, 403)
+})
+
+test("payments: server price, signature check, idempotent grant, gated lessons", async () => {
+  const L = await learnerRoutes()
+  const cookie = await learnerCookie(L)
+  delete process.env.RAZORPAY_KEY_ID; delete process.env.RAZORPAY_KEY_SECRET
+  assert.equal((await call(L.order, "POST", "/api/payments/create-order", { cookie, body: { course_id: 3 } })).status, 503)
+  process.env.RAZORPAY_KEY_ID = "rzp_key"; process.env.RAZORPAY_KEY_SECRET = "rzp_secret"
+  const restore = stubRazorpay()
+  try {
+    assert.equal((await call(L.order, "POST", "/api/payments/create-order", { cookie, body: { course_id: 999 } })).status, 404)
+    // lessons locked before buying
+    db.seed("courses", "cAws", { name: "AWS" })
+    db.seed("courses/AWS/videos", "v1", { title: "Intro", link: "https://youtu.be/abc", serialNo: 1, sourceType: "youtube" })
+    assert.equal((await call(L.videos, "GET", "/api/learner/courses/3/videos", { cookie }, { id: "3" })).status, 403)
+
+    const o = await json(await call(L.order, "POST", "/api/payments/create-order", { cookie, body: { course_id: 3, amount: 1, price: 1 } }))
+    assert.equal(o.status, 200, JSON.stringify(o.body))
+    assert.equal(o.body.amount, 20000 * 100, "amount is the catalogue price in paise, never from the client")
+    assert.equal(stubRazorpay.last.amount, 2000000)
+    assert.equal(db.get("orders", o.body.order_id)!.status, "created")
+
+    // forged signature is refused and grants nothing
+    const bad = await call(L.verify, "POST", "/api/payments/verify", { cookie, body: { razorpay_order_id: o.body.order_id, razorpay_payment_id: "pay_1", razorpay_signature: "0".repeat(64) } })
+    assert.equal(bad.status, 400); assert.equal(db.all("enrollments").length, 0)
+    // another learner cannot claim someone else's order
+    const other = await learnerCookie(L, { ...signupBody, email: "other@example.com" })
+    const steal = await call(L.verify, "POST", "/api/payments/verify", { cookie: other, body: { razorpay_order_id: o.body.order_id, razorpay_payment_id: "pay_1", razorpay_signature: sign(o.body.order_id, "pay_1") } })
+    assert.equal(steal.status, 404); assert.equal(db.all("enrollments").length, 0)
+
+    const good = { razorpay_order_id: o.body.order_id, razorpay_payment_id: "pay_1", razorpay_signature: sign(o.body.order_id, "pay_1") }
+    assert.equal((await call(L.verify, "POST", "/api/payments/verify", { cookie, body: good })).status, 200)
+    assert.equal((await call(L.verify, "POST", "/api/payments/verify", { cookie, body: good })).status, 200) // idempotent
+    assert.equal(db.all("enrollments").length, 1); assert.equal(db.get("orders", o.body.order_id)!.status, "paid")
+
+    const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
+    assert.deepEqual(me.body.enrollments.map((e: any) => e.course_id), [3])
+    const vids = await json(await call(L.videos, "GET", "/api/learner/courses/3/videos", { cookie }, { id: "3" }))
+    assert.equal(vids.status, 200); assert.equal(vids.body.videos[0].title, "Intro")
+    assert.equal((await call(L.videos, "GET", "/api/learner/courses/4/videos", { cookie }, { id: "4" })).status, 403) // only what they bought
+    assert.equal((await call(L.order, "POST", "/api/payments/create-order", { cookie, body: { course_id: 3 } })).status, 409) // already owned
+  } finally { restore() }
+})
+
+test("payments webhook: signed capture grants the course; bad signature refused", async () => {
+  const L = await learnerRoutes()
+  const cookie = await learnerCookie(L)
+  process.env.RAZORPAY_KEY_ID = "rzp_key"; process.env.RAZORPAY_KEY_SECRET = "rzp_secret"; process.env.RAZORPAY_WEBHOOK_SECRET = "whsec"
+  const restore = stubRazorpay()
+  try {
+    const o = await json(await call(L.order, "POST", "/api/payments/create-order", { cookie, body: { course_id: 6 } }))
+    const raw = JSON.stringify({ event: "payment.captured", payload: { payment: { entity: { id: "pay_9", order_id: o.body.order_id } } } })
+    const post = (sig: string) => L.hook.POST(new NextRequest(new URL("/api/payments/webhook", ORIGIN), { method: "POST", headers: { "x-razorpay-signature": sig, host: new URL(ORIGIN).host }, body: raw }), { params: Promise.resolve({}) }) as Promise<Response>
+    assert.equal((await post("bad")).status, 400); assert.equal(db.all("enrollments").length, 0)
+    assert.equal((await post(createHmac("sha256", "whsec").update(raw).digest("hex"))).status, 200)
+    assert.equal(db.all("enrollments").length, 1)
+  } finally { restore() }
+})

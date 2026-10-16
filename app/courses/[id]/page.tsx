@@ -37,6 +37,7 @@ import { useEffect, useState } from "react"
 import PhoneInput from "react-phone-input-2"
 import "react-phone-input-2/lib/style.css"
 import { toast } from "sonner"
+import BuyButton from "@/components/learner/buy-button"
 
 // Google Sheets URL for enrollment data submission
 const GOOGLE_SHEETS_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_URL;
@@ -1309,9 +1310,10 @@ export default function CourseDetailPage() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4">
-                  <Button size="lg" className="bg-white text-emerald-600 hover:bg-gray-100" onClick={handleEnroll}>
+                  <BuyButton courseId={course.id} size="lg" className="bg-white text-emerald-600 hover:bg-gray-100" label={`Buy now · ${course.price}`} />
+                  <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10" onClick={handleEnroll}>
                     <PlayCircle className="h-5 w-5 mr-2" />
-                    Enroll Now
+                    Request a call-back
                   </Button>
                   <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
                     <Download className="h-5 w-5 mr-2" />
@@ -1508,8 +1510,9 @@ export default function CourseDetailPage() {
                   </div>
 
                   <div className="space-y-3">
-                    <Button className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={handleEnroll}>
-                      Enroll Now
+                    <BuyButton courseId={course.id} className="w-full bg-emerald-600 hover:bg-emerald-700" label={`Buy now · ${course.price}`} />
+                    <Button variant="outline" className="w-full" onClick={handleEnroll}>
+                      Request a call-back
                     </Button>
                     <Button 
                       variant="outline" 

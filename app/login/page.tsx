@@ -106,7 +106,17 @@ export default function LoginPage() {
         }
       }
 
-      setError("User not found. Please check your email.")    
+      // Not a student or staff account: try the self-registered learner accounts.
+      const lr = await fetch("/api/learner/login", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: formData.email, password: formData.password }) })
+      if (lr.ok) {
+        router.push("/learner/dashboard")
+        return
+      }
+      if (lr.status === 401) {
+        setError("Invalid password.")
+        return
+      }
+      setError("User not found. Please check your email, or create an account.")
     } catch (err) {
       console.error("Login error:", err);
       setError(err instanceof Error ? err.message : "An error occurred. Please try again later.")
@@ -205,7 +215,9 @@ export default function LoginPage() {
             </Button>
           </form>
         </CardContent>        <CardFooter className="flex flex-col border-t border-slate-700 bg-slate-900/50 rounded-b-lg py-4">
-          <div className="text-center text-sm text-slate-400">Secure login for students and administrators</div>
+          <div className="text-center text-sm text-slate-400">
+            New here? <Link href="/signup" className="text-emerald-400 hover:underline">Create an account</Link> to buy a course
+          </div>
         </CardFooter>
       </Card>
 

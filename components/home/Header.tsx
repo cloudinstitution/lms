@@ -89,6 +89,9 @@ export default function Header() {
               Login
             </Button>
           </Link>
+          <Link href="/signup">
+            <Button className="bg-emerald-600 text-white hover:bg-emerald-700 hidden md:inline-flex">Sign up</Button>
+          </Link>
           
           {/* Mobile Menu Button */}
           <Button
@@ -131,6 +134,9 @@ export default function Header() {
                 <Button variant="outline" className="w-full border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-950">
                   Login
                 </Button>
+              </Link>
+              <Link href="/signup">
+                <Button className="w-full bg-emerald-600 text-white hover:bg-emerald-700">Sign up</Button>
               </Link>
             </nav>
           </motion.div>

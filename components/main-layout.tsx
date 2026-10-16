@@ -85,6 +85,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 Login
               </Button>
             </Link>
+            <Link href="/signup"><Button className="bg-emerald-600 text-white hover:bg-emerald-700 hidden md:inline-flex">Sign up</Button></Link>
             
             {/* Mobile Menu Button */}
             <Button
@@ -128,6 +129,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                     Login
                   </Button>
                 </Link>
+                <Link href="/signup"><Button className="w-full bg-emerald-600 text-white hover:bg-emerald-700">Sign up</Button></Link>
               </nav>
             </motion.div>
           )}

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, Database, Search, Server } from "lucide-react"
 import MainLayout from "@/components/main-layout"
+import BuyButton from "@/components/learner/buy-button"
 
 export default function CoursesPage() {
   const courseCategories = [
@@ -190,8 +191,9 @@ export default function CoursesPage() {
                           </div>
                         </div>
                       </CardContent>
-                      <CardFooter className="border-t bg-gray-50 dark:bg-gray-700 dark:border-gray-600 pt-4">
-                        <Link href={`/courses/${course.id}`} className="w-full">
+                      <CardFooter className="border-t bg-gray-50 dark:bg-gray-700 dark:border-gray-600 pt-4 gap-2">
+                        <BuyButton courseId={course.id} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" label="Buy now" />
+                        <Link href={`/courses/${course.id}`} className="flex-1">
                           <Button
                             variant="outline"
                             className="w-full text-emerald-600 dark:text-emerald-400 border-emerald-600 dark:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
