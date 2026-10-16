@@ -6,11 +6,15 @@ import { Input } from "@/components/ui/input"
 import { currentLearner, learnerApi, loadCheckout, rupees } from "@/lib/learner-client"
 import { Loader2, ShoppingCart } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 /** "Buy now": sign-up first if needed, then Razorpay Checkout. The price is decided by the server, never by this page. */
-export default function BuyButton({ courseId, label = "Buy now", className, variant, size }: { courseId: number; label?: string; className?: string; variant?: any; size?: any }) {
+export default function BuyButton({ courseId, label = "Buy now", showPrice, className, variant, size }: { courseId: number; label?: string; showPrice?: boolean; className?: string; variant?: any; size?: any }) {
+  const [livePrice, setLivePrice] = useState<number | null>(null)
+  useEffect(() => {
+    if (showPrice) fetch("/api/catalog").then((r) => r.json()).then((d) => setLivePrice((d.courses || []).find((c: any) => c.id === courseId)?.price ?? null)).catch(() => {})
+  }, [showPrice, courseId])
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [manual, setManual] = useState<{ url: string; title: string; price: number } | null>(null)

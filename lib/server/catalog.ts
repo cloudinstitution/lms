@@ -9,7 +9,13 @@ export interface CatalogCourse {
   price: number // INR, whole rupees
 }
 
-export const CATALOG: CatalogCourse[] = [
+/**
+ * TESTING: while this is a number, every course costs that many rupees (so a real payment can be tried for Rs. 1).
+ * Set it to `null` before going live to charge the real prices below.
+ */
+export const TEST_PRICE_INR: number | null = 1
+
+const BASE_CATALOG: CatalogCourse[] = [
   { id: 1, title: "Java Full Stack Web Development", description: "Master frontend and backend technologies to build complete web applications", duration: "24 weeks", level: "Intermediate", category: "Web & Application Development", price: 30000 },
   { id: 2, title: "Python Full Stack Web Development", description: "Build dynamic web applications using Python, Django, React, and REST APIs", duration: "24 weeks", level: "Beginner", category: "Web & Application Development", price: 30000 },
   { id: 3, title: "AWS", description: "Deploy and manage applications in cloud environments with CI/CD pipelines", duration: "6 weeks", level: "Advanced", category: "Cloud Computing", price: 20000 },
@@ -19,6 +25,8 @@ export const CATALOG: CatalogCourse[] = [
   { id: 7, title: "Multi-Cloud and DevOps", description: "Combine cloud expertise with DevOps tools to deploy scalable, reliable systems", duration: "24 weeks", level: "Advanced", category: "DevOps & Automation", price: 35000 },
   { id: 8, title: "Data Analytics", description: "Learn data analysis, visualization, and business intelligence tools for decision-making", duration: "12 weeks", level: "Intermediate", category: "Data Analytics", price: 25000 },
 ]
+
+export const CATALOG: CatalogCourse[] = BASE_CATALOG.map((c) => ({ ...c, price: TEST_PRICE_INR ?? c.price }))
 
 export const findCourse = (id: unknown): CatalogCourse | null => {
   const n = Number(id)

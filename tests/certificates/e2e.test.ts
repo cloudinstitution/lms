@@ -587,6 +587,9 @@ test("repository link is optional", async () => {
 // ---------------- learners: self-signup + paid courses ----------------
 import { createHmac } from "node:crypto"
 
+import { CATALOG } from "../../lib/server/catalog"
+const price = (id: number) => CATALOG.find((c) => c.id === id)!.price
+
 async function learnerRoutes() {
   const imp = (p: string) => import(`../../app/api/${p}/route`)
   return {
@@ -658,8 +661,8 @@ test("payments: server price, signature check, idempotent grant, gated lessons",
 
     const o = await json(await call(L.order, "POST", "/api/payments/create-order", { cookie, body: { course_id: 3, amount: 1, price: 1 } }))
     assert.equal(o.status, 200, JSON.stringify(o.body))
-    assert.equal(o.body.amount, 20000 * 100, "amount is the catalogue price in paise, never from the client")
-    assert.equal(stubRazorpay.last.amount, 2000000)
+    assert.equal(o.body.amount, price(3) * 100, "amount is the catalogue price in paise, never from the client")
+    assert.equal(stubRazorpay.last.amount, price(3) * 100)
     assert.equal(db.get("orders", o.body.order_id)!.status, "created")
 
     // forged signature is refused and grants nothing
@@ -682,7 +685,7 @@ test("payments: server price, signature check, idempotent grant, gated lessons",
     assert.equal(list.status, 200)
     assert.equal(list.body.enrollments.length, 1)
     assert.equal(list.body.enrollments[0].email, "ravi@example.com"); assert.equal(list.body.enrollments[0].course, "AWS")
-    assert.equal(list.body.revenue, 20000); assert.equal(list.body.signups.length, 2); assert.equal(list.body.signups.find((x: any) => x.email === "ravi@example.com").purchased, 1)
+    assert.equal(list.body.revenue, price(3)); assert.equal(list.body.signups.length, 2); assert.equal(list.body.signups.find((x: any) => x.email === "ravi@example.com").purchased, 1)
     assert.ok(!JSON.stringify(list.body).includes("scrypt"), "no password data")
     assert.equal((await call(AE, "GET", "/api/admin/enrollments", { cookie })).status, 403)
     assert.equal((await call(AE, "GET", "/api/admin/enrollments", { cookie: await john() })).status, 403)
@@ -733,7 +736,7 @@ test("manual payment (Razorpay.me page): request → admin approves → course u
   assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie, body: { action: "approve" } }, { id: r.body.id })).status, 403)
   const ad = await admin()
   const list = await json(await call(AE, "GET", "/api/admin/enrollments", { cookie: ad }))
-  assert.equal(list.body.requests.length, 1); assert.equal(list.body.requests[0].course, "Azure"); assert.equal(list.body.requests[0].amount, 20000)
+  assert.equal(list.body.requests.length, 1); assert.equal(list.body.requests[0].course, "Azure"); assert.equal(list.body.requests[0].amount, price(4))
   assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie: ad, body: { action: "maybe" } }, { id: r.body.id })).status, 400)
   assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie: ad, body: { action: "approve" } }, { id: r.body.id })).status, 200)
   assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie: ad, body: { action: "approve" } }, { id: r.body.id })).status, 409) // decided once

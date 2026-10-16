@@ -1310,7 +1310,7 @@ export default function CourseDetailPage() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4">
-                  <BuyButton courseId={course.id} size="lg" className="bg-white text-emerald-600 hover:bg-gray-100" label={`Buy now · ${course.price}`} />
+                  <BuyButton courseId={course.id} size="lg" className="bg-white text-emerald-600 hover:bg-gray-100" showPrice />
                   <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10" onClick={handleEnroll}>
                     <PlayCircle className="h-5 w-5 mr-2" />
                     Request a call-back
@@ -1510,7 +1510,7 @@ export default function CourseDetailPage() {
                   </div>
 
                   <div className="space-y-3">
-                    <BuyButton courseId={course.id} className="w-full bg-emerald-600 hover:bg-emerald-700" label={`Buy now · ${course.price}`} />
+                    <BuyButton courseId={course.id} className="w-full bg-emerald-600 hover:bg-emerald-700" showPrice />
                     <Button variant="outline" className="w-full" onClick={handleEnroll}>
                       Request a call-back
                     </Button>
