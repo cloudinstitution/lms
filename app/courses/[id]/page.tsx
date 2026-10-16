@@ -1315,9 +1315,9 @@ export default function CourseDetailPage() {
                     <PlayCircle className="h-5 w-5 mr-2" />
                     Request a call-back
                   </Button>
-                  <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
+                  <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10" onClick={() => import("@/lib/brochure").then((m) => m.downloadBrochure(course)).catch(() => toast.error("Could not create the brochure"))}>
                     <Download className="h-5 w-5 mr-2" />
-                    Download Syllabus
+                    Download Brochure
                   </Button>
                 </div>
               </div>
