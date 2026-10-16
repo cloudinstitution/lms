@@ -4,13 +4,13 @@ import LearnerShell from "@/components/learner/learner-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { learnerApi } from "@/lib/learner-client"
-import { ArrowLeft, CheckCircle2, Circle, ClipboardList, PlayCircle, XCircle } from "lucide-react"
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardList, PlayCircle, XCircle } from "lucide-react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-type Video = { id: string; title: string; link: string; serialNo: number; sourceType: "youtube" | "gdrive" }
+type Video = { id: string; title: string; link: string; serialNo: number; section?: string; sourceType: "youtube" | "gdrive" }
 type QuizInfo = { id: string; title: string; after_lesson: number; pass_mark: number; question_count: number; best: number | null; passed: boolean }
 type Progress = { status: string; percent: number; lessons_done: number; lessons_total: number; quizzes_passed: number; quizzes_total: number }
 type Item = { kind: "lesson"; video: Video; n: number } | { kind: "quiz"; quiz: QuizInfo }
@@ -21,6 +21,10 @@ const embedUrl = (v: Video): string | null => {
   const gd = v.link.match(/\/d\/([A-Za-z0-9_-]+)/) || v.link.match(/[?&]id=([A-Za-z0-9_-]+)/)
   return gd ? `https://drive.google.com/file/d/${gd[1]}/preview` : null
 }
+
+// Topic of a lesson: an explicit section set by the admin, else guessed from the title (Java, HTML, CSS, ...).
+const TOPICS: [string, RegExp][] = [["Java", /\bjava\b/i], ["HTML", /\bhtml5?\b/i], ["CSS", /\bcss3?\b/i], ["JavaScript", /\b(javascript|js|es6)\b/i], ["React", /\breact/i], ["Node.js", /\bnode/i], ["SQL & Databases", /\b(sql|mysql|mongo\w*|database)\b/i], ["Spring", /\bspring/i], ["Git", /\bgit(hub)?\b/i]]
+const topicOf = (v: Video) => v.section || TOPICS.find(([, re]) => re.test(v.title))?.[0] || "Other"
 
 const STATUS_STYLE: Record<string, string> = {
   "Not started": "bg-gray-100 text-gray-700",
@@ -109,6 +113,19 @@ function Player({ id, title }: { id: string; title: string }) {
     return out
   }, [state])
 
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  // a quiz belongs to the topic of the lesson before it
+  const groups = useMemo(() => {
+    const out: { name: string; items: Item[] }[] = []
+    let name = "Other"
+    for (const it of items) {
+      if (it.kind === "lesson") name = topicOf(it.video)
+      let g = out.find((x) => x.name === name)
+      if (!g) out.push((g = { name, items: [] }))
+      g.items.push(it)
+    }
+    return out
+  }, [items])
   const keyOf = (it: Item) => (it.kind === "lesson" ? `l:${it.video.id}` : `q:${it.quiz.id}`)
   useEffect(() => {
     if (state && !currentKey && items.length) {
@@ -175,16 +192,33 @@ function Player({ id, title }: { id: string; title: string }) {
           </div>
           <Card>
             <CardHeader><CardTitle className="text-base">Course content</CardTitle></CardHeader>
-            <CardContent className="space-y-1">
-              {items.map((it) => {
-                const done = statusOf(it)
-                const active = keyOf(it) === currentKey
+            <CardContent className="space-y-2">
+              {groups.map((g) => {
+                const open = openGroups[g.name] ?? g.items.some((it) => keyOf(it) === currentKey)
+                const done = g.items.filter(statusOf).length
                 return (
-                  <button key={keyOf(it)} onClick={() => setCurrentKey(keyOf(it))} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted ${active ? "bg-muted font-medium" : ""}`}>
-                    {done ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : it.kind === "quiz" ? <ClipboardList className="h-4 w-4 shrink-0 text-amber-600" /> : active ? <PlayCircle className="h-4 w-4 shrink-0 text-emerald-600" /> : <Circle className="h-4 w-4 shrink-0 text-gray-400" />}
-                    <span className="flex-1">{it.kind === "lesson" ? `${it.n}. ${it.video.title}` : `Quiz: ${it.quiz.title}`}</span>
-                    {it.kind === "quiz" && it.quiz.best !== null && <span className="text-xs text-muted-foreground">{it.quiz.best}%</span>}
-                  </button>
+                  <div key={g.name} className="rounded-md border">
+                    <button onClick={() => setOpenGroups({ ...openGroups, [g.name]: !open })} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold hover:bg-muted">
+                      {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      <span className="flex-1">{g.name}</span>
+                      <span className="text-xs font-normal text-muted-foreground">{done}/{g.items.length}</span>
+                    </button>
+                    {open && (
+                      <div className="space-y-1 border-t p-1">
+                        {g.items.map((it) => {
+                          const d = statusOf(it)
+                          const active = keyOf(it) === currentKey
+                          return (
+                            <button key={keyOf(it)} onClick={() => setCurrentKey(keyOf(it))} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted ${active ? "bg-muted font-medium" : ""}`}>
+                              {d ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : it.kind === "quiz" ? <ClipboardList className="h-4 w-4 shrink-0 text-amber-600" /> : active ? <PlayCircle className="h-4 w-4 shrink-0 text-emerald-600" /> : <Circle className="h-4 w-4 shrink-0 text-gray-400" />}
+                              <span className="flex-1">{it.kind === "lesson" ? `${it.n}. ${it.video.title}` : `Quiz: ${it.quiz.title}`}</span>
+                              {it.kind === "quiz" && it.quiz.best !== null && <span className="text-xs text-muted-foreground">{it.quiz.best}%</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </CardContent>

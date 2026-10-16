@@ -306,7 +306,7 @@ async function videosOf(name: string) {
   const snap = await getDb().collection(`courses/${encodeURIComponent(name)}/videos`).get()
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as any) }))
-    .map((v) => ({ id: v.id as string, title: String(v.title ?? "Lesson"), link: String(v.link ?? ""), serialNo: Number(v.serialNo ?? 0), sourceType: v.sourceType === "gdrive" ? "gdrive" : "youtube" }))
+    .map((v) => ({ id: v.id as string, title: String(v.title ?? "Lesson"), link: String(v.link ?? ""), serialNo: Number(v.serialNo ?? 0), section: String(v.section ?? v.module ?? "").trim(), sourceType: v.sourceType === "gdrive" ? "gdrive" : "youtube" }))
     .sort((a, b) => a.serialNo - b.serialNo)
 }
 
