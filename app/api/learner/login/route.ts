@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { ApiError, rateLimit, readJson, withApi } from "@/lib/server/http"
 import { authenticateLearner } from "@/lib/server/learners-service"
-import { assertSameOrigin, createSessionToken, setSessionCookie } from "@/lib/server/session"
+import { assertSameOrigin, createSessionToken, setLearnerCookie } from "@/lib/server/session"
 
 /** POST /api/learner/login { email, password } */
 export const POST = withApi(async (req) => {
@@ -14,6 +14,6 @@ export const POST = withApi(async (req) => {
   const user = await authenticateLearner(email, password)
   if (!user) throw new ApiError(404, "No account found with this email", "not_learner")
   const res = NextResponse.json({ success: true, user: { role: user.role, name: user.name, email: user.email } })
-  setSessionCookie(res, await createSessionToken(user))
+  setLearnerCookie(res, await createSessionToken(user))
   return res
 })

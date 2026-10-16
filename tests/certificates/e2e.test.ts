@@ -641,8 +641,8 @@ test("learner login: right/wrong password, unknown email, students are not learn
   assert.equal((await call(L.llogin, "POST", "/api/learner/login", { body: { email: "RAVI@example.com", password: "bad-password" } })).status, 401)
   assert.equal((await call(L.llogin, "POST", "/api/learner/login", { body: { email: "nobody@example.com", password: "s3cret-pass" } })).status, 404)
   const j = await john()
-  assert.equal((await call(L.me, "GET", "/api/learner/me", { cookie: j })).status, 403)
-  assert.equal((await call(L.order, "POST", "/api/payments/create-order", { cookie: j, body: { course_id: 1 } })).status, 403)
+  assert.equal((await call(L.me, "GET", "/api/learner/me", { cookie: j })).status, 401)
+  assert.equal((await call(L.order, "POST", "/api/payments/create-order", { cookie: j, body: { course_id: 1 } })).status, 401)
 })
 
 test("payments: server price, signature check, idempotent grant, gated lessons", async () => {
@@ -687,7 +687,7 @@ test("payments: server price, signature check, idempotent grant, gated lessons",
     assert.equal(list.body.enrollments[0].email, "ravi@example.com"); assert.equal(list.body.enrollments[0].course, "AWS")
     assert.equal(list.body.revenue, price(3)); assert.equal(list.body.signups.length, 2); assert.equal(list.body.signups.find((x: any) => x.email === "ravi@example.com").purchased, 1)
     assert.ok(!JSON.stringify(list.body).includes("scrypt"), "no password data")
-    assert.equal((await call(AE, "GET", "/api/admin/enrollments", { cookie })).status, 403)
+    assert.equal((await call(AE, "GET", "/api/admin/enrollments", { cookie })).status, 401)
     assert.equal((await call(AE, "GET", "/api/admin/enrollments", { cookie: await john() })).status, 403)
 
     const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
@@ -734,7 +734,7 @@ test("manual payment (Razorpay.me page): request → admin approves → course u
   assert.equal(db.all("enrollments").length, 0)
   assert.equal((await call(L.videos, "GET", "/api/learner/courses/4/videos", { cookie }, { id: "4" })).status, 403)
   // learners/students cannot approve
-  assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie, body: { action: "approve" } }, { id: r.body.id })).status, 403)
+  assert.equal((await call(AR, "PUT", `/api/admin/payment-requests/${r.body.id}`, { cookie, body: { action: "approve" } }, { id: r.body.id })).status, 401)
   const ad = await admin()
   const list = await json(await call(AE, "GET", "/api/admin/enrollments", { cookie: ad }))
   assert.equal(list.body.requests.length, 1); assert.equal(list.body.requests[0].course, "Azure"); assert.equal(list.body.requests[0].amount, price(4))
@@ -765,7 +765,7 @@ test("course fees: admin changes a fee → catalog, Razorpay order and manual re
   const PR = await import("../../app/api/payments/request/route")
   const ad = await admin()
   const cookie = await learnerCookie(L)
-  assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie, body: { course_id: 3, price: 5 } })).status, 403)
+  assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie, body: { course_id: 3, price: 5 } })).status, 401)
   assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie: ad, body: { course_id: 3, price: 0 } })).status, 400)
   assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie: ad, body: { course_id: 3, price: 12.5 } })).status, 400)
   assert.equal((await call(F, "PUT", "/api/admin/course-fees", { cookie: ad, body: { course_id: 99, price: 100 } })).status, 404)
@@ -807,7 +807,7 @@ test("payment requests appear for the admin as soon as the payment page is opene
 
   // 2. admin adds the enrollment by hand (payment seen in Razorpay) -> unlocked, pending request closed
   const add = (body: any, c = ad) => call(AE, "POST", "/api/admin/enrollments", { cookie: c, body })
-  assert.equal((await add({ email: "ravi@example.com", course_id: 5 }, cookie)).status, 403) // learner cannot
+  assert.equal((await add({ email: "ravi@example.com", course_id: 5 }, cookie)).status, 401) // learner cannot
   assert.equal((await add({ email: "nobody@example.com", course_id: 5 })).status, 404)
   assert.equal((await add({ email: "ravi@example.com", course_id: 99 })).status, 404)
   assert.equal((await add({ email: "RAVI@example.com", course_id: 5, reference: "UTR998877" })).status, 201)
@@ -816,4 +816,23 @@ test("payment requests appear for the admin as soon as the payment page is opene
   assert.equal(db.all("payment_requests")[0].status, "approved")
   const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
   assert.deepEqual(me.body.enrollments.map((e: any) => e.course_id), [5])
+})
+
+test("learner login survives signing in as admin/student in the same browser (separate cookies)", async () => {
+  const L = await learnerRoutes()
+  const PR = await import("../../app/api/payments/request/route")
+  const AE = await import("../../app/api/admin/enrollments/route")
+  const learner = await learnerCookie(L)
+  assert.match(learner, /^lms_learner=/)
+  const ad = await admin()
+  assert.match(ad, /^lms_session=/)
+  const both = `${learner}; ${ad}` // what one browser sends after logging in as both
+  assert.equal((await call(L.me, "GET", "/api/learner/me", { cookie: both })).status, 200)
+  assert.equal((await call(AE, "GET", "/api/admin/enrollments", { cookie: both })).status, 200)
+  assert.equal((await call(PR, "POST", "/api/payments/request", { cookie: both, body: { course_id: 2 } })).status, 201)
+  // learner logout leaves the admin cookie alone
+  const LO = await import("../../app/api/learner/logout/route")
+  const out = await call(LO, "POST", "/api/learner/logout", { cookie: both })
+  assert.match(out.headers.get("set-cookie")!, /lms_learner=;/)
+  assert.doesNotMatch(out.headers.get("set-cookie")!, /lms_session/)
 })

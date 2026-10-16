@@ -19,7 +19,7 @@ export default function LearnerShell({ children }: { children: (data: LearnerDat
   }, [router])
 
   const logout = async () => {
-    await fetch("/api/session/logout", { method: "POST", credentials: "same-origin" }).catch(() => {})
+    await fetch("/api/learner/logout", { method: "POST", credentials: "same-origin" }).catch(() => {})
     router.push("/")
   }
 

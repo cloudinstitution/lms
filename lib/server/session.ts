@@ -5,6 +5,8 @@ import { getDb } from "./firebase-admin"
 import { ApiError } from "./http"
 
 export const SESSION_COOKIE = "lms_session"
+/** Learners (self-signup buyers) use their own cookie so signing in as a student/admin in the same browser never logs them out. */
+export const LEARNER_COOKIE = "lms_learner"
 export const SESSION_TTL_SECONDS = 4 * 60 * 60 // matches the 4h client session in lib/session-storage.ts
 
 export type SessionRole = "student" | "admin" | "teacher" | "learner"
@@ -67,14 +69,22 @@ export async function createSessionToken(user: SessionUser): Promise<string> {
     .sign(secretKey())
 }
 
-function serializeCookie(value: string, maxAge: number): string {
-  const parts = [`${SESSION_COOKIE}=${encodeURIComponent(value)}`, "Path=/", `Max-Age=${maxAge}`, "HttpOnly", "SameSite=Lax"]
+function serializeCookie(value: string, maxAge: number, name = SESSION_COOKIE): string {
+  const parts = [`${name}=${encodeURIComponent(value)}`, "Path=/", `Max-Age=${maxAge}`, "HttpOnly", "SameSite=Lax"]
   if (process.env.NODE_ENV === "production") parts.push("Secure")
   return parts.join("; ")
 }
 
 export function setSessionCookie(res: Response, token: string) {
   res.headers.append("Set-Cookie", serializeCookie(token, SESSION_TTL_SECONDS))
+}
+
+export function setLearnerCookie(res: Response, token: string) {
+  res.headers.append("Set-Cookie", serializeCookie(token, SESSION_TTL_SECONDS, LEARNER_COOKIE))
+}
+
+export function clearLearnerCookie(res: Response) {
+  res.headers.append("Set-Cookie", serializeCookie("", 0, LEARNER_COOKIE))
 }
 
 export function clearSessionCookie(res: Response) {
@@ -164,8 +174,8 @@ export async function userFromDocId(kind: "student" | "staff", docId: string): P
  * deleted / deactivated students and demoted staff lose access immediately (not after the 4h token).
  * Returns null when there is no valid session.
  */
-export async function readSessionUser(req: NextRequest): Promise<SessionUser | null> {
-  const token = req.cookies.get(SESSION_COOKIE)?.value
+export async function readSessionUser(req: NextRequest, cookieName: string = SESSION_COOKIE): Promise<SessionUser | null> {
+  const token = req.cookies.get(cookieName)?.value
   if (!token) return null
   let sub: string
   let role: string
@@ -216,7 +226,8 @@ export async function requireStudent(req: NextRequest): Promise<StudentUser> {
 }
 
 export async function requireLearner(req: NextRequest): Promise<LearnerUser> {
-  const user = await requireUser(req)
+  const user = await readSessionUser(req, LEARNER_COOKIE)
+  if (!user) throw new ApiError(401, "Please log in to continue", "no_session")
   if (user.role !== "learner") throw new ApiError(403, "This action is for learner accounts only")
   return user
 }
