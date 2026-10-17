@@ -133,6 +133,7 @@ export async function setLessonDone(learner: LearnerUser, courseId: number, less
     if (cur) tx.update(ref, data)
     else tx.create(ref, { ...data, quiz_best: {}, quiz_passed: [] })
   })
+  if (done !== false) await touchActivity(learner)
   return progressFor(learner.docId, courseId)
 }
 
@@ -171,5 +172,39 @@ export async function submitQuiz(learner: LearnerUser, quizId: string, answersRa
     if (cur) tx.update(ref, data)
     else tx.create(ref, { ...data, completed: [] })
   })
+  await touchActivity(learner)
   return { score, total: q.questions.length, percent, passed, pass_mark: q.pass_mark, review, progress: await progressFor(learner.docId, q.course_id) }
+}
+
+// ---------- learning streaks ----------
+const istDay = (d = new Date()) => new Date(d.getTime() + 330 * 60000).toISOString().slice(0, 10)
+
+/** Remember that the learner studied today (IST). Stored on the learner's own document. */
+export async function touchActivity(learner: LearnerUser) {
+  const ref = getDb().collection("learners").doc(learner.docId)
+  const snap = await ref.get()
+  const days: string[] = snap.exists && Array.isArray((snap.data() as any).active_days) ? (snap.data() as any).active_days : []
+  const today = istDay()
+  if (days.includes(today)) return
+  await ref.update({ active_days: [...days, today].sort().slice(-400) })
+}
+
+export async function activityFor(learnerId: string) {
+  const snap = await getDb().collection("learners").doc(learnerId).get()
+  const days: string[] = snap.exists && Array.isArray((snap.data() as any).active_days) ? [...(snap.data() as any).active_days].sort() : []
+  const set = new Set(days)
+  const dayMs = 86400000
+  // current streak: consecutive days ending today (or yesterday, so it is not lost before today's study)
+  let cur = 0
+  let t = new Date(Date.now())
+  if (!set.has(istDay(t))) t = new Date(t.getTime() - dayMs)
+  while (set.has(istDay(t))) { cur++; t = new Date(t.getTime() - dayMs) }
+  let longest = 0, run = 0, prev = 0
+  for (const d of days) {
+    const ms = Date.parse(d)
+    run = prev && ms - prev === dayMs ? run + 1 : 1
+    prev = ms
+    longest = Math.max(longest, run)
+  }
+  return { days: days.slice(-120), current_streak: cur, longest_streak: longest, today: istDay() }
 }

@@ -8,6 +8,7 @@ const iso = () => new Date().toISOString()
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 export interface EnrollmentView {
+  payment_id?: string
   course_id: number
   title: string
   category: string
@@ -79,7 +80,7 @@ export async function authenticateLearner(emailRaw: string, password: string): P
 const enrollKey = (lid: string, courseId: number) => `${lid}__c${courseId}`
 
 const toEnrollment = (c: CatalogCourse, d: any): EnrollmentView => ({
-  course_id: c.id, title: c.title, category: c.category, duration: c.duration, level: c.level, enrolled_at: d.enrolled_at, amount: d.amount,
+  course_id: c.id, title: c.title, category: c.category, duration: c.duration, level: c.level, enrolled_at: d.enrolled_at, amount: d.amount, payment_id: d.payment_id ? String(d.payment_id) : undefined,
 })
 
 export async function listEnrollments(learner: LearnerUser): Promise<EnrollmentView[]> {

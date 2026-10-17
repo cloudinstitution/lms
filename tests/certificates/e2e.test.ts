@@ -925,6 +925,11 @@ test("learning: progress status, quizzes between lessons, server-side grading, a
   assert.equal(list.body.enrollments[0].progress.status, "Completed")
   const me = await json(await call(L.me, "GET", "/api/learner/me", { cookie }))
   assert.equal(me.body.enrollments[0].progress.percent, 100)
+  // studying today counts as a 1-day streak (once per day, however many lessons)
+  assert.equal(me.body.activity.current_streak, 1)
+  assert.equal(me.body.activity.longest_streak, 1)
+  assert.equal(me.body.activity.days.length, 1)
+  assert.ok(me.body.enrollments[0].payment_id !== undefined)
   // deleting the quiz is admin only
   assert.equal((await call(AQi, "DELETE", `/api/admin/course-quizzes/${qid}`, { cookie }, { id: qid })).status, 401)
   assert.equal((await call(AQi, "DELETE", `/api/admin/course-quizzes/${qid}`, { cookie: ad }, { id: qid })).status, 200)
