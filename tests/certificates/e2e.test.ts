@@ -935,3 +935,22 @@ test("learning: progress status, quizzes between lessons, server-side grading, a
   assert.equal((await call(AQi, "DELETE", `/api/admin/course-quizzes/${qid}`, { cookie: ad }, { id: qid })).status, 200)
   assert.equal((await json(await call(AQ, "GET", "/api/admin/course-quizzes?course_id=3", { cookie: ad }))).body.quizzes.length, 0)
 })
+
+test("consultation requests: public form validates, admin lists and marks contacted", async () => {
+  const C = await import("../../app/api/consultations/route")
+  const AC = await import("../../app/api/admin/consultations/route")
+  assert.equal((await call(C, "POST", "/api/consultations", { body: { name: "A", phone: "98765" } })).status, 400)
+  assert.equal((await call(C, "POST", "/api/consultations", { body: { name: "Ravi K", phone: "12345" } })).status, 400)
+  assert.equal((await call(C, "POST", "/api/consultations", { body: { name: "Ravi K", phone: "9876543210", email: "bad" } })).status, 400)
+  assert.equal((await call(C, "POST", "/api/consultations", { body: { name: "Ravi K", phone: "9876543210" }, origin: "https://evil.example" })).status, 403)
+  assert.equal((await call(C, "POST", "/api/consultations", { body: { name: "Ravi K", phone: "+91 98765 43210", message: "Java course?" } })).status, 201)
+  assert.equal((await call(AC, "GET", "/api/admin/consultations")).status, 401)
+  const ad = await admin()
+  const list = await json(await call(AC, "GET", "/api/admin/consultations", { cookie: ad }))
+  assert.equal(list.body.consultations.length, 1)
+  assert.equal(list.body.consultations[0].phone, "9876543210"); assert.equal(list.body.consultations[0].status, "New")
+  const id = list.body.consultations[0].id
+  assert.equal((await call(AC, "PUT", "/api/admin/consultations", { cookie: ad, body: { id, status: "Contacted" } })).status, 200)
+  assert.equal((await json(await call(AC, "GET", "/api/admin/consultations", { cookie: ad }))).body.consultations[0].status, "Contacted")
+  assert.equal((await call(AC, "PUT", "/api/admin/consultations", { cookie: ad, body: { id, status: "Bogus" } })).status, 400)
+})

@@ -19,6 +19,10 @@ export default function AdminEnrollmentsPage() {
 
   const load = () => api("/api/admin/enrollments").then(setData).catch((e) => toast.error(e instanceof ApiFailure || e instanceof Error ? e.message : "Could not load enrollments"))
   useEffect(() => { load() }, [])
+  const [leads, setLeads] = useState<any[]>([])
+  const loadLeads = () => api("/api/admin/consultations").then((d) => setLeads(d.consultations)).catch(() => {})
+  useEffect(() => { loadLeads() }, [])
+  const setLead = async (id: string, status: string) => { try { await api("/api/admin/consultations", { method: "PUT", body: { id, status } }); loadLeads() } catch (e: any) { toast.error(e?.message || "Could not update") } }
 
   const decide = async (id: string, action: "approve" | "reject") => {
     if (action === "approve" && !confirm("Approve only after you have seen this payment in your Razorpay dashboard. Unlock the course?")) return
@@ -165,7 +169,23 @@ export default function AdminEnrollmentsPage() {
       <Input placeholder="Search name, email, phone, course or payment ID" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-md" />
 
       <Tabs defaultValue="paid">
-        <TabsList><TabsTrigger value="paid">Enrollments</TabsTrigger><TabsTrigger value="signups">All sign-ups</TabsTrigger></TabsList>
+        <TabsList><TabsTrigger value="paid">Enrollments</TabsTrigger><TabsTrigger value="signups">All sign-ups</TabsTrigger><TabsTrigger value="leads">Consultation requests{leads.filter((l) => l.status === "New").length ? ` (${leads.filter((l) => l.status === "New").length})` : ""}</TabsTrigger></TabsList>
+        <TabsContent value="leads">
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b bg-muted/50"><tr>{["Name", "Mobile", "Email", "Message", "Requested", "Status"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
+              <tbody>
+                {leads.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">No consultation requests yet.</td></tr>}
+                {leads.map((l) => (
+                  <tr key={l.id} className="border-b last:border-0">
+                    <td className="px-4 py-3">{l.name}</td><td className="px-4 py-3 whitespace-nowrap"><a href={`tel:+91${l.phone}`} className="text-emerald-600 underline">{l.phone}</a></td><td className="px-4 py-3">{l.email}</td><td className="px-4 py-3">{l.message}</td><td className="px-4 py-3 whitespace-nowrap">{fmt(l.created_at)}</td>
+                    <td className="px-4 py-3"><Button size="sm" variant={l.status === "New" ? "default" : "outline"} onClick={() => setLead(l.id, l.status === "New" ? "Contacted" : "New")}>{l.status}</Button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
         <TabsContent value="paid">
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-left text-sm">

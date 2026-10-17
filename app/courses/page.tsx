@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Code, Database, Search, Server } from "lucide-react"
 import MainLayout from "@/components/main-layout"
 import BuyButton from "@/components/learner/buy-button"
+import ConsultationButton from "@/components/consultation-dialog"
 
 export default function CoursesPage() {
   const courseCategories = [
@@ -215,9 +216,7 @@ export default function CoursesPage() {
           <p className="text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-8">
             Our education counselors can help you find the perfect course based on your career goals and interests.
           </p>
-          <Button className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white">
-            Schedule a Consultation
-          </Button>
+          <ConsultationButton />
         </div>
       </div>
     </MainLayout>
