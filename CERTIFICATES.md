@@ -97,6 +97,6 @@ If the server runs without service-account credentials, the Firestore rules must
 ### Paying through a Razorpay.me page (no API keys)
 
 While `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` are not set, "Buy now" shows the course price and a link to the payment page
-(`PAYMENT_LINK_URL`, default `https://razorpay.me/@shwetadevaraddikanaki`). The learner pays, enters the payment ID or UTR from the
+(`PAYMENT_LINK_URL`, default `https://razorpay.me/@cloudinsthireprivatelimited`). The learner pays, enters the payment ID or UTR from the
 receipt and taps "I have paid". The request appears under **Admin → Enrollments → Payments waiting for confirmation**; after checking
 it in the Razorpay dashboard an admin approves it, which unlocks the course. Nothing unlocks without that approval.

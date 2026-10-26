@@ -123,7 +123,7 @@ export async function setCourseFee(adminName: string, courseId: unknown, priceRa
 }
 
 // ---------- manual payments (Razorpay.me page; an admin confirms) ----------
-export const manualPaymentUrl = () => process.env.PAYMENT_LINK_URL || "https://razorpay.me/@shwetadevaraddikanaki"
+export const manualPaymentUrl = () => process.env.PAYMENT_LINK_URL || "https://razorpay.me/@cloudinsthireprivatelimited"
 export const paymentsEnabled = () => Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET)
 
 /**
