@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { collection, query, where, getDocs, addDoc, updateDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import nodemailer from "nodemailer";
+import { learnerForReset, resetLearnerPassword } from "@/lib/server/learners-service";
 
 // Rate limiting store (in production, use Redis or database)
 const rateLimitStore = new Map<string, { attempts: number; lastAttempt: number }>();
@@ -257,6 +258,16 @@ export async function POST(request: NextRequest) {
           userType = userData.role === "admin" ? "admin" : "teacher";
         }
       }
+
+      // Learner accounts (self-signup buyers) live in their own collection.
+      if (!userDoc) {
+        const learner = await learnerForReset(email);
+        if (learner) {
+          userDoc = { id: email } as any;
+          userData = { name: learner.name };
+          userType = "learner";
+        }
+      }
       
       if (!userDoc || !userData) {
         return NextResponse.json(
@@ -399,7 +410,12 @@ export async function POST(request: NextRequest) {
       // Update user password based on user type
       const userType = otpData.userType;
       
-      if (userType === "student") {
+      if (userType === "learner") {
+        if (newPassword.length < 8) {
+          return NextResponse.json({ error: "Password must be at least 8 characters long" }, { status: 400 });
+        }
+        await resetLearnerPassword(email, newPassword);
+      } else if (userType === "student") {
         // Update student password
         const studentsQuery = query(
           collection(db, "students"),

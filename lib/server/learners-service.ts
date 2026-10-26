@@ -66,6 +66,19 @@ export async function signupLearner(input: { name?: unknown; email?: unknown; ph
   return { role: "learner", docId: id, name, email }
 }
 
+/** Password reset by OTP: the learner's name if this email is a learner account, else null. */
+export async function learnerForReset(emailRaw: string): Promise<{ name: string } | null> {
+  const snap = await getDb().collection("learners").doc(learnerId(emailRaw.trim().toLowerCase())).get()
+  return snap.exists ? { name: String((snap.data() as any).name ?? "") } : null
+}
+
+export async function resetLearnerPassword(emailRaw: string, password: string) {
+  if (password.length < 8 || password.length > 100) throw new ApiError(400, "Password must be at least 8 characters long")
+  const ref = getDb().collection("learners").doc(learnerId(emailRaw.trim().toLowerCase()))
+  if (!(await ref.get()).exists) throw new ApiError(404, "Account not found")
+  await ref.update({ password_hash: hashPassword(password), updated_at: iso() })
+}
+
 /** Returns null when the email is not a learner account (so the caller can say "not found"); throws on wrong password. */
 export async function authenticateLearner(emailRaw: string, password: string): Promise<LearnerUser | null> {
   const email = emailRaw.trim().toLowerCase()
