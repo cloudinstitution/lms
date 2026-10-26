@@ -148,7 +148,7 @@ export default function ForgotPasswordPage() {
         console.log('Resend: Starting countdown with expiry:', result.expiresAt)
         startCountdown(result.expiresAt);
       } else {
-        setError(result.error || "Failed to resend OTP");
+        setError((result.error || "Failed to resend OTP") + (result.detail ? ` (${result.detail})` : ""));
       }
     } catch (error) {
       console.error("Resend OTP error:", error);
@@ -186,7 +186,7 @@ export default function ForgotPasswordPage() {
           console.log('Starting countdown with expiry:', result.expiresAt)
           startCountdown(result.expiresAt)
         } else {
-          setError(result.error || "Failed to send OTP")
+          setError((result.error || "Failed to send OTP") + (result.detail ? ` (${result.detail})` : ""))
         }
 
       } else if (resetStep === 'otp') {

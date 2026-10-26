@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { collection, query, where, getDocs, addDoc, updateDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import nodemailer from "nodemailer";
+import { isCredentialFailure } from "@/lib/server/firebase-admin";
+import { withApi } from "@/lib/server/http";
 import { learnerForReset, resetLearnerPassword } from "@/lib/server/learners-service";
 
 // Rate limiting store (in production, use Redis or database)
@@ -198,7 +200,7 @@ This is an automated email. Please do not reply to this email address.
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   try {
     const { email, step, otp, newPassword } = await request.json();
     
@@ -515,10 +517,14 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error("Password reset error:", error);
-    
+    // Let withApi switch backends and retry when the server's Firebase credentials were rejected.
+    if (isCredentialFailure(error)) throw error;
+    const detail = (error instanceof Error ? error.message : String(error)).replace(/-----BEGIN[\s\S]*?END [A-Z ]*KEY-----/g, "[key]").slice(0, 200);
     return NextResponse.json(
-      { error: "Failed to process password reset request" },
+      { error: "Failed to process password reset request", detail },
       { status: 500 }
     );
   }
 }
+
+export const POST = withApi(async (req) => handlePost(req));
