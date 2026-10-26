@@ -281,17 +281,40 @@ export async function POST(request: NextRequest) {
       const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
       
       // Store OTP in Firestore with user type
-      await addDoc(collection(db, "password_reset_otps"), {
-        email: email,
-        otp: otpCode,
-        expiresAt: otpExpiry.toISOString(),
-        used: false,
-        userType: userType,
-        createdAt: new Date().toISOString()
-      });
+      try {
+        await addDoc(collection(db, "password_reset_otps"), {
+          email: email,
+          otp: otpCode,
+          expiresAt: otpExpiry.toISOString(),
+          used: false,
+          userType: userType,
+          createdAt: new Date().toISOString()
+        });
+      } catch (e: any) {
+        console.error("Could not store the reset OTP:", e);
+        return NextResponse.json(
+          { error: "Could not save the OTP (the database blocked the write). The site owner needs to allow the password_reset_otps collection in Firestore rules." },
+          { status: 500 }
+        );
+      }
 
       // Send OTP email
-      await sendOTPEmail(email, otpCode, userData.name);
+      if (!((process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) || (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD))) {
+        console.error("Password reset: no email settings (GMAIL_USER/GMAIL_APP_PASSWORD or SMTP_*) on the server");
+        return NextResponse.json(
+          { error: "Email sending is not set up on the server yet. The site owner must add GMAIL_USER and GMAIL_APP_PASSWORD." },
+          { status: 503 }
+        );
+      }
+      try {
+        await sendOTPEmail(email, otpCode, userData.name);
+      } catch (e: any) {
+        console.error("Could not send the reset OTP email:", e);
+        return NextResponse.json(
+          { error: "The OTP email could not be sent. Check the Gmail app password / SMTP settings on the server." },
+          { status: 502 }
+        );
+      }
 
       // Log OTP generation
       await addDoc(collection(db, "email_logs"), {
