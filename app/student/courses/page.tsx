@@ -1,6 +1,6 @@
 "use client"
 
-import { driveEmbedUrl, youtubeId } from "@/lib/video-embed"
+import { driveEmbedUrl, youtubeEmbedUrl, youtubeId } from "@/lib/video-embed"
 import StudentLayout from "@/components/student-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { db } from "@/lib/firebase"
@@ -138,7 +138,8 @@ export default function CoursesPage() {
     if (video.sourceType === "gdrive") {
       return driveEmbedUrl(video.link) ?? ""
     }
-    return ""
+    // YouTube links without a single video id (e.g. a playlist embed) play in a plain frame
+    return youtubeEmbedUrl(video.link) ?? ""
   }
 
   const clearTimers = () => {
@@ -282,7 +283,7 @@ export default function CoursesPage() {
       return
     }
 
-    if (selectedVideo.sourceType !== "youtube") {
+    if (selectedVideo.sourceType !== "youtube" || !youtubeId(selectedVideo.link)) {
       destroyPlayer()
       return
     }
@@ -445,7 +446,7 @@ export default function CoursesPage() {
               </button>
               <h2 className="text-xl font-semibold mb-4 text-slate-800 dark:text-slate-100">{selectedVideo.title}</h2>
               <div className="aspect-w-16 aspect-h-9">
-                {selectedVideo.sourceType === "youtube" ? (
+                {selectedVideo.sourceType === "youtube" && youtubeId(selectedVideo.link) ? (
                   <div id="yt-player" className="w-full h-[400px] rounded overflow-hidden" />
                 ) : (
                   <iframe
