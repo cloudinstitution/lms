@@ -1,5 +1,6 @@
 "use client"
 
+import { driveEmbedUrl, youtubeId } from "@/lib/video-embed"
 import StudentLayout from "@/components/student-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { db } from "@/lib/firebase"
@@ -135,8 +136,7 @@ export default function CoursesPage() {
 
   const getVideoEmbedUrl = (video: VideoType) => {
     if (video.sourceType === "gdrive") {
-      const fileId = video.link.match(/\/d\/(.*?)(\/|$)/)?.[1] || ""
-      return `https://drive.google.com/file/d/${fileId}/preview`
+      return driveEmbedUrl(video.link) ?? ""
     }
     return ""
   }
@@ -195,8 +195,7 @@ export default function CoursesPage() {
   }
 
   const loadYouTubePlayer = (video: VideoType, course: string) => {
-    const videoIdMatch = video.link.match(/(?:youtube\.com.*[?&]v=|youtu\.be\/)([^?&]+)/)
-    const videoId = videoIdMatch?.[1]
+    const videoId = youtubeId(video.link)
 
     if (!videoId || !window.YT || !window.YT.Player) return
 

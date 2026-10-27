@@ -1,5 +1,6 @@
 "use client"
 
+import { driveEmbedUrl, youtubeId } from "@/lib/video-embed"
 import LearnerShell from "@/components/learner/learner-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,10 +17,8 @@ type Progress = { status: string; percent: number; lessons_done: number; lessons
 type Item = { kind: "lesson"; video: Video; n: number } | { kind: "quiz"; quiz: QuizInfo }
 
 const embedUrl = (v: Video): string | null => {
-  const yt = v.link.match(/(?:youtu\.be\/|v=|embed\/)([A-Za-z0-9_-]{11})/)
-  if (yt) return `https://www.youtube.com/embed/${yt[1]}`
-  const gd = v.link.match(/\/d\/([A-Za-z0-9_-]+)/) || v.link.match(/[?&]id=([A-Za-z0-9_-]+)/)
-  return gd ? `https://drive.google.com/file/d/${gd[1]}/preview` : null
+  const yt = youtubeId(v.link)
+  return yt ? `https://www.youtube.com/embed/${yt}` : driveEmbedUrl(v.link)
 }
 
 // Topic of a lesson: an explicit section set by the admin, else guessed from the title (Java, HTML, CSS, ...).
