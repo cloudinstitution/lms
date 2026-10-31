@@ -172,21 +172,6 @@ export default function Footer() {
                 </div>
               </div>
               
-              <div>
-                <h4 className="font-medium text-white mb-2">Coimbatore</h4>
-                <div className="flex items-start gap-2">
-                  <MapPin className="h-5 w-5 text-emerald-400 mt-0.5" />
-                  <p>
-                    229, Sathyamurthy Rd, Peranaidu Layout,<br />
-                    Coimbatore, Tamil Nadu 641009
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <Phone className="h-5 w-5 text-emerald-400" />
-                  <p>+91 84319 66507</p>
-                </div>
-              </div>
-              
               <div className="flex items-center gap-2 mt-4">
                 <Mail className="h-5 w-5 text-emerald-400" />
                 <p>info@cloudinstitution.com</p>

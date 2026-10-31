@@ -15,14 +15,6 @@ export default function ContactPage() {
       email: "info@cloudinstitution.com",
       hours: "Mon-Sat: 9:00 AM - 7:00 PM",
       icon: <MapPin className="h-6 w-6 text-emerald-600" />
-    },
-    {
-      title: "Coimbatore Office", 
-      address: "229, Sathyamurthy Rd, Peranaidu Layout, Coimbatore, Tamil Nadu 641009",
-      phone: "+91 84319 66507",
-      email: "info@cloudinstitution.com",
-      hours: "Mon-Sat: 9:00 AM - 7:00 PM",
-      icon: <MapPin className="h-6 w-6 text-emerald-600" />
     }
   ]
 
