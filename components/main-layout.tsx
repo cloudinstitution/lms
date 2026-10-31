@@ -189,8 +189,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <div>
               <h3 className="font-semibold text-lg mb-4 text-emerald-400">Contact Us</h3>
               <address className="not-italic text-gray-400">
-                <p> No 15, 20th Main, 100ft Ring Road,<br />
-                    BTM 2nd Stage, Bangalore – 560076</p>
+                <p>2, HB Complex, 4th Floor, Cloud Institution,<br />
+                    100 Feet Ring Rd, near Silk Board, Dollar Scheme Colony,<br />
+                    BTM 1st Stage, Bengaluru, Karnataka 560068</p>
               </address>
             </div>
 

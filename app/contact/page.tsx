@@ -10,7 +10,7 @@ export default function ContactPage() {
   const contactInfo = [
     {
       title: "Bangalore Office",
-      address: "No 15, 20th Main, 100ft Ring Road, BTM 2nd Stage, Bangalore – 560076",
+      address: "2, HB Complex, 4th Floor, Cloud Institution, 100 Feet Ring Rd, near Silk Board, Dollar Scheme Colony, BTM 1st Stage, Bengaluru, Karnataka 560068",
       phone: "+91 76763 70336",
       email: "info@cloudinstitution.com",
       hours: "Mon-Sat: 9:00 AM - 7:00 PM",

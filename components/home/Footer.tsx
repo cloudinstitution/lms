@@ -162,8 +162,9 @@ export default function Footer() {
                 <div className="flex items-start gap-2">
                   <MapPin className="h-5 w-5 text-emerald-400 mt-0.5" />
                   <p>
-                    No 15, 20th Main, 100ft Ring Road,<br />
-                    BTM 2nd Stage, Bangalore – 560076
+                    2, HB Complex, 4th Floor, Cloud Institution,<br />
+                    100 Feet Ring Rd, near Silk Board, Dollar Scheme Colony,<br />
+                    BTM 1st Stage, Bengaluru, Karnataka 560068
                   </p>
                 </div>
                 <div className="flex items-center gap-2 mt-2">
