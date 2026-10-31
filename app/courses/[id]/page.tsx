@@ -1312,11 +1312,11 @@ export default function CourseDetailPage() {
 
                 <div className="flex flex-col sm:flex-row gap-4">
                   <BuyButton courseId={course.id} size="lg" className="bg-white text-emerald-600 hover:bg-gray-100" showPrice />
-                  <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10" onClick={handleEnroll}>
+                  <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/20 hover:text-white" onClick={handleEnroll}>
                     <PlayCircle className="h-5 w-5 mr-2" />
                     Request a call-back
                   </Button>
-                  <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10" onClick={() => import("@/lib/brochure").then((m) => m.downloadBrochure(course)).catch(() => toast.error("Could not create the brochure"))}>
+                  <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/20 hover:text-white" onClick={() => import("@/lib/brochure").then((m) => m.downloadBrochure(course)).catch(() => toast.error("Could not create the brochure"))}>
                     <Download className="h-5 w-5 mr-2" />
                     Download Brochure
                   </Button>
