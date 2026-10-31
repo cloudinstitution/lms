@@ -38,6 +38,7 @@ import PhoneInput from "react-phone-input-2"
 import "react-phone-input-2/lib/style.css"
 import { toast } from "sonner"
 import BuyButton from "@/components/learner/buy-button"
+import CourseLanding from "@/components/course/course-landing"
 
 // Google Sheets URL for enrollment data submission
 const GOOGLE_SHEETS_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEETS_URL;
@@ -1346,6 +1347,8 @@ export default function CourseDetailPage() {
           </div>
         </div>
 
+        <CourseLanding course={course} />
+
         <div className="container mx-auto px-4 py-12">
           <div className="grid lg:grid-cols-3 gap-8">
             {/* Main Content */}
@@ -1384,41 +1387,6 @@ export default function CourseDetailPage() {
                       <div key={index} className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-emerald-600 rounded-full"></div>
                         <span>{skill}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Course Overview */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Globe className="h-6 w-6 text-emerald-600" />
-                    Course Overview
-                  </CardTitle>
-                  <CardDescription>
-                    {course.fullDescription}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {course.curriculum.map((module: any, index: number) => (
-                      <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <h4 className="font-semibold text-lg">{module.module}</h4>
-                          <Badge variant="outline">{module.duration}</Badge>
-                        </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                          {module.lessons} lessons
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {module.topics.map((topic: string, topicIndex: number) => (
-                            <Badge key={topicIndex} variant="secondary" className="text-xs">
-                              {topic}
-                            </Badge>
-                          ))}
-                        </div>
                       </div>
                     ))}
                   </div>
