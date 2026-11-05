@@ -954,3 +954,60 @@ test("consultation requests: public form validates, admin lists and marks contac
   assert.equal((await json(await call(AC, "GET", "/api/admin/consultations", { cookie: ad }))).body.consultations[0].status, "Contacted")
   assert.equal((await call(AC, "PUT", "/api/admin/consultations", { cookie: ad, body: { id, status: "Bogus" } })).status, 400)
 })
+
+test("HR: employees, holidays, leaves (24 a year), attendance and payslip", async () => {
+  const H = {
+    emps: await import("../../app/api/admin/hr/employees/route"), emp: await import("../../app/api/admin/hr/employees/[id]/route"),
+    att: await import("../../app/api/admin/hr/attendance/route"), leaves: await import("../../app/api/admin/hr/leaves/route"),
+    leave: await import("../../app/api/admin/hr/leaves/[id]/route"), hol: await import("../../app/api/admin/hr/holidays/route"),
+    holi: await import("../../app/api/admin/hr/holidays/[id]/route"), pay: await import("../../app/api/admin/hr/payslip/route"),
+  }
+  const ad = await admin(), jn = await john()
+  assert.equal((await call(H.emps, "GET", "/api/admin/hr/employees", { cookie: jn })).status, 403, "students cannot see HR data")
+  assert.equal((await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "R" } })).status, 400)
+  const created = await json(await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Meera N", email: "meera@x.com", designation: "Trainer", basic: 30000, hra: 12000, allowances: 3000, deductions: 1500 } }))
+  assert.equal(created.status, 201)
+  const id = created.body.employee.id
+
+  // Sundays and holidays do not use up leave
+  assert.equal((await call(H.hol, "POST", "/api/admin/hr/holidays", { cookie: ad, body: { date: "2026-11-09", name: "Festival" } })).status, 201)
+  assert.equal((await call(H.hol, "POST", "/api/admin/hr/holidays", { cookie: ad, body: { date: "2026-11-09", name: "Again" } })).status, 409)
+  // 2026-11-07 Sat .. 2026-11-11 Wed: Sat, (Sun skipped), Mon is a holiday, Tue, Wed => 3 days
+  let l = await json(await call(H.leaves, "POST", "/api/admin/hr/leaves", { cookie: ad, body: { employee_id: id, from: "2026-11-07", to: "2026-11-11", type: "Casual" } }))
+  assert.equal(l.status, 201); assert.equal(l.body.leave.days, 3)
+  assert.equal((await json(await call(H.leaves, "POST", "/api/admin/hr/leaves", { cookie: ad, body: { employee_id: id, from: "2026-11-12", half_day: true } }))).body.leave.days, 0.5)
+  assert.equal((await call(H.leaves, "POST", "/api/admin/hr/leaves", { cookie: ad, body: { employee_id: id, from: "2026-11-15", to: "2026-11-15" } })).status, 400, "a Sunday needs no leave")
+
+  let list = await json(await call(H.emps, "GET", "/api/admin/hr/employees?year=2026", { cookie: ad }))
+  assert.deepEqual(list.body.employees[0].leave, { total: 24, taken: 3.5, pending: 0, remaining: 20.5 })
+  // cannot be approved beyond 24
+  const big = await call(H.leaves, "POST", "/api/admin/hr/leaves", { cookie: ad, body: { employee_id: id, from: "2026-01-05", to: "2026-02-28" } })
+  assert.equal(big.status, 400)
+  // pending leaves do not count until approved, then they do
+  const p = await json(await call(H.leaves, "POST", "/api/admin/hr/leaves", { cookie: ad, body: { employee_id: id, from: "2026-12-01", to: "2026-12-02", status: "Pending" } }))
+  list = await json(await call(H.emps, "GET", "/api/admin/hr/employees?year=2026", { cookie: ad }))
+  assert.equal(list.body.employees[0].leave.pending, 2); assert.equal(list.body.employees[0].leave.taken, 3.5)
+  assert.equal((await call(H.leave, "PUT", "/x", { cookie: ad, body: { status: "Approved" } }, { id: p.body.leave.id })).status, 200)
+  list = await json(await call(H.emps, "GET", "/api/admin/hr/employees?year=2026", { cookie: ad }))
+  assert.equal(list.body.employees[0].leave.taken, 5.5); assert.equal(list.body.employees[0].leave.remaining, 18.5)
+
+  // attendance: no future dates, validated statuses, upsert
+  assert.equal((await call(H.att, "POST", "/api/admin/hr/attendance", { cookie: ad, body: { date: "2099-01-01", records: [{ employee_id: id, status: "Present" }] } })).status, 400)
+  assert.equal((await call(H.att, "POST", "/api/admin/hr/attendance", { cookie: ad, body: { date: "2026-11-03", records: [{ employee_id: id, status: "Maybe" }] } })).status, 400)
+  for (const [d, s] of [["2026-11-02", "Present"], ["2026-11-03", "Absent"], ["2026-11-04", "Half day"], ["2026-11-04", "Half day"]]) {
+    assert.equal((await call(H.att, "POST", "/api/admin/hr/attendance", { cookie: ad, body: { date: d, records: [{ employee_id: id, status: s }] } })).status, 200)
+  }
+  assert.equal((await json(await call(H.att, "GET", "/api/admin/hr/attendance?date=2026-11-03", { cookie: ad }))).body.records[id], "Absent")
+  const sum = await json(await call(H.att, "GET", "/api/admin/hr/attendance?month=2026-11", { cookie: ad }))
+  assert.deepEqual([sum.body.summary[0].present, sum.body.summary[0].absent, sum.body.summary[0].half_day], [1, 1, 1])
+
+  // payslip: gross 45000; 1.5 loss-of-pay days of 30 => 2250; other deductions 1500 => net 41250
+  const ps = await json(await call(H.pay, "GET", `/api/admin/hr/payslip?employee_id=${id}&month=2026-11`, { cookie: ad }))
+  assert.equal(ps.body.payslip.earnings.gross, 45000); assert.equal(ps.body.payslip.deductions.loss_of_pay, 2250)
+  assert.equal(ps.body.payslip.net_pay, 41250); assert.equal(ps.body.payslip.leave_balance.remaining, 18.5)
+  assert.equal((await call(H.pay, "GET", `/api/admin/hr/payslip?employee_id=${id}&month=bad`, { cookie: ad })).status, 400)
+
+  // deactivate keeps history
+  assert.equal((await call(H.emp, "PUT", "/x", { cookie: ad, body: { status: "Inactive" } }, { id })).status, 200)
+  assert.equal((await json(await call(H.emps, "GET", "/api/admin/hr/employees", { cookie: ad }))).body.employees[0].status, "Inactive")
+})
