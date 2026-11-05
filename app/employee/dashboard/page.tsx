@@ -107,10 +107,13 @@ export default function EmployeeDashboard() {
             {slip && (
               <Card>
                 <CardHeader><CardTitle className="flex items-center justify-between text-base"><span>Payslip — {slip.month}</span><Button size="sm" variant="outline" onClick={pdf}><Download className="mr-1 h-4 w-4" />Download PDF</Button></CardTitle></CardHeader>
-                <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
-                  <div><div className="font-semibold">Earnings</div>Basic {inr(slip.earnings.basic)} · HRA {inr(slip.earnings.hra)} · Allowances {inr(slip.earnings.allowances)}<div className="font-medium">Gross {inr(slip.earnings.gross)}</div></div>
-                  <div><div className="font-semibold">Deductions</div>Loss of pay {inr(slip.deductions.loss_of_pay)} · Other {inr(slip.deductions.other)}<div className="font-medium">Total {inr(slip.deductions.total)}</div></div>
-                  <div className="text-lg font-bold text-emerald-700 sm:col-span-2">Net pay {inr(slip.net_pay)}</div>
+                <CardContent className="space-y-2 text-sm">
+                  <div>Working days {slip.working_days} · Effective {slip.effective_days} · LOP {slip.attendance.loss_of_pay_days}</div>
+                  <table className="w-full max-w-xl text-left"><thead><tr className="border-b"><th className="py-1 font-medium">Earnings</th><th className="py-1 text-right font-medium">Full</th><th className="py-1 text-right font-medium">Actual</th></tr></thead>
+                    <tbody>{slip.earnings.map((e: any) => <tr key={e.label}><td className="py-0.5">{e.label}</td><td className="py-0.5 text-right">{inr(e.full)}</td><td className="py-0.5 text-right">{inr(e.actual)}</td></tr>)}
+                      <tr className="border-t font-medium"><td className="py-1">Total earnings</td><td className="py-1 text-right">{inr(slip.total_full)}</td><td className="py-1 text-right">{inr(slip.total_actual)}</td></tr></tbody></table>
+                  <div>{slip.deductions.map((d: any) => `${d.label} ${inr(d.amount)}`).join(" · ")} — <span className="font-medium">Total deductions {inr(slip.total_deductions)}</span></div>
+                  <div className="text-lg font-bold text-emerald-700">Net pay {inr(slip.net_pay)}</div>
                 </CardContent>
               </Card>
             )}

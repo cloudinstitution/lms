@@ -14,7 +14,7 @@ const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.m
 const inr = (n: number) => "₹" + Number(n || 0).toLocaleString("en-IN")
 const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const STATUSES = ["Present", "Absent", "Half day", "On leave"]
-const blankEmp = { name: "", email: "", phone: "", designation: "", department: "", joined_on: "", basic: "", hra: "", allowances: "", deductions: "", password: "" }
+const blankEmp = { name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
 
 export default function HrPage() {
   const [year, setYear] = useState(todayIst().slice(0, 4))
@@ -41,7 +41,7 @@ export default function HrPage() {
       setF(blankEmp); setEditing(null); loadEmps()
     } catch (e) { toast.error(err(e)) }
   }
-  const startEdit = (e: any) => { setEditing(e.id); setF({ ...blankEmp, ...e, password: "", basic: e.basic, hra: e.hra, allowances: e.allowances, deductions: e.deductions }); window.scrollTo({ top: 0, behavior: "smooth" }) }
+  const startEdit = (e: any) => { setEditing(e.id); setF({ ...blankEmp, ...e, password: "" }); window.scrollTo({ top: 0, behavior: "smooth" }) }
   const setStatus = async (e: any) => { try { await api(`/api/admin/hr/employees/${e.id}`, { method: "PUT", body: { status: e.status === "Inactive" ? "Active" : "Inactive" } }); loadEmps() } catch (x) { toast.error(err(x)) } }
 
   // ----- attendance -----
@@ -111,13 +111,22 @@ export default function HrPage() {
                 <Input placeholder="Phone" value={f.phone} onChange={set("phone")} />
                 <Input placeholder="Designation" value={f.designation} onChange={set("designation")} />
                 <Input placeholder="Department" value={f.department} onChange={set("department")} />
+                <Input placeholder="Location (e.g. Bangalore)" value={f.location} onChange={set("location")} />
                 <label className="text-xs text-muted-foreground">Joining date<Input type="date" value={f.joined_on} onChange={set("joined_on")} /></label>
               </div>
-              <div className="grid gap-3 sm:grid-cols-4">
-                <Input type="number" placeholder="Basic pay / month" value={f.basic} onChange={set("basic")} />
-                <Input type="number" placeholder="HRA / month" value={f.hra} onChange={set("hra")} />
-                <Input type="number" placeholder="Allowances / month" value={f.allowances} onChange={set("allowances")} />
-                <Input type="number" placeholder="Fixed deductions (PF, tax…)" value={f.deductions} onChange={set("deductions")} />
+              <div className="text-xs font-medium text-muted-foreground">Monthly earnings (₹)</div>
+              <div className="grid gap-3 sm:grid-cols-6">
+                <Input type="number" placeholder="Basic" value={f.basic} onChange={set("basic")} />
+                <Input type="number" placeholder="HRA" value={f.hra} onChange={set("hra")} />
+                <Input type="number" placeholder="Special allowance" value={f.special_allowance} onChange={set("special_allowance")} />
+                <Input type="number" placeholder="Medical allowance" value={f.medical_allowance} onChange={set("medical_allowance")} />
+                <Input type="number" placeholder="Conveyance" value={f.conveyance} onChange={set("conveyance")} />
+                <Input type="number" placeholder="CCA" value={f.cca} onChange={set("cca")} />
+              </div>
+              <div className="text-xs font-medium text-muted-foreground">Monthly deductions (₹)</div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Input type="number" placeholder="Professional tax" value={f.professional_tax} onChange={set("professional_tax")} />
+                <Input type="number" placeholder="Other deductions" value={f.other_deductions} onChange={set("other_deductions")} />
               </div>
               <div className="grid gap-1 sm:grid-cols-3">
                 <Input type="password" autoComplete="new-password" placeholder={editing ? "New login password (leave blank to keep)" : "Login password (8+ characters)"} value={f.password} onChange={set("password")} />
@@ -139,7 +148,7 @@ export default function HrPage() {
                     <td className="px-3 py-2 font-medium">{e.name}<div className="text-xs text-muted-foreground">{e.department}</div></td>
                     <td className="px-3 py-2">{e.designation}</td>
                     <td className="px-3 py-2 text-xs">{e.email}<br />{e.phone}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{inr(e.basic + e.hra + e.allowances)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{inr(e.basic + e.hra + e.special_allowance + e.medical_allowance + e.conveyance + e.cca)}</td>
                     <td className="px-3 py-2">{e.leave.taken} / {e.leave.total}</td>
                     <td className="px-3 py-2 font-semibold text-emerald-700">{e.leave.remaining}</td>
                     <td className="px-3 py-2 text-xs">{e.has_login ? "Enabled" : "None"}</td><td className="px-3 py-2">{e.status}</td>
@@ -238,16 +247,21 @@ export default function HrPage() {
           {slip && (
             <Card>
               <CardHeader><CardTitle className="flex items-center justify-between text-base"><span>{slip.employee.name} — {slip.month}</span><Button size="sm" variant="outline" onClick={pdf}><Download className="mr-1 h-4 w-4" />Download PDF</Button></CardTitle></CardHeader>
-              <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
-                <div><div className="font-semibold">Earnings</div>Basic {inr(slip.earnings.basic)} · HRA {inr(slip.earnings.hra)} · Allowances {inr(slip.earnings.allowances)}<div className="font-medium">Gross {inr(slip.earnings.gross)}</div></div>
-                <div><div className="font-semibold">Deductions</div>Loss of pay {inr(slip.deductions.loss_of_pay)} ({slip.attendance.loss_of_pay_days} days) · Other {inr(slip.deductions.other)}<div className="font-medium">Total {inr(slip.deductions.total)}</div></div>
-                <div>Present {slip.attendance.present} · Absent {slip.attendance.absent} · Half days {slip.attendance.half_day} · On leave {slip.attendance.on_leave}</div>
+              <CardContent className="space-y-2 text-sm">
+                <div className="grid gap-x-6 sm:grid-cols-2">
+                  <div>Joining date: {slip.employee.joined_on} · Location: {slip.employee.location || "-"}</div>
+                  <div>Working days {slip.working_days} · Effective {slip.effective_days} · LOP {slip.attendance.loss_of_pay_days}</div>
+                </div>
+                <table className="w-full max-w-xl text-left"><thead><tr className="border-b"><th className="py-1 font-medium">Earnings</th><th className="py-1 text-right font-medium">Full</th><th className="py-1 text-right font-medium">Actual</th></tr></thead>
+                  <tbody>{slip.earnings.map((e: any) => <tr key={e.label}><td className="py-0.5">{e.label}</td><td className="py-0.5 text-right">{inr(e.full)}</td><td className="py-0.5 text-right">{inr(e.actual)}</td></tr>)}
+                    <tr className="border-t font-medium"><td className="py-1">Total earnings</td><td className="py-1 text-right">{inr(slip.total_full)}</td><td className="py-1 text-right">{inr(slip.total_actual)}</td></tr></tbody></table>
+                <div>{slip.deductions.map((d: any) => `${d.label} ${inr(d.amount)}`).join(" · ")} — <span className="font-medium">Total deductions {inr(slip.total_deductions)}</span></div>
                 <div>Leave {slip.month.slice(0, 4)}: {slip.leave_balance.taken} taken, {slip.leave_balance.remaining} remaining of {slip.leave_balance.total}</div>
-                <div className="text-lg font-bold text-emerald-700 sm:col-span-2">Net pay {inr(slip.net_pay)}</div>
+                <div className="text-lg font-bold text-emerald-700">Net pay {inr(slip.net_pay)}</div>
               </CardContent>
             </Card>
           )}
-          <p className="text-xs text-muted-foreground">Loss of pay = gross ÷ days in month × (absent days + ½ × half days). Mark attendance for the month first so the payslip is accurate.</p>
+          <p className="text-xs text-muted-foreground">Actual pay = full amount × effective work days ÷ days in month, where effective days = days in month − LOP (absent days + ½ × half days). Mark attendance for the month first so the payslip is accurate.</p>
         </TabsContent>
       </Tabs>
     </div>

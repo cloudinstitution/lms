@@ -1,45 +1,84 @@
 import { jsPDF } from "jspdf"
 
-const inr = (n: number) => "Rs. " + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// Letterhead shown at the top of every payslip.
+export const PAYSLIP_COMPANY = "CLOUD INSTHIRE PRIVATE LIMITED"
+export const PAYSLIP_ADDRESS = ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"]
 
-/** Draws a one-page payslip from the figures returned by /api/admin/hr/payslip and downloads it. */
-export function downloadPayslip(p: any) {
+const amt = (n: number) => Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })
+const dmy = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`)
+  return Number.isNaN(d.getTime()) ? iso || "-" : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-")
+}
+
+async function logoData(): Promise<{ data: string; w: number; h: number } | null> {
+  try {
+    const blob = await (await fetch("/lg_logo.png")).blob()
+    const data: string = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(blob) })
+    const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = data })
+    return { data, w: img.naturalWidth, h: img.naturalHeight }
+  } catch { return null }
+}
+
+/** Draws the payslip (letterhead, employee block, Earnings Full/Actual vs Deductions) from /api/…/payslip data and downloads it. */
+export async function downloadPayslip(p: any) {
   const doc = new jsPDF({ unit: "pt", format: "a4" })
   const W = doc.internal.pageSize.getWidth()
-  const monthLabel = new Date(`${p.month}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" })
-  doc.setFont("helvetica", "bold").setFontSize(20).text("Cloud Institution", W / 2, 60, { align: "center" })
-  doc.setFont("helvetica", "normal").setFontSize(10).setTextColor(90).text("Payslip for " + monthLabel, W / 2, 80, { align: "center" })
-  doc.setDrawColor(200).line(40, 95, W - 40, 95)
+  const L = 40, R = W - 40
+  const monthLabel = new Date(`${p.month}-01T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
 
-  doc.setTextColor(0).setFontSize(11)
-  const info: [string, string][] = [["Employee", p.employee.name], ["Designation", p.employee.designation || "-"], ["Department", p.employee.department || "-"], ["Date of joining", p.employee.joined_on || "-"]]
-  info.forEach(([k, v], i) => { doc.setFont("helvetica", "bold").text(k + ":", 40, 120 + i * 18); doc.setFont("helvetica", "normal").text(String(v), 150, 120 + i * 18) })
-  const a = p.attendance
-  const att: [string, string][] = [["Days in month", String(p.days_in_month)], ["Present", String(a.present)], ["Absent / Half days", `${a.absent} / ${a.half_day}`], ["Loss of pay days", String(a.loss_of_pay_days)]]
-  att.forEach(([k, v], i) => { doc.setFont("helvetica", "bold").text(k + ":", 330, 120 + i * 18); doc.setFont("helvetica", "normal").text(v, 450, 120 + i * 18) })
+  const logo = await logoData()
+  if (logo) { const h = 38; doc.addImage(logo.data, "PNG", L, 28, (logo.w / logo.h) * h, h) }
+  doc.setFont("times", "bold").setFontSize(14).text(PAYSLIP_COMPANY, W / 2, 95, { align: "center" })
+  doc.setFont("times", "normal").setFontSize(10)
+  PAYSLIP_ADDRESS.forEach((l, i) => doc.text(l, W / 2, 110 + i * 13, { align: "center" }))
+  doc.setFont("times", "bold").setFontSize(15).text(`Payslip for the Month of ${monthLabel}`, W / 2, 160, { align: "center" })
 
-  let y = 220
-  doc.setFillColor(236, 253, 245).rect(40, y, W - 80, 24, "F")
-  doc.setFont("helvetica", "bold").text("Earnings", 50, y + 16).text("Amount", 280, y + 16, { align: "right" }).text("Deductions", 320, y + 16).text("Amount", W - 50, y + 16, { align: "right" })
-  const earn: [string, number][] = [["Basic pay", p.earnings.basic], ["HRA", p.earnings.hra], ["Allowances", p.earnings.allowances]]
-  const ded: [string, number][] = [["Loss of pay", p.deductions.loss_of_pay], ["Other deductions", p.deductions.other]]
-  doc.setFont("helvetica", "normal")
-  for (let i = 0; i < 3; i++) {
-    const row = y + 44 + i * 22
-    if (earn[i]) { doc.text(earn[i][0], 50, row); doc.text(inr(earn[i][1]), 280, row, { align: "right" }) }
-    if (ded[i]) { doc.text(ded[i][0], 320, row); doc.text(inr(ded[i][1]), W - 50, row, { align: "right" }) }
-  }
-  y += 44 + 3 * 22 + 6
-  doc.line(40, y, W - 40, y)
-  doc.setFont("helvetica", "bold").text("Gross earnings", 50, y + 20).text(inr(p.earnings.gross), 280, y + 20, { align: "right" })
-  doc.text("Total deductions", 320, y + 20).text(inr(p.deductions.total), W - 50, y + 20, { align: "right" })
-  y += 50
-  doc.setFillColor(5, 150, 105).rect(40, y, W - 80, 36, "F")
-  doc.setTextColor(255).setFontSize(13).text("Net pay", 50, y + 23).text(inr(p.net_pay), W - 50, y + 23, { align: "right" })
+  // ---- table ----
+  doc.setDrawColor(0).setLineWidth(0.8)
+  const top = 172
+  const info: [string, string][] = [
+    ["Name", p.employee.name], ["Joining Date", dmy(p.employee.joined_on)], ["Designation", p.employee.designation || "-"], ["Department", p.employee.department || "-"],
+    ["Location", p.employee.location || "-"], ["Total Working Days", String(p.working_days)], ["Effective Work Days", String(p.effective_days)], ["LOP", String(p.attendance.loss_of_pay_days)],
+  ]
+  const lineH = 17, infoH = info.length * lineH + 8
+  const mid = 330 // divider between the left (earnings) and right (deductions) halves
+  const cFull = 235, cAct = 318 // right edges of the Full / Actual columns (left half)
+  doc.rect(L, top, R - L, infoH)
+  doc.line(mid, top, mid, top + infoH)
+  doc.setFont("times", "normal").setFontSize(12)
+  info.forEach(([k, v], i) => doc.text(`${k}: ${v}`, L + 4, top + 16 + i * lineH))
 
-  doc.setTextColor(0).setFontSize(10).setFont("helvetica", "normal")
-  const b = p.leave_balance
-  doc.text(`Leave balance for ${p.month.slice(0, 4)}: ${b.taken} taken, ${b.remaining} remaining of ${b.total}`, 40, y + 70)
-  doc.setTextColor(120).setFontSize(9).text("This is a computer-generated payslip and does not need a signature.", W / 2, 780, { align: "center" })
+  const headY = top + infoH
+  const headH = 22
+  doc.rect(L, headY, R - L, headH)
+  doc.line(mid, headY, mid, headY + headH)
+  doc.text("Earnings", L + 4, headY + 15); doc.text("Full", cFull, headY + 15, { align: "right" }); doc.text("Actual", cAct, headY + 15, { align: "right" })
+  doc.text("Deductions", mid + 8, headY + 15); doc.text("Actual", R - 8, headY + 15, { align: "right" })
+
+  const rowH = 30, rows = Math.max(6, p.earnings.length)
+  const bodyY = headY + headH, bodyH = rows * rowH + 14
+  doc.rect(L, bodyY, R - L, bodyH)
+  doc.line(mid, bodyY, mid, bodyY + bodyH)
+  doc.setFontSize(10.5)
+  p.earnings.forEach((e: any, i: number) => {
+    const y = bodyY + 22 + i * rowH
+    doc.text(e.label, L + 6, y); doc.text(amt(e.full), cFull, y, { align: "right" }); doc.text(amt(e.actual), cAct, y, { align: "right" })
+  })
+  p.deductions.forEach((d: any, i: number) => {
+    const y = bodyY + 22 + i * rowH
+    doc.text(d.label, mid + 8, y); doc.text(amt(d.amount), R - 8, y, { align: "right" })
+  })
+
+  const totY = bodyY + bodyH, totH = 26
+  doc.rect(L, totY, R - L, totH)
+  doc.line(mid, totY, mid, totY + totH)
+  doc.setFont("times", "normal").setFontSize(12)
+  doc.text("Total Earnings: INR.", L + 4, totY + 17); doc.text(amt(p.total_full), cFull, totY + 17, { align: "right" }); doc.text(amt(p.total_actual), cAct, totY + 17, { align: "right" })
+  doc.text("Total Deductions", mid + 8, totY + 17); doc.text(amt(p.total_deductions), R - 8, totY + 17, { align: "right" })
+
+  const netY = totY + totH + 22
+  doc.setFont("times", "bold").setFontSize(13).text(`Net Pay: INR. ${amt(p.net_pay)}`, L, netY)
+  doc.setFont("times", "normal").setFontSize(9).setTextColor(110)
+  doc.text("This is a computer-generated payslip and does not require a signature.", W / 2, netY + 36, { align: "center" })
   doc.save(`payslip-${p.employee.name.replace(/\s+/g, "-")}-${p.month}.pdf`)
 }

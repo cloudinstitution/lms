@@ -28,8 +28,13 @@ export const LEAVE_TYPES = ["Casual", "Sick", "Earned", "Other"] as const
 // ---------- employees ----------
 export interface Employee {
   id: string; name: string; email: string; phone: string; designation: string; department: string
-  has_login?: boolean; joined_on: string; basic: number; hra: number; allowances: number; deductions: number; status: "Active" | "Inactive"; created_at: string
+  has_login?: boolean; joined_on: string; location: string; basic: number; hra: number; special_allowance: number; medical_allowance: number; conveyance: number; cca: number; professional_tax: number; other_deductions: number; status: "Active" | "Inactive"; created_at: string
 }
+
+const PAY_FIELDS = [
+  ["basic", "Basic pay"], ["hra", "HRA"], ["special_allowance", "Special allowance"], ["medical_allowance", "Medical allowance"],
+  ["conveyance", "Conveyance"], ["cca", "CCA"], ["professional_tax", "Professional tax"], ["other_deductions", "Other deductions"],
+] as const
 
 function cleanEmployee(input: any, partial = false) {
   const name = str(input?.name, 80)
@@ -38,13 +43,15 @@ function cleanEmployee(input: any, partial = false) {
   if (email && !EMAIL_RE.test(email)) throw new ApiError(400, "Enter a valid email address")
   const phone = str(input?.phone, 20)
   if (phone && !/^[0-9+\-\s()]{7,20}$/.test(phone)) throw new ApiError(400, "Enter a valid phone number")
-  const out: Record<string, unknown> = { name, email, phone, designation: str(input?.designation, 80), department: str(input?.department, 80) }
+  const out: Record<string, unknown> = { name, email, phone, designation: str(input?.designation, 80), department: str(input?.department, 80), location: str(input?.location, 80) }
   if (input?.joined_on) out.joined_on = validDate(input.joined_on, "Joining date")
   else if (!partial) out.joined_on = iso().slice(0, 10)
-  for (const [k, label] of [["basic", "Basic pay"], ["hra", "HRA"], ["allowances", "Allowances"], ["deductions", "Deductions"]] as const) out[k] = money(input?.[k], label)
+  // (older records / clients used `allowances` and `deductions`)
+  const src = { ...input, special_allowance: input?.special_allowance ?? input?.allowances, other_deductions: input?.other_deductions ?? input?.deductions }
+  for (const [k, label] of PAY_FIELDS) out[k] = money(src[k], label)
   if (input?.status === "Inactive" || input?.status === "Active") out.status = input.status
   // An edit only changes the fields it actually sent (so flipping Active/Inactive never blanks the details).
-  if (partial) for (const k of Object.keys(out)) if (!(k in (input ?? {})) && k !== "status") delete out[k]
+  if (partial) for (const k of Object.keys(out)) if (k !== "status" && (src as any)[k] === undefined) delete out[k]
   return out
 }
 
@@ -55,8 +62,13 @@ export async function listEmployees(): Promise<Employee[]> {
 
 /** Never send the password hash anywhere: only whether a login exists. */
 function publicEmployee(id: string, d: any): Employee {
-  const { password_hash, ...rest } = d
-  return { id, ...rest, has_login: Boolean(password_hash) } as Employee
+  const { password_hash, allowances, deductions, ...rest } = d
+  return {
+    id, ...rest,
+    special_allowance: rest.special_allowance ?? allowances ?? 0, other_deductions: rest.other_deductions ?? deductions ?? 0,
+    medical_allowance: rest.medical_allowance ?? 0, conveyance: rest.conveyance ?? 0, cca: rest.cca ?? 0, professional_tax: rest.professional_tax ?? 0, location: rest.location ?? "",
+    has_login: Boolean(password_hash),
+  } as Employee
 }
 
 async function getEmployee(id: string) {
@@ -287,6 +299,8 @@ export async function attendanceSummary(month: string) {
 }
 
 // ---------- payslip ----------
+const r2 = (n: number) => Math.round(n * 100) / 100
+
 export async function payslipData(employeeId: string, month: string) {
   if (!MONTH_RE.test(month)) throw new ApiError(400, "Month must look like 2026-11")
   const emp = await getEmployee(employeeId)
@@ -296,18 +310,22 @@ export async function payslipData(employeeId: string, month: string) {
   const recs = snap.docs.map((d) => d.data() as any).filter((a) => a.employee_id === emp.id && String(a.date).startsWith(month))
   const count = (s: string) => recs.filter((a) => a.status === s).length
   const absent = count("Absent"), half = count("Half day")
-  const lopDays = absent + half * 0.5
-  const gross = emp.basic + emp.hra + emp.allowances
-  const lopAmount = Math.round((gross / daysInMonth) * lopDays * 100) / 100
-  const net = Math.max(0, Math.round((gross - lopAmount - emp.deductions) * 100) / 100)
+  const lopDays = Math.min(daysInMonth, absent + half * 0.5)
+  const effective = daysInMonth - lopDays
+  const lines: [string, number][] = [["BASIC", emp.basic], ["HRA", emp.hra], ["SPECIAL ALLOWANCE", emp.special_allowance], ["MEDICAL ALLOWANCE", emp.medical_allowance], ["CONVEYANCE", emp.conveyance], ["CCA", emp.cca]]
+  const earnings = lines.map(([label, full]) => ({ label, full, actual: r2((full * effective) / daysInMonth) }))
+  const totalFull = r2(earnings.reduce((n, e) => n + e.full, 0))
+  const totalActual = r2(earnings.reduce((n, e) => n + e.actual, 0))
+  const deductions = [{ label: "Professional Tax", amount: emp.professional_tax }, { label: "Other Deductions", amount: emp.other_deductions }]
+  const totalDed = r2(deductions.reduce((n, d) => n + d.amount, 0))
   const bal = await leaveBalance(emp.id, String(y))
   return {
-    employee: { id: emp.id, name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, joined_on: emp.joined_on },
-    month, days_in_month: daysInMonth,
+    employee: { id: emp.id, name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, location: emp.location, joined_on: emp.joined_on },
+    month, days_in_month: daysInMonth, working_days: daysInMonth, effective_days: effective,
     attendance: { present: count("Present"), absent, half_day: half, on_leave: count("On leave"), loss_of_pay_days: lopDays },
-    earnings: { basic: emp.basic, hra: emp.hra, allowances: emp.allowances, gross },
-    deductions: { loss_of_pay: lopAmount, other: emp.deductions, total: Math.round((lopAmount + emp.deductions) * 100) / 100 },
-    net_pay: net,
+    earnings, total_full: totalFull, total_actual: totalActual,
+    deductions, total_deductions: totalDed,
+    net_pay: Math.max(0, r2(totalActual - totalDed)),
     leave_balance: bal,
   }
 }

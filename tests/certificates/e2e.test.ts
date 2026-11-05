@@ -965,7 +965,7 @@ test("HR: employees, holidays, leaves (24 a year), attendance and payslip", asyn
   const ad = await admin(), jn = await john()
   assert.equal((await call(H.emps, "GET", "/api/admin/hr/employees", { cookie: jn })).status, 403, "students cannot see HR data")
   assert.equal((await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "R" } })).status, 400)
-  const created = await json(await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Meera N", email: "meera@x.com", designation: "Trainer", basic: 30000, hra: 12000, allowances: 3000, deductions: 1500 } }))
+  const created = await json(await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Meera N", email: "meera@x.com", designation: "Trainer", basic: 30000, hra: 12000, special_allowance: 3000, medical_allowance: 0, conveyance: 0, cca: 0, professional_tax: 200, other_deductions: 1300, location: "Bangalore" } }))
   assert.equal(created.status, 201)
   const id = created.body.employee.id
 
@@ -1001,10 +1001,13 @@ test("HR: employees, holidays, leaves (24 a year), attendance and payslip", asyn
   const sum = await json(await call(H.att, "GET", "/api/admin/hr/attendance?month=2026-11", { cookie: ad }))
   assert.deepEqual([sum.body.summary[0].present, sum.body.summary[0].absent, sum.body.summary[0].half_day], [1, 1, 1])
 
-  // payslip: gross 45000; 1.5 loss-of-pay days of 30 => 2250; other deductions 1500 => net 41250
-  const ps = await json(await call(H.pay, "GET", `/api/admin/hr/payslip?employee_id=${id}&month=2026-11`, { cookie: ad }))
-  assert.equal(ps.body.payslip.earnings.gross, 45000); assert.equal(ps.body.payslip.deductions.loss_of_pay, 2250)
-  assert.equal(ps.body.payslip.net_pay, 41250); assert.equal(ps.body.payslip.leave_balance.remaining, 18.5)
+  // payslip: full 45000; 1.5 loss-of-pay days of 30 => effective 28.5 => actual 42750; deductions 200 + 1300 => net 41250
+  const ps = (await json(await call(H.pay, "GET", `/api/admin/hr/payslip?employee_id=${id}&month=2026-11`, { cookie: ad }))).body.payslip
+  assert.equal(ps.working_days, 30); assert.equal(ps.effective_days, 28.5); assert.equal(ps.attendance.loss_of_pay_days, 1.5)
+  assert.deepEqual(ps.earnings.map((e: any) => e.label), ["BASIC", "HRA", "SPECIAL ALLOWANCE", "MEDICAL ALLOWANCE", "CONVEYANCE", "CCA"])
+  assert.equal(ps.earnings[0].full, 30000); assert.equal(ps.earnings[0].actual, 28500)
+  assert.equal(ps.total_full, 45000); assert.equal(ps.total_actual, 42750); assert.equal(ps.total_deductions, 1500)
+  assert.equal(ps.net_pay, 41250); assert.equal(ps.employee.location, "Bangalore"); assert.equal(ps.leave_balance.remaining, 18.5)
   assert.equal((await call(H.pay, "GET", `/api/admin/hr/payslip?employee_id=${id}&month=bad`, { cookie: ad })).status, 400)
 
   // deactivate keeps history
