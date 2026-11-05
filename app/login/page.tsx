@@ -36,6 +36,8 @@ export default function LoginPage() {
     setIsLoading(true)
     setError("")
 
+    // A wrong password on a student/staff account must not block the same email from signing in as a learner or an employee.
+    let pendingError = ""
     try {
       // Check students collection
       const studentQuery = query(collection(db, "students"), where("username", "==", formData.email))
@@ -72,8 +74,7 @@ export default function LoginPage() {
           router.push("/student/dashboard")
           return
         } else {
-          setError("Invalid password.")
-          return
+          pendingError = "Invalid password."
         }
       }      // Check admin collection
       const adminQuery = query(collection(db, "admin"), where("username", "==", formData.email))
@@ -101,8 +102,7 @@ export default function LoginPage() {
           router.push("/admin/dashboard")
           return
         } else {
-          setError("Invalid password or insufficient permissions.")
-          return
+          pendingError = "Invalid password or insufficient permissions."
         }
       }
 
@@ -112,21 +112,15 @@ export default function LoginPage() {
         router.push("/learner/dashboard")
         return
       }
-      if (lr.status === 401) {
-        setError("Invalid password.")
-        return
-      }
       // Then the employee (HR) accounts.
       const er = await fetch("/api/employee/login", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: formData.email, password: formData.password }) })
       if (er.ok) {
         router.push("/employee/dashboard")
         return
       }
-      if (er.status === 401) {
-        setError("Invalid password.")
-        return
-      }
-      setError("User not found. Please check your email, or create an account.")
+      if (pendingError) setError(pendingError)
+      else if (lr.status === 401 || er.status === 401) setError("Invalid password.")
+      else setError("User not found. Please check your email, or create an account.")
     } catch (err) {
       console.error("Login error:", err);
       setError(err instanceof Error ? err.message : "An error occurred. Please try again later.")
