@@ -14,7 +14,7 @@ const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.m
 const inr = (n: number) => "₹" + Number(n || 0).toLocaleString("en-IN")
 const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const STATUSES = ["Present", "Absent", "Half day", "On leave"]
-const blankEmp = { name: "", email: "", phone: "", designation: "", department: "", joined_on: "", basic: "", hra: "", allowances: "", deductions: "" }
+const blankEmp = { name: "", email: "", phone: "", designation: "", department: "", joined_on: "", basic: "", hra: "", allowances: "", deductions: "", password: "" }
 
 export default function HrPage() {
   const [year, setYear] = useState(todayIst().slice(0, 4))
@@ -41,7 +41,7 @@ export default function HrPage() {
       setF(blankEmp); setEditing(null); loadEmps()
     } catch (e) { toast.error(err(e)) }
   }
-  const startEdit = (e: any) => { setEditing(e.id); setF({ ...blankEmp, ...e, basic: e.basic, hra: e.hra, allowances: e.allowances, deductions: e.deductions }); window.scrollTo({ top: 0, behavior: "smooth" }) }
+  const startEdit = (e: any) => { setEditing(e.id); setF({ ...blankEmp, ...e, password: "", basic: e.basic, hra: e.hra, allowances: e.allowances, deductions: e.deductions }); window.scrollTo({ top: 0, behavior: "smooth" }) }
   const setStatus = async (e: any) => { try { await api(`/api/admin/hr/employees/${e.id}`, { method: "PUT", body: { status: e.status === "Inactive" ? "Active" : "Inactive" } }); loadEmps() } catch (x) { toast.error(err(x)) } }
 
   // ----- attendance -----
@@ -119,6 +119,10 @@ export default function HrPage() {
                 <Input type="number" placeholder="Allowances / month" value={f.allowances} onChange={set("allowances")} />
                 <Input type="number" placeholder="Fixed deductions (PF, tax…)" value={f.deductions} onChange={set("deductions")} />
               </div>
+              <div className="grid gap-1 sm:grid-cols-3">
+                <Input type="password" autoComplete="new-password" placeholder={editing ? "New login password (leave blank to keep)" : "Login password (8+ characters)"} value={f.password} onChange={set("password")} />
+                <p className="text-xs text-muted-foreground sm:col-span-2">The employee logs in at the normal login page with their email and this password, and sees their own attendance, leaves, holidays and payslips. Leave it blank to add them without a login.</p>
+              </div>
               <div className="flex gap-2">
                 <Button onClick={saveEmp} className="bg-emerald-600 hover:bg-emerald-700">{editing ? "Save changes" : "Add employee"}</Button>
                 {editing && <Button variant="outline" onClick={() => { setEditing(null); setF(blankEmp) }}>Cancel</Button>}
@@ -127,9 +131,9 @@ export default function HrPage() {
           </Card>
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-left text-sm">
-              <Th cols={["Name", "Designation", "Contact", "Gross / month", `Leave ${year}: taken`, "Remaining", "Status", ""]} />
+              <Th cols={["Name", "Designation", "Contact", "Gross / month", `Leave ${year}: taken`, "Remaining", "Login", "Status", ""]} />
               <tbody>
-                {emps.length === 0 && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">No employees yet.</td></tr>}
+                {emps.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">No employees yet.</td></tr>}
                 {emps.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
                     <td className="px-3 py-2 font-medium">{e.name}<div className="text-xs text-muted-foreground">{e.department}</div></td>
@@ -138,7 +142,7 @@ export default function HrPage() {
                     <td className="px-3 py-2 whitespace-nowrap">{inr(e.basic + e.hra + e.allowances)}</td>
                     <td className="px-3 py-2">{e.leave.taken} / {e.leave.total}</td>
                     <td className="px-3 py-2 font-semibold text-emerald-700">{e.leave.remaining}</td>
-                    <td className="px-3 py-2">{e.status}</td>
+                    <td className="px-3 py-2 text-xs">{e.has_login ? "Enabled" : "None"}</td><td className="px-3 py-2">{e.status}</td>
                     <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" variant="outline" onClick={() => startEdit(e)}>Edit</Button> <Button size="sm" variant="ghost" onClick={() => setStatus(e)}>{e.status === "Inactive" ? "Activate" : "Deactivate"}</Button></td>
                   </tr>
                 ))}

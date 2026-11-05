@@ -116,6 +116,16 @@ export default function LoginPage() {
         setError("Invalid password.")
         return
       }
+      // Then the employee (HR) accounts.
+      const er = await fetch("/api/employee/login", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: formData.email, password: formData.password }) })
+      if (er.ok) {
+        router.push("/employee/dashboard")
+        return
+      }
+      if (er.status === 401) {
+        setError("Invalid password.")
+        return
+      }
       setError("User not found. Please check your email, or create an account.")
     } catch (err) {
       console.error("Login error:", err);

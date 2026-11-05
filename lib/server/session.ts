@@ -7,9 +7,11 @@ import { ApiError } from "./http"
 export const SESSION_COOKIE = "lms_session"
 /** Learners (self-signup buyers) use their own cookie so signing in as a student/admin in the same browser never logs them out. */
 export const LEARNER_COOKIE = "lms_learner"
+/** Employees (HR portal) also get their own cookie. */
+export const EMPLOYEE_COOKIE = "lms_employee"
 export const SESSION_TTL_SECONDS = 4 * 60 * 60 // matches the 4h client session in lib/session-storage.ts
 
-export type SessionRole = "student" | "admin" | "teacher" | "learner"
+export type SessionRole = "student" | "admin" | "teacher" | "learner" | "employee"
 
 export interface StudentUser {
   role: "student"
@@ -37,7 +39,15 @@ export interface LearnerUser {
   email: string
 }
 
-export type SessionUser = StudentUser | StaffUser | LearnerUser
+/** A staff member added by an admin under HR (collection `employees`). */
+export interface EmployeeUser {
+  role: "employee"
+  docId: string
+  name: string
+  email: string
+}
+
+export type SessionUser = StudentUser | StaffUser | LearnerUser | EmployeeUser
 
 function secretKey(): Uint8Array {
   const secret = process.env.SESSION_SECRET
@@ -81,6 +91,14 @@ export function setSessionCookie(res: Response, token: string) {
 
 export function setLearnerCookie(res: Response, token: string) {
   res.headers.append("Set-Cookie", serializeCookie(token, SESSION_TTL_SECONDS, LEARNER_COOKIE))
+}
+
+export function setEmployeeCookie(res: Response, token: string) {
+  res.headers.append("Set-Cookie", serializeCookie(token, SESSION_TTL_SECONDS, EMPLOYEE_COOKIE))
+}
+
+export function clearEmployeeCookie(res: Response) {
+  res.headers.append("Set-Cookie", serializeCookie("", 0, EMPLOYEE_COOKIE))
 }
 
 export function clearLearnerCookie(res: Response) {
@@ -202,6 +220,12 @@ export async function readSessionUser(req: NextRequest, cookieName: string = SES
     const d = snap.data()!
     return { role: "learner", docId: snap.id, name: String(d.name ?? ""), email: String(d.email ?? "") }
   }
+  if (role === "employee") {
+    const snap = await db.collection("employees").doc(sub).get()
+    if (!snap.exists || snap.data()!.status === "Inactive" || !snap.data()!.password_hash) return null
+    const d = snap.data()!
+    return { role: "employee", docId: snap.id, name: String(d.name ?? ""), email: String(d.email ?? "") }
+  }
   if (role === "admin" || role === "teacher") {
     const snap = await db.collection("admin").doc(sub).get()
     if (!snap.exists) return null
@@ -232,10 +256,17 @@ export async function requireLearner(req: NextRequest): Promise<LearnerUser> {
   return user
 }
 
+export async function requireEmployee(req: NextRequest): Promise<EmployeeUser> {
+  const user = await readSessionUser(req, EMPLOYEE_COOKIE)
+  if (!user) throw new ApiError(401, "Please log in to continue", "no_session")
+  if (user.role !== "employee") throw new ApiError(403, "This action is for employee accounts only")
+  return user
+}
+
 /** Admin or teacher (the people who may review projects). */
 export async function requireReviewer(req: NextRequest): Promise<StaffUser> {
   const user = await requireUser(req)
-  if (user.role === "student" || user.role === "learner") throw new ApiError(403, "Not allowed for your role")
+  if (user.role === "student" || user.role === "learner" || user.role === "employee") throw new ApiError(403, "Not allowed for your role")
   return user
 }
 

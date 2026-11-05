@@ -1,5 +1,7 @@
 import { getDb } from "./firebase-admin"
 import { ApiError } from "./http"
+import { hashPassword, verifyPassword } from "./learners-service"
+import type { EmployeeUser } from "./session"
 
 const iso = () => new Date().toISOString()
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -26,7 +28,7 @@ export const LEAVE_TYPES = ["Casual", "Sick", "Earned", "Other"] as const
 // ---------- employees ----------
 export interface Employee {
   id: string; name: string; email: string; phone: string; designation: string; department: string
-  joined_on: string; basic: number; hra: number; allowances: number; deductions: number; status: "Active" | "Inactive"; created_at: string
+  has_login?: boolean; joined_on: string; basic: number; hra: number; allowances: number; deductions: number; status: "Active" | "Inactive"; created_at: string
 }
 
 function cleanEmployee(input: any, partial = false) {
@@ -41,30 +43,103 @@ function cleanEmployee(input: any, partial = false) {
   else if (!partial) out.joined_on = iso().slice(0, 10)
   for (const [k, label] of [["basic", "Basic pay"], ["hra", "HRA"], ["allowances", "Allowances"], ["deductions", "Deductions"]] as const) out[k] = money(input?.[k], label)
   if (input?.status === "Inactive" || input?.status === "Active") out.status = input.status
+  // An edit only changes the fields it actually sent (so flipping Active/Inactive never blanks the details).
+  if (partial) for (const k of Object.keys(out)) if (!(k in (input ?? {})) && k !== "status") delete out[k]
   return out
 }
 
 export async function listEmployees(): Promise<Employee[]> {
   const snap = await getDb().collection("employees").get()
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as Employee)).sort((a, b) => a.name.localeCompare(b.name))
+  return snap.docs.map((d) => publicEmployee(d.id, d.data() as any)).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** Never send the password hash anywhere: only whether a login exists. */
+function publicEmployee(id: string, d: any): Employee {
+  const { password_hash, ...rest } = d
+  return { id, ...rest, has_login: Boolean(password_hash) } as Employee
 }
 
 async function getEmployee(id: string) {
   const snap = await getDb().collection("employees").doc(id).get()
   if (!snap.exists) throw new ApiError(404, "Employee not found")
-  return { id: snap.id, ...(snap.data() as any) } as Employee
+  return publicEmployee(snap.id, snap.data() as any)
+}
+
+/** Optional login password from the admin form: 8+ characters, and the employee needs an email to sign in with. */
+async function loginFields(input: any, email: string, selfId?: string): Promise<Record<string, unknown>> {
+  const pw = typeof input?.password === "string" ? input.password : ""
+  if (!pw) return {}
+  if (pw.length < 8 || pw.length > 100) throw new ApiError(400, "The login password must be at least 8 characters")
+  if (!email) throw new ApiError(400, "Add the employee's email so they can log in with it")
+  const dup = (await getDb().collection("employees").where("email", "==", email).get()).docs.find((d) => d.id !== selfId)
+  if (dup) throw new ApiError(409, "Another employee already uses this email")
+  return { password_hash: hashPassword(pw) }
 }
 
 export async function createEmployee(input: unknown) {
-  const doc = { ...cleanEmployee(input), status: "Active", created_at: iso() }
+  const clean = cleanEmployee(input)
+  const doc = { ...clean, ...(await loginFields(input, String(clean.email ?? ""))), status: "Active", created_at: iso() }
   const ref = getDb().collection("employees").doc()
   await ref.set(doc)
-  return { id: ref.id, ...doc }
+  return publicEmployee(ref.id, doc)
 }
 
 export async function updateEmployee(id: string, input: unknown) {
-  await getEmployee(id)
-  await getDb().collection("employees").doc(id).update(cleanEmployee(input, true))
+  const cur = await getEmployee(id)
+  const clean = cleanEmployee(input, true)
+  const email = String(clean.email ?? "") || cur.email
+  if (clean.email && clean.email !== cur.email && cur.has_login) {
+    const dup = (await getDb().collection("employees").where("email", "==", clean.email).get()).docs.find((d) => d.id !== id)
+    if (dup) throw new ApiError(409, "Another employee already uses this email")
+  }
+  await getDb().collection("employees").doc(id).update({ ...clean, ...(await loginFields(input, email, id)) })
+}
+
+// ---------- employee login ----------
+export async function authenticateEmployee(emailRaw: string, password: string): Promise<EmployeeUser | null> {
+  const email = emailRaw.trim().toLowerCase()
+  const snap = await getDb().collection("employees").where("email", "==", email).get()
+  if (snap.empty) return null
+  const doc = snap.docs[0]
+  const d = doc.data() as any
+  if (!d.password_hash) return null
+  if (!verifyPassword(password, d.password_hash) || d.status === "Inactive") throw new ApiError(401, "Invalid email or password")
+  return { role: "employee", docId: doc.id, name: String(d.name ?? ""), email: String(d.email ?? email) }
+}
+
+const istToday = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
+
+/** Everything an employee sees on their own page. */
+export async function employeeOverview(user: EmployeeUser, month: string | undefined) {
+  const m = month && MONTH_RE.test(month) ? month : istToday().slice(0, 7)
+  const year = istToday().slice(0, 4)
+  const emp = await getEmployee(user.docId)
+  const [leaves, holidays, snap, balance] = await Promise.all([listLeaves({ year, employee_id: user.docId }), listHolidays(year), getDb().collection("employee_attendance").get(), leaveBalance(user.docId, year)])
+  const attendance = snap.docs.map((d) => d.data() as any).filter((a) => a.employee_id === user.docId && String(a.date).startsWith(m))
+    .map((a) => ({ date: a.date as string, status: a.status as string })).sort((a, b) => a.date.localeCompare(b.date))
+  return {
+    employee: { name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, joined_on: emp.joined_on },
+    year, month: m, leave: balance, leaves, holidays, attendance,
+  }
+}
+
+/** An employee applies for leave: it always starts Pending and cannot exceed the days left. */
+export async function employeeApplyLeave(user: EmployeeUser, input: any) {
+  const leave = await addLeave({ ...input, employee_id: user.docId, status: "Pending" })
+  const bal = await leaveBalance(user.docId, leave.from.slice(0, 4))
+  if (leave.days > bal.remaining) {
+    await deleteLeave(leave.id)
+    throw new ApiError(400, `You have only ${bal.remaining} leave day(s) left for ${leave.from.slice(0, 4)}`)
+  }
+  return leave
+}
+
+export async function employeeCancelLeave(user: EmployeeUser, id: string) {
+  const ref = getDb().collection("employee_leaves").doc(id)
+  const snap = await ref.get()
+  if (!snap.exists || (snap.data() as any).employee_id !== user.docId) throw new ApiError(404, "Leave not found")
+  if ((snap.data() as any).status !== "Pending") throw new ApiError(400, "Only a pending request can be cancelled")
+  await ref.delete()
 }
 
 // ---------- holidays ----------

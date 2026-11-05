@@ -1011,3 +1011,55 @@ test("HR: employees, holidays, leaves (24 a year), attendance and payslip", asyn
   assert.equal((await call(H.emp, "PUT", "/x", { cookie: ad, body: { status: "Inactive" } }, { id })).status, 200)
   assert.equal((await json(await call(H.emps, "GET", "/api/admin/hr/employees", { cookie: ad }))).body.employees[0].status, "Inactive")
 })
+
+test("HR: employee login, own data only, applying for leave", async () => {
+  const H = {
+    emps: await import("../../app/api/admin/hr/employees/route"), emp: await import("../../app/api/admin/hr/employees/[id]/route"),
+    leaves: await import("../../app/api/admin/hr/leaves/route"),
+    login: await import("../../app/api/employee/login/route"), logout: await import("../../app/api/employee/logout/route"), me: await import("../../app/api/employee/me/route"),
+    apply: await import("../../app/api/employee/leaves/route"), cancel: await import("../../app/api/employee/leaves/[id]/route"), pay: await import("../../app/api/employee/payslip/route"),
+    adminLeave: await import("../../app/api/admin/hr/leaves/[id]/route"),
+  }
+  const ad = await admin()
+  assert.equal((await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Kiran", password: "longenough1" } })).status, 400, "a login needs an email")
+  assert.equal((await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Kiran", email: "kiran@x.com", password: "short" } })).status, 400)
+  const k = await json(await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Kiran", email: "Kiran@X.com", basic: 20000, password: "longenough1" } }))
+  assert.equal(k.status, 201); assert.equal(k.body.employee.has_login, true); assert.ok(!JSON.stringify(k.body).includes("scrypt"))
+  assert.equal((await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Other", email: "kiran@x.com", password: "longenough1" } })).status, 409)
+  await call(H.emps, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Nolog", email: "nolog@x.com" } })
+  assert.ok(!JSON.stringify((await json(await call(H.emps, "GET", "/api/admin/hr/employees", { cookie: ad }))).body).includes("scrypt"), "admin list never contains hashes")
+
+  const bad = { body: { email: "kiran@x.com", password: "wrong-pass-1" } }
+  assert.equal((await call(H.login, "POST", "/api/employee/login", { body: { email: "nobody@x.com", password: "longenough1" } })).status, 404)
+  assert.equal((await call(H.login, "POST", "/api/employee/login", bad)).status, 401)
+  assert.equal((await call(H.login, "POST", "/api/employee/login", { body: { email: "nolog@x.com", password: "anything-long" } })).status, 404, "no password set => no login")
+  const ok = await call(H.login, "POST", "/api/employee/login", { body: { email: "kiran@x.com", password: "longenough1" } })
+  assert.equal(ok.status, 200)
+  const sc = ok.headers.get("set-cookie")!; assert.match(sc, /lms_employee=/); assert.match(sc, /HttpOnly/)
+  const cookie = sc.split(";")[0]
+
+  assert.equal((await call(H.me, "GET", "/api/employee/me")).status, 401)
+  assert.equal((await call(H.me, "GET", "/api/employee/me", { cookie: await john() })).status, 401, "a student session is not an employee session")
+  const me = await json(await call(H.me, "GET", "/api/employee/me", { cookie }))
+  assert.equal(me.body.employee.name, "Kiran"); assert.equal(me.body.leave.remaining, 24); assert.ok(!JSON.stringify(me.body).includes("scrypt"))
+  assert.equal((await call(H.emps, "GET", "/api/admin/hr/employees", { cookie })).status, 401, "employees cannot open admin HR")
+
+  // apply: pending, cannot exceed what is left, can cancel
+  const a = await json(await call(H.apply, "POST", "/api/employee/leaves", { cookie, body: { from: "2026-12-07", to: "2026-12-08", status: "Approved", employee_id: "someone-else" } }))
+  assert.equal(a.status, 201); assert.equal(a.body.leave.status, "Pending"); assert.equal(a.body.leave.days, 2)
+  assert.equal((await call(H.apply, "POST", "/api/employee/leaves", { cookie, body: { from: "2026-01-05", to: "2026-03-31" } })).status, 400)
+  assert.equal((await json(await call(H.me, "GET", "/api/employee/me", { cookie }))).body.leaves.length, 1, "the rejected request left nothing behind")
+  assert.equal((await call(H.cancel, "DELETE", "/x", { cookie }, { id: a.body.leave.id })).status, 200)
+  const b = await json(await call(H.apply, "POST", "/api/employee/leaves", { cookie, body: { from: "2026-12-09", half_day: true } }))
+  await call(H.adminLeave, "PUT", "/x", { cookie: ad, body: { status: "Approved" } }, { id: b.body.leave.id })
+  assert.equal((await call(H.cancel, "DELETE", "/x", { cookie }, { id: b.body.leave.id })).status, 400, "approved leave cannot be cancelled by the employee")
+  assert.equal((await json(await call(H.me, "GET", "/api/employee/me", { cookie }))).body.leave.remaining, 23.5)
+
+  // own payslip only; deactivating blocks the existing session too
+  assert.equal((await call(H.pay, "GET", "/api/employee/payslip?month=2026-12", { cookie })).status, 200)
+  const id = k.body.employee.id
+  assert.equal((await call(H.emp, "PUT", "/x", { cookie: ad, body: { status: "Inactive" } }, { id })).status, 200)
+  assert.equal((await call(H.me, "GET", "/api/employee/me", { cookie })).status, 401)
+  assert.equal((await call(H.login, "POST", "/api/employee/login", { body: { email: "kiran@x.com", password: "longenough1" } })).status, 401)
+  const out = await call(H.logout, "POST", "/api/employee/logout", { cookie }); assert.match(out.headers.get("set-cookie")!, /Max-Age=0/)
+})
