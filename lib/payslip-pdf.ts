@@ -1,8 +1,6 @@
 import { jsPDF } from "jspdf"
 
-// Letterhead shown at the top of every payslip.
-export const PAYSLIP_COMPANY = "CLOUD INSTHIRE PRIVATE LIMITED"
-export const PAYSLIP_ADDRESS = ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"]
+// The letterhead (name, address, logo) comes from the employee's company (payslip.company).
 
 const amt = (n: number) => Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })
 const dmy = (iso: string) => {
@@ -10,9 +8,10 @@ const dmy = (iso: string) => {
   return Number.isNaN(d.getTime()) ? iso || "-" : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-")
 }
 
-async function logoData(): Promise<{ data: string; w: number; h: number } | null> {
+async function logoData(url: string): Promise<{ data: string; w: number; h: number } | null> {
+  if (!url) return null
   try {
-    const blob = await (await fetch("/lg_logo.png")).blob()
+    const blob = await (await fetch(url)).blob()
     const data: string = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(blob) })
     const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = data })
     return { data, w: img.naturalWidth, h: img.naturalHeight }
@@ -26,11 +25,12 @@ export async function downloadPayslip(p: any) {
   const L = 40, R = W - 40
   const monthLabel = new Date(`${p.month}-01T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
 
-  const logo = await logoData()
+  const logo = await logoData(p.company?.logo ?? "")
   if (logo) { const h = 38; doc.addImage(logo.data, "PNG", L, 28, (logo.w / logo.h) * h, h) }
-  doc.setFont("times", "bold").setFontSize(14).text(PAYSLIP_COMPANY, W / 2, 95, { align: "center" })
+  doc.setFont("times", "bold").setFontSize(14).text(String(p.company?.name ?? ""), W / 2, 95, { align: "center" })
   doc.setFont("times", "normal").setFontSize(10)
-  PAYSLIP_ADDRESS.forEach((l, i) => doc.text(l, W / 2, 110 + i * 13, { align: "center" }))
+  const addr: string[] = p.company?.address ?? []
+  addr.forEach((l, i) => doc.text(l, W / 2, 110 + i * 13, { align: "center" }))
   doc.setFont("times", "bold").setFontSize(15).text(`Payslip for the Month of ${monthLabel}`, W / 2, 160, { align: "center" })
 
   // ---- table ----

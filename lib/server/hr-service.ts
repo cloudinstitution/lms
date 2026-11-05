@@ -25,10 +25,48 @@ export const LEAVES_PER_YEAR = () => Number(process.env.HR_LEAVES_PER_YEAR) > 0 
 export const ATTENDANCE_STATUSES = ["Present", "Absent", "Half day", "On leave"] as const
 export const LEAVE_TYPES = ["Casual", "Sick", "Earned", "Other"] as const
 
+// ---------- companies (letterhead on payslips; employees belong to one) ----------
+export interface Company { id: string; name: string; address: string[]; logo: string }
+const DEFAULT_COMPANY_ID = "cloud-insthire"
+const DEFAULT_COMPANIES: Company[] = [
+  { id: DEFAULT_COMPANY_ID, name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"], logo: "/lg_logo.png" },
+  { id: "genai-labs", name: "GENAI LABS", address: [], logo: "" },
+]
+
+/** Built-in companies (editable) plus any the admin added. */
+export async function listCompanies(): Promise<Company[]> {
+  const snap = await getDb().collection("hr_companies").get()
+  const stored = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...(d.data() as any) } as Company]))
+  const merged = DEFAULT_COMPANIES.map((c) => ({ ...c, ...(stored.get(c.id) ?? {}), id: c.id }))
+  const extra = [...stored.values()].filter((c) => !DEFAULT_COMPANIES.some((d) => d.id === c.id)).sort((a, b) => a.name.localeCompare(b.name))
+  return [...merged, ...extra].map((c) => ({ ...c, address: Array.isArray(c.address) ? c.address : [] }))
+}
+
+/** Create a company (no id) or update one (id): name, and address as up to 3 lines. */
+export async function saveCompany(input: any) {
+  const name = str(input?.name, 100)
+  if (name.length < 2) throw new ApiError(400, "Enter the company name")
+  const lines = (Array.isArray(input?.address) ? input.address : String(input?.address ?? "").split("\n")).map((l: unknown) => str(l, 120)).filter(Boolean).slice(0, 3)
+  const all = await listCompanies()
+  let id = typeof input?.id === "string" ? input.id : ""
+  if (id && !all.some((c) => c.id === id)) throw new ApiError(404, "Company not found")
+  if (!id) {
+    id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40)
+    if (!id || all.some((c) => c.id === id)) throw new ApiError(409, "A company with this name already exists")
+  }
+  const logo = all.find((c) => c.id === id)?.logo ?? ""
+  await getDb().collection("hr_companies").doc(id).set({ name, address: lines, logo, updated_at: iso() })
+  return { id, name, address: lines, logo }
+}
+
+async function assertCompany(id: unknown) {
+  if (!(await listCompanies()).some((c) => c.id === id)) throw new ApiError(400, "Choose a valid company")
+}
+
 // ---------- employees ----------
 export interface Employee {
   id: string; name: string; email: string; phone: string; designation: string; department: string
-  has_login?: boolean; joined_on: string; location: string; basic: number; hra: number; special_allowance: number; medical_allowance: number; conveyance: number; cca: number; professional_tax: number; other_deductions: number; status: "Active" | "Inactive"; created_at: string
+  company_id: string; has_login?: boolean; joined_on: string; location: string; basic: number; hra: number; special_allowance: number; medical_allowance: number; conveyance: number; cca: number; professional_tax: number; other_deductions: number; status: "Active" | "Inactive"; created_at: string
 }
 
 const PAY_FIELDS = [
@@ -43,7 +81,7 @@ function cleanEmployee(input: any, partial = false) {
   if (email && !EMAIL_RE.test(email)) throw new ApiError(400, "Enter a valid email address")
   const phone = str(input?.phone, 20)
   if (phone && !/^[0-9+\-\s()]{7,20}$/.test(phone)) throw new ApiError(400, "Enter a valid phone number")
-  const out: Record<string, unknown> = { name, email, phone, designation: str(input?.designation, 80), department: str(input?.department, 80), location: str(input?.location, 80) }
+  const out: Record<string, unknown> = { name, email, phone, designation: str(input?.designation, 80), department: str(input?.department, 80), location: str(input?.location, 80), company_id: typeof input?.company_id === "string" ? input.company_id : undefined }
   if (input?.joined_on) out.joined_on = validDate(input.joined_on, "Joining date")
   else if (!partial) out.joined_on = iso().slice(0, 10)
   // (older records / clients used `allowances` and `deductions`)
@@ -67,6 +105,7 @@ function publicEmployee(id: string, d: any): Employee {
     id, ...rest,
     special_allowance: rest.special_allowance ?? allowances ?? 0, other_deductions: rest.other_deductions ?? deductions ?? 0,
     medical_allowance: rest.medical_allowance ?? 0, conveyance: rest.conveyance ?? 0, cca: rest.cca ?? 0, professional_tax: rest.professional_tax ?? 0, location: rest.location ?? "",
+    company_id: rest.company_id || DEFAULT_COMPANY_ID,
     has_login: Boolean(password_hash),
   } as Employee
 }
@@ -90,6 +129,8 @@ async function loginFields(input: any, email: string, selfId?: string): Promise<
 
 export async function createEmployee(input: unknown) {
   const clean = cleanEmployee(input)
+  clean.company_id = clean.company_id || DEFAULT_COMPANY_ID
+  await assertCompany(clean.company_id)
   const doc = { ...clean, ...(await loginFields(input, String(clean.email ?? ""))), status: "Active", created_at: iso() }
   const ref = getDb().collection("employees").doc()
   await ref.set(doc)
@@ -99,6 +140,7 @@ export async function createEmployee(input: unknown) {
 export async function updateEmployee(id: string, input: unknown) {
   const cur = await getEmployee(id)
   const clean = cleanEmployee(input, true)
+  if (clean.company_id !== undefined) await assertCompany(clean.company_id)
   const email = String(clean.email ?? "") || cur.email
   if (clean.email && clean.email !== cur.email && cur.has_login) {
     const dup = (await getDb().collection("employees").where("email", "==", clean.email).get()).docs.find((d) => d.id !== id)
@@ -319,7 +361,9 @@ export async function payslipData(employeeId: string, month: string) {
   const deductions = [{ label: "Professional Tax", amount: emp.professional_tax }, { label: "Other Deductions", amount: emp.other_deductions }]
   const totalDed = r2(deductions.reduce((n, d) => n + d.amount, 0))
   const bal = await leaveBalance(emp.id, String(y))
+  const company = (await listCompanies()).find((c) => c.id === emp.company_id) ?? DEFAULT_COMPANIES[0]
   return {
+    company: { id: company.id, name: company.name, address: company.address, logo: company.logo },
     employee: { id: emp.id, name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, location: emp.location, joined_on: emp.joined_on },
     month, days_in_month: daysInMonth, working_days: daysInMonth, effective_days: effective,
     attendance: { present: count("Present"), absent, half_day: half, on_leave: count("On leave"), loss_of_pay_days: lopDays },

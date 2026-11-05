@@ -14,22 +14,44 @@ const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.m
 const inr = (n: number) => "₹" + Number(n || 0).toLocaleString("en-IN")
 const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const STATUSES = ["Present", "Absent", "Half day", "On leave"]
-const blankEmp = { name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
+const blankEmp = { company_id: "cloud-insthire", name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
+
+function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[] }; onSaved: () => void }) {
+  const [name, setName] = useState(c.name)
+  const [addr, setAddr] = useState((c.address ?? []).join("\n"))
+  const save = async () => {
+    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr("") } onSaved() } catch (e) { toast.error(err(e)) }
+  }
+  return (
+    <div className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_2fr_auto]">
+      <Input placeholder={c.id ? "Company name" : "Add a new company…"} value={name} onChange={(e) => setName(e.target.value)} />
+      <textarea className="min-h-[60px] rounded-md border bg-background px-3 py-2 text-sm" placeholder="Address (one line per row, up to 3)" value={addr} onChange={(e) => setAddr(e.target.value)} />
+      <Button onClick={save} className="bg-emerald-600 hover:bg-emerald-700">{c.id ? "Save" : "Add"}</Button>
+    </div>
+  )
+}
 
 export default function HrPage() {
   const [year, setYear] = useState(todayIst().slice(0, 4))
   const [emps, setEmps] = useState<any[]>([])
   const [holidays, setHolidays] = useState<any[]>([])
   const [leaves, setLeaves] = useState<any[]>([])
+  const [companies, setCompanies] = useState<any[]>([])
+  const [filterCo, setFilterCo] = useState("all")
+  const loadCompanies = useCallback(() => api("/api/admin/hr/companies").then((d) => setCompanies(d.companies)).catch(() => {}), [])
+  useEffect(() => { loadCompanies() }, [loadCompanies])
+  const coName = (id: string) => companies.find((c) => c.id === id)?.name ?? "—"
   const loadEmps = useCallback(() => api(`/api/admin/hr/employees?year=${year}`).then((d) => setEmps(d.employees)).catch((e) => toast.error(err(e))), [year])
   const loadHolidays = useCallback(() => api(`/api/admin/hr/holidays?year=${year}`).then((d) => setHolidays(d.holidays)).catch(() => {}), [year])
   const loadLeaves = useCallback(() => api(`/api/admin/hr/leaves?year=${year}`).then((d) => setLeaves(d.leaves)).catch(() => {}), [year])
   useEffect(() => { loadEmps(); loadHolidays(); loadLeaves() }, [loadEmps, loadHolidays, loadLeaves])
   const refresh = () => { loadEmps(); loadLeaves() }
-  const active = emps.filter((e) => e.status !== "Inactive")
+  const shown = emps.filter((e) => filterCo === "all" || e.company_id === filterCo)
+  const active = emps.filter((e) => e.status !== "Inactive" && (filterCo === "all" || e.company_id === filterCo))
   const nameOf = (id: string) => emps.find((e) => e.id === id)?.name ?? "—"
 
   // ----- employees -----
+  const [showCo, setShowCo] = useState(false)
   const [f, setF] = useState<any>(blankEmp)
   const [editing, setEditing] = useState<string | null>(null)
   const set = (k: string) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
@@ -106,6 +128,7 @@ export default function HrPage() {
             <CardHeader><CardTitle className="text-base">{editing ? "Edit employee" : "Add employee"}</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-3">
+                <label className="text-xs text-muted-foreground">Company<select className={sel + " w-full"} value={f.company_id} onChange={set("company_id")}>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
                 <Input placeholder="Full name" value={f.name} onChange={set("name")} />
                 <Input placeholder="Email" value={f.email} onChange={set("email")} />
                 <Input placeholder="Phone" value={f.phone} onChange={set("phone")} />
@@ -138,15 +161,28 @@ export default function HrPage() {
               </div>
             </CardContent>
           </Card>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            Show <select className={sel} value={filterCo} onChange={(e) => setFilterCo(e.target.value)}><option value="all">All companies</option>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+            <Button size="sm" variant="outline" onClick={() => setShowCo(!showCo)}>{showCo ? "Hide companies" : "Edit companies"}</Button>
+          </div>
+          {showCo && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Companies (shown on each payslip)</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                {[...companies, { id: "", name: "", address: [] }].map((c) => <CompanyRow key={c.id || "new"} c={c} onSaved={loadCompanies} />)}
+                <p className="text-xs text-muted-foreground">Give each company its name and up to 3 address lines. Employees pick their company in the form above, and their payslip uses that letterhead.</p>
+              </CardContent>
+            </Card>
+          )}
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-left text-sm">
-              <Th cols={["Name", "Designation", "Contact", "Gross / month", `Leave ${year}: taken`, "Remaining", "Login", "Status", ""]} />
+              <Th cols={["Name", "Company", "Designation", "Contact", "Gross / month", `Leave ${year}: taken`, "Remaining", "Login", "Status", ""]} />
               <tbody>
-                {emps.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">No employees yet.</td></tr>}
-                {emps.map((e) => (
+                {shown.length === 0 && <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">No employees yet.</td></tr>}
+                {shown.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
                     <td className="px-3 py-2 font-medium">{e.name}<div className="text-xs text-muted-foreground">{e.department}</div></td>
-                    <td className="px-3 py-2">{e.designation}</td>
+                    <td className="px-3 py-2 text-xs">{coName(e.company_id)}</td><td className="px-3 py-2">{e.designation}</td>
                     <td className="px-3 py-2 text-xs">{e.email}<br />{e.phone}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{inr(e.basic + e.hra + e.special_allowance + e.medical_allowance + e.conveyance + e.cca)}</td>
                     <td className="px-3 py-2">{e.leave.taken} / {e.leave.total}</td>
@@ -240,7 +276,7 @@ export default function HrPage() {
 
         <TabsContent value="payslips" className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-            <select className={sel} value={ps.employee_id} onChange={(e) => setPs({ ...ps, employee_id: e.target.value })}><option value="">Employee…</option>{emps.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            <select className={sel} value={ps.employee_id} onChange={(e) => setPs({ ...ps, employee_id: e.target.value })}><option value="">Employee…</option>{emps.map((e) => <option key={e.id} value={e.id}>{e.name} ({coName(e.company_id)})</option>)}</select>
             <Input type="month" value={ps.month} onChange={(e) => setPs({ ...ps, month: e.target.value })} className="w-44" />
             <Button onClick={makeSlip} className="bg-emerald-600 hover:bg-emerald-700">Generate payslip</Button>
           </div>

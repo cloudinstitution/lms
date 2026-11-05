@@ -1066,3 +1066,36 @@ test("HR: employee login, own data only, applying for leave", async () => {
   assert.equal((await call(H.login, "POST", "/api/employee/login", { body: { email: "kiran@x.com", password: "longenough1" } })).status, 401)
   const out = await call(H.logout, "POST", "/api/employee/logout", { cookie }); assert.match(out.headers.get("set-cookie")!, /Max-Age=0/)
 })
+
+test("HR: companies (Cloud Insthire, GenAI Labs, custom) drive the employee's company and payslip letterhead", async () => {
+  const C = await import("../../app/api/admin/hr/companies/route")
+  const E = await import("../../app/api/admin/hr/employees/route")
+  const P = await import("../../app/api/admin/hr/payslip/route")
+  const ad = await admin(), jn = await john()
+  assert.equal((await call(C, "GET", "/api/admin/hr/companies", { cookie: jn })).status, 403)
+  let cos = (await json(await call(C, "GET", "/api/admin/hr/companies", { cookie: ad }))).body.companies
+  assert.deepEqual(cos.map((c: any) => c.id), ["cloud-insthire", "genai-labs"])
+  assert.equal(cos[0].name, "CLOUD INSTHIRE PRIVATE LIMITED")
+
+  // edit GenAI Labs' letterhead, add a third company
+  assert.equal((await call(C, "POST", "/api/admin/hr/companies", { cookie: ad, body: { id: "genai-labs", name: "GenAI Labs Pvt Ltd", address: "1 Tech Park\nBengaluru 560001" } })).status, 200)
+  assert.equal((await call(C, "POST", "/api/admin/hr/companies", { cookie: ad, body: { id: "nope", name: "X Co" } })).status, 404)
+  assert.equal((await call(C, "POST", "/api/admin/hr/companies", { cookie: ad, body: { name: "Acme Works" } })).status, 200)
+  assert.equal((await call(C, "POST", "/api/admin/hr/companies", { cookie: ad, body: { name: "Acme Works" } })).status, 409)
+  cos = (await json(await call(C, "GET", "/api/admin/hr/companies", { cookie: ad }))).body.companies
+  assert.deepEqual(cos.map((c: any) => c.id), ["cloud-insthire", "genai-labs", "acme-works"])
+  assert.deepEqual(cos[1].address, ["1 Tech Park", "Bengaluru 560001"])
+
+  // employees: default company, explicit company, invalid company
+  const a = await json(await call(E, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Default Dev" } }))
+  assert.equal(a.body.employee.company_id, "cloud-insthire")
+  const b = await json(await call(E, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Genai Dev", company_id: "genai-labs", basic: 10000 } }))
+  assert.equal(b.body.employee.company_id, "genai-labs")
+  assert.equal((await call(E, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Bad Co", company_id: "unknown" } })).status, 400)
+
+  // payslip letterhead follows the company; editing leaves the company alone
+  const ps = (await json(await call(P, "GET", `/api/admin/hr/payslip?employee_id=${b.body.employee.id}&month=2026-11`, { cookie: ad }))).body.payslip
+  assert.equal(ps.company.name, "GenAI Labs Pvt Ltd"); assert.deepEqual(ps.company.address, ["1 Tech Park", "Bengaluru 560001"])
+  const ps2 = (await json(await call(P, "GET", `/api/admin/hr/payslip?employee_id=${a.body.employee.id}&month=2026-11`, { cookie: ad }))).body.payslip
+  assert.equal(ps2.company.name, "CLOUD INSTHIRE PRIVATE LIMITED"); assert.equal(ps2.company.logo, "/lg_logo.png")
+})
