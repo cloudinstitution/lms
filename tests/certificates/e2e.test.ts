@@ -1099,3 +1099,29 @@ test("HR: companies (Cloud Insthire, GenAI Labs, custom) drive the employee's co
   const ps2 = (await json(await call(P, "GET", `/api/admin/hr/payslip?employee_id=${a.body.employee.id}&month=2026-11`, { cookie: ad }))).body.payslip
   assert.equal(ps2.company.name, "CLOUD INSTHIRE PRIVATE LIMITED"); assert.equal(ps2.company.logo, "/lg_logo.png")
 })
+
+test("HR: marking an employee exited blocks login and unlocks the experience letter", async () => {
+  const E = await import("../../app/api/admin/hr/employees/route"), EI = await import("../../app/api/admin/hr/employees/[id]/route")
+  const X = await import("../../app/api/admin/hr/experience-letter/route"), LG = await import("../../app/api/employee/login/route")
+  const ad = await admin(), jn = await john()
+  const e = await json(await call(E, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name: "Ravi Exit", email: "ravi.exit@x.com", password: "longenough1", designation: "Trainer", department: "IT", joined_on: "2024-03-01", company_id: "genai-labs" } }))
+  const id = e.body.employee.id
+  assert.equal((await call(X, "GET", `/api/admin/hr/experience-letter?employee_id=${id}`, { cookie: ad })).status, 400, "not exited yet")
+  assert.equal((await call(X, "GET", `/api/admin/hr/experience-letter?employee_id=${id}`, { cookie: jn })).status, 403)
+  assert.equal((await call(EI, "PUT", "/x", { cookie: ad, body: { status: "Exited" } }, { id })).status, 400, "needs the last working day")
+  assert.equal((await call(EI, "PUT", "/x", { cookie: ad, body: { status: "Exited", exit_date: "2024-01-01" } }, { id })).status, 400, "before joining")
+  assert.equal((await call(LG, "POST", "/api/employee/login", { body: { email: "ravi.exit@x.com", password: "longenough1" } })).status, 200)
+  assert.equal((await call(EI, "PUT", "/x", { cookie: ad, body: { status: "Exited", exit_date: "2026-10-31" } }, { id })).status, 200)
+  assert.equal((await call(LG, "POST", "/api/employee/login", { body: { email: "ravi.exit@x.com", password: "longenough1" } })).status, 401, "exited employees cannot log in")
+
+  const l = (await json(await call(X, "GET", `/api/admin/hr/experience-letter?employee_id=${id}`, { cookie: ad }))).body.letter
+  assert.equal(l.employee.name, "Ravi Exit"); assert.equal(l.employee.designation, "Trainer"); assert.equal(l.employee.exit_date, "2026-10-31")
+  assert.deepEqual(l.tenure, { years: 2, months: 8, days: 0 }); assert.equal(l.company.id, "genai-labs"); assert.match(l.reference, /^EXP\/\d{4}\//)
+  // the other details survive the status change
+  const list = (await json(await call(E, "GET", "/api/admin/hr/employees", { cookie: ad }))).body.employees.find((x: any) => x.id === id)
+  assert.equal(list.status, "Exited"); assert.equal(list.exit_date, "2026-10-31"); assert.equal(list.name, "Ravi Exit"); assert.equal(list.joined_on, "2024-03-01")
+  // reinstating clears the exit
+  assert.equal((await call(EI, "PUT", "/x", { cookie: ad, body: { status: "Active" } }, { id })).status, 200)
+  assert.equal((await call(X, "GET", `/api/admin/hr/experience-letter?employee_id=${id}`, { cookie: ad })).status, 400)
+  assert.equal((await call(LG, "POST", "/api/employee/login", { body: { email: "ravi.exit@x.com", password: "longenough1" } })).status, 200)
+})

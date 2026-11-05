@@ -16,17 +16,21 @@ const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const STATUSES = ["Present", "Absent", "Half day", "On leave"]
 const blankEmp = { company_id: "cloud-insthire", name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
 
-function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[] }; onSaved: () => void }) {
+function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[]; signatory?: string; signatory_title?: string }; onSaved: () => void }) {
   const [name, setName] = useState(c.name)
   const [addr, setAddr] = useState((c.address ?? []).join("\n"))
+  const [sig, setSig] = useState(c.signatory ?? "")
+  const [sigTitle, setSigTitle] = useState(c.signatory_title ?? "")
   const save = async () => {
-    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr("") } onSaved() } catch (e) { toast.error(err(e)) }
+    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr, signatory: sig, signatory_title: sigTitle } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr(""); setSig(""); setSigTitle("") } onSaved() } catch (e) { toast.error(err(e)) }
   }
   return (
     <div className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_2fr_auto]">
       <Input placeholder={c.id ? "Company name" : "Add a new company…"} value={name} onChange={(e) => setName(e.target.value)} />
       <textarea className="min-h-[60px] rounded-md border bg-background px-3 py-2 text-sm" placeholder="Address (one line per row, up to 3)" value={addr} onChange={(e) => setAddr(e.target.value)} />
       <Button onClick={save} className="bg-emerald-600 hover:bg-emerald-700">{c.id ? "Save" : "Add"}</Button>
+      <Input className="sm:col-span-1" placeholder="Signatory name (letters)" value={sig} onChange={(e) => setSig(e.target.value)} />
+      <Input placeholder="Signatory title (e.g. CEO / HR Manager)" value={sigTitle} onChange={(e) => setSigTitle(e.target.value)} />
     </div>
   )
 }
@@ -47,11 +51,20 @@ export default function HrPage() {
   useEffect(() => { loadEmps(); loadHolidays(); loadLeaves() }, [loadEmps, loadHolidays, loadLeaves])
   const refresh = () => { loadEmps(); loadLeaves() }
   const shown = emps.filter((e) => filterCo === "all" || e.company_id === filterCo)
-  const active = emps.filter((e) => e.status !== "Inactive" && (filterCo === "all" || e.company_id === filterCo))
+  const active = emps.filter((e) => e.status !== "Inactive" && e.status !== "Exited" && (filterCo === "all" || e.company_id === filterCo))
   const nameOf = (id: string) => emps.find((e) => e.id === id)?.name ?? "—"
 
   // ----- employees -----
   const [showCo, setShowCo] = useState(false)
+  const [exiting, setExiting] = useState<{ id: string; name: string; date: string } | null>(null)
+  const confirmExit = async () => {
+    if (!exiting) return
+    try { await api(`/api/admin/hr/employees/${exiting.id}`, { method: "PUT", body: { status: "Exited", exit_date: exiting.date } }); toast.success(`${exiting.name} marked as exited. You can now create the experience letter.`); setExiting(null); loadEmps() } catch (e) { toast.error(err(e)) }
+  }
+  const reinstate = async (e: any) => { if (!confirm(`Bring ${e.name} back as an active employee?`)) return; try { await api(`/api/admin/hr/employees/${e.id}`, { method: "PUT", body: { status: "Active" } }); loadEmps() } catch (x) { toast.error(err(x)) } }
+  const letter = async (e: any) => {
+    try { const d = (await api(`/api/admin/hr/experience-letter?employee_id=${e.id}`)).letter; await (await import("@/lib/experience-letter-pdf")).downloadExperienceLetter(d) } catch (x) { toast.error(err(x)) }
+  }
   const [f, setF] = useState<any>(blankEmp)
   const [editing, setEditing] = useState<string | null>(null)
   const set = (k: string) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
@@ -174,6 +187,16 @@ export default function HrPage() {
               </CardContent>
             </Card>
           )}
+          {exiting && (
+            <Card className="border-amber-400">
+              <CardContent className="flex flex-wrap items-end gap-3 pt-6">
+                <div className="text-sm"><div className="font-medium">Mark {exiting.name} as exited</div><div className="text-xs text-muted-foreground">They can no longer log in. You can then create their experience letter.</div></div>
+                <label className="text-xs text-muted-foreground">Last working day<Input type="date" value={exiting.date} onChange={(e) => setExiting({ ...exiting, date: e.target.value })} /></label>
+                <Button onClick={confirmExit} className="bg-amber-600 hover:bg-amber-700">Confirm exit</Button>
+                <Button variant="ghost" onClick={() => setExiting(null)}>Cancel</Button>
+              </CardContent>
+            </Card>
+          )}
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-left text-sm">
               <Th cols={["Name", "Company", "Designation", "Contact", "Gross / month", `Leave ${year}: taken`, "Remaining", "Login", "Status", ""]} />
@@ -187,8 +210,11 @@ export default function HrPage() {
                     <td className="px-3 py-2 whitespace-nowrap">{inr(e.basic + e.hra + e.special_allowance + e.medical_allowance + e.conveyance + e.cca)}</td>
                     <td className="px-3 py-2">{e.leave.taken} / {e.leave.total}</td>
                     <td className="px-3 py-2 font-semibold text-emerald-700">{e.leave.remaining}</td>
-                    <td className="px-3 py-2 text-xs">{e.has_login ? "Enabled" : "None"}</td><td className="px-3 py-2">{e.status}</td>
-                    <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" variant="outline" onClick={() => startEdit(e)}>Edit</Button> <Button size="sm" variant="ghost" onClick={() => setStatus(e)}>{e.status === "Inactive" ? "Activate" : "Deactivate"}</Button></td>
+                    <td className="px-3 py-2 text-xs">{e.has_login ? "Enabled" : "None"}</td><td className="px-3 py-2 text-xs">{e.status === "Exited" ? `Exited ${e.exit_date}` : e.status}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <Button size="sm" variant="outline" onClick={() => startEdit(e)}>Edit</Button>{" "}
+                      {e.status === "Exited" ? (<><Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => letter(e)}>Experience letter</Button> <Button size="sm" variant="ghost" onClick={() => reinstate(e)}>Reinstate</Button></>) : (<><Button size="sm" variant="ghost" onClick={() => setStatus(e)}>{e.status === "Inactive" ? "Activate" : "Deactivate"}</Button> <Button size="sm" variant="outline" onClick={() => setExiting({ id: e.id, name: e.name, date: todayIst() })}>Mark exited</Button></>)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

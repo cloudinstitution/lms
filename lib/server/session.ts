@@ -222,7 +222,7 @@ export async function readSessionUser(req: NextRequest, cookieName: string = SES
   }
   if (role === "employee") {
     const snap = await db.collection("employees").doc(sub).get()
-    if (!snap.exists || snap.data()!.status === "Inactive" || !snap.data()!.password_hash) return null
+    if (!snap.exists || snap.data()!.status === "Inactive" || snap.data()!.status === "Exited" || !snap.data()!.password_hash) return null
     const d = snap.data()!
     return { role: "employee", docId: snap.id, name: String(d.name ?? ""), email: String(d.email ?? "") }
   }

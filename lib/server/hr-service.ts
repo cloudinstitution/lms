@@ -26,11 +26,11 @@ export const ATTENDANCE_STATUSES = ["Present", "Absent", "Half day", "On leave"]
 export const LEAVE_TYPES = ["Casual", "Sick", "Earned", "Other"] as const
 
 // ---------- companies (letterhead on payslips; employees belong to one) ----------
-export interface Company { id: string; name: string; address: string[]; logo: string }
+export interface Company { id: string; name: string; address: string[]; logo: string; signatory: string; signatory_title: string }
 const DEFAULT_COMPANY_ID = "cloud-insthire"
 const DEFAULT_COMPANIES: Company[] = [
-  { id: DEFAULT_COMPANY_ID, name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"], logo: "/lg_logo.png" },
-  { id: "genai-labs", name: "GENAI LABS", address: [], logo: "" },
+  { id: DEFAULT_COMPANY_ID, name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"], logo: "/lg_logo.png", signatory: "Dilip D", signatory_title: "CEO" },
+  { id: "genai-labs", name: "GENAI LABS", address: [], logo: "", signatory: "", signatory_title: "Authorized Signatory" },
 ]
 
 /** Built-in companies (editable) plus any the admin added. */
@@ -39,7 +39,7 @@ export async function listCompanies(): Promise<Company[]> {
   const stored = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...(d.data() as any) } as Company]))
   const merged = DEFAULT_COMPANIES.map((c) => ({ ...c, ...(stored.get(c.id) ?? {}), id: c.id }))
   const extra = [...stored.values()].filter((c) => !DEFAULT_COMPANIES.some((d) => d.id === c.id)).sort((a, b) => a.name.localeCompare(b.name))
-  return [...merged, ...extra].map((c) => ({ ...c, address: Array.isArray(c.address) ? c.address : [] }))
+  return [...merged, ...extra].map((c) => ({ ...c, address: Array.isArray(c.address) ? c.address : [], signatory: c.signatory ?? "", signatory_title: c.signatory_title ?? "Authorized Signatory" }))
 }
 
 /** Create a company (no id) or update one (id): name, and address as up to 3 lines. */
@@ -55,8 +55,9 @@ export async function saveCompany(input: any) {
     if (!id || all.some((c) => c.id === id)) throw new ApiError(409, "A company with this name already exists")
   }
   const logo = all.find((c) => c.id === id)?.logo ?? ""
-  await getDb().collection("hr_companies").doc(id).set({ name, address: lines, logo, updated_at: iso() })
-  return { id, name, address: lines, logo }
+  const signatory = str(input?.signatory, 80), signatory_title = str(input?.signatory_title, 80) || "Authorized Signatory"
+  await getDb().collection("hr_companies").doc(id).set({ name, address: lines, logo, signatory, signatory_title, updated_at: iso() })
+  return { id, name, address: lines, logo, signatory, signatory_title }
 }
 
 async function assertCompany(id: unknown) {
@@ -66,7 +67,7 @@ async function assertCompany(id: unknown) {
 // ---------- employees ----------
 export interface Employee {
   id: string; name: string; email: string; phone: string; designation: string; department: string
-  company_id: string; has_login?: boolean; joined_on: string; location: string; basic: number; hra: number; special_allowance: number; medical_allowance: number; conveyance: number; cca: number; professional_tax: number; other_deductions: number; status: "Active" | "Inactive"; created_at: string
+  company_id: string; has_login?: boolean; joined_on: string; location: string; basic: number; hra: number; special_allowance: number; medical_allowance: number; conveyance: number; cca: number; professional_tax: number; other_deductions: number; status: "Active" | "Inactive" | "Exited"; exit_date?: string; created_at: string
 }
 
 const PAY_FIELDS = [
@@ -87,9 +88,13 @@ function cleanEmployee(input: any, partial = false) {
   // (older records / clients used `allowances` and `deductions`)
   const src = { ...input, special_allowance: input?.special_allowance ?? input?.allowances, other_deductions: input?.other_deductions ?? input?.deductions }
   for (const [k, label] of PAY_FIELDS) out[k] = money(src[k], label)
-  if (input?.status === "Inactive" || input?.status === "Active") out.status = input.status
+  if (input?.status === "Inactive" || input?.status === "Active" || input?.status === "Exited") out.status = input.status
+  if (input?.status === "Exited") {
+    out.exit_date = validDate(input?.exit_date, "Last working day")
+    if (out.joined_on && String(out.exit_date) < String(out.joined_on)) throw new ApiError(400, "The last working day is before the joining date")
+  } else if (input?.status === "Active" || input?.status === "Inactive") out.exit_date = ""
   // An edit only changes the fields it actually sent (so flipping Active/Inactive never blanks the details).
-  if (partial) for (const k of Object.keys(out)) if (k !== "status" && (src as any)[k] === undefined) delete out[k]
+  if (partial) for (const k of Object.keys(out)) if (k !== "status" && k !== "exit_date" && (src as any)[k] === undefined) delete out[k]
   return out
 }
 
@@ -141,6 +146,7 @@ export async function updateEmployee(id: string, input: unknown) {
   const cur = await getEmployee(id)
   const clean = cleanEmployee(input, true)
   if (clean.company_id !== undefined) await assertCompany(clean.company_id)
+  if (clean.status === "Exited" && String(clean.exit_date) < String(clean.joined_on ?? cur.joined_on)) throw new ApiError(400, "The last working day is before the joining date")
   const email = String(clean.email ?? "") || cur.email
   if (clean.email && clean.email !== cur.email && cur.has_login) {
     const dup = (await getDb().collection("employees").where("email", "==", clean.email).get()).docs.find((d) => d.id !== id)
@@ -157,7 +163,7 @@ export async function authenticateEmployee(emailRaw: string, password: string): 
   const doc = snap.docs[0]
   const d = doc.data() as any
   if (!d.password_hash) return null
-  if (!verifyPassword(password, d.password_hash) || d.status === "Inactive") throw new ApiError(401, "Invalid email or password")
+  if (!verifyPassword(password, d.password_hash) || d.status === "Inactive" || d.status === "Exited") throw new ApiError(401, "Invalid email or password")
   return { role: "employee", docId: doc.id, name: String(d.name ?? ""), email: String(d.email ?? email) }
 }
 
@@ -371,5 +377,30 @@ export async function payslipData(employeeId: string, month: string) {
     deductions, total_deductions: totalDed,
     net_pay: Math.max(0, r2(totalActual - totalDed)),
     leave_balance: bal,
+  }
+}
+
+// ---------- experience letter ----------
+function tenure(from: string, to: string) {
+  const a = new Date(from + "T00:00:00Z"), b = new Date(to + "T00:00:00Z")
+  let months = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth())
+  let days = b.getUTCDate() - a.getUTCDate() + 1 // joining day and last day both count
+  if (days < 0) { months -= 1; days += new Date(Date.UTC(b.getUTCFullYear(), b.getUTCMonth(), 0)).getUTCDate() }
+  if (days >= 30) { months += 1; days = 0 }
+  return { years: Math.floor(months / 12), months: months % 12, days }
+}
+
+/** Figures for an experience letter; only available once the employee has been marked as exited. */
+export async function experienceLetterData(employeeId: string) {
+  const emp = await getEmployee(employeeId)
+  if (emp.status !== "Exited" || !emp.exit_date) throw new ApiError(400, "Mark the employee as exited (with the last working day) before creating the experience letter")
+  const company = (await listCompanies()).find((c) => c.id === emp.company_id) ?? DEFAULT_COMPANIES[0]
+  const issued = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
+  return {
+    company,
+    employee: { id: emp.id, name: emp.name, designation: emp.designation, department: emp.department, joined_on: emp.joined_on, exit_date: emp.exit_date },
+    tenure: tenure(emp.joined_on, emp.exit_date),
+    issued_on: issued,
+    reference: `EXP/${issued.slice(0, 4)}/${emp.id.slice(0, 5).toUpperCase()}`,
   }
 }
