@@ -1269,3 +1269,21 @@ test("Jobs: default search is course-based and India-only, and old irrelevant au
   const n = await J.closeMismatchedAutoJobs(st)
   assert.ok(n >= 1); assert.equal((await db.collection("jobs").doc("a_bad").get()).data().status, "Closed"); assert.equal((await db.collection("jobs").doc("a_good").get()).data().status, "Open"); assert.equal((await db.collection("jobs").doc("m_keep").get()).data().status, "Open")
 })
+
+test("Jobs: freshers-only filter skips senior roles and 3+ years, and can be turned off", async () => {
+  const J = await import("../../lib/server/jobs-service"), A = await import("../../app/api/admin/jobs/auto/route"), ad = await admin()
+  const st = { ...J.DEFAULT_SETTINGS }
+  const mk = (title: string, description = "", tags: string[] = []) => ({ source: "t", external_id: title + description, title, company: "Co", location: "Bangalore", type_hint: "", description, tags, url: "https://x.com/1", posted_at: "" })
+  const ok = (title: string, d?: string, t?: string[]) => J.matches(mk(title, d, t), st)
+  assert.equal(ok("Python Developer"), true, "no experience stated")
+  assert.equal(ok("Cloud Engineer Fresher"), true); assert.equal(ok("Junior Data Analyst", "Requires 5 years experience"), true, "an explicit junior title wins")
+  assert.equal(ok("Data Analyst", "0-2 years of experience"), true); assert.equal(ok("Data Analyst", "Minimum 2 years experience in SQL"), true)
+  assert.equal(ok("Linux Administrator", "We need 3+ years of experience with Linux"), false)
+  assert.equal(ok("AI Engineer", "Experience: 5-8 years"), false)
+  assert.equal(ok("Senior Python Developer"), false); assert.equal(ok("Cloud Engineer - Lead"), false); assert.equal(ok("DevOps Architect"), false)
+  assert.equal(ok("Python Developer", "Founded 10 years ago. Strong python skills."), true, "years not about experience are ignored")
+  assert.equal(J.minYearsRequired("Requires 4-6 years of experience."), 4); assert.equal(J.minYearsRequired("Experience: 1+ yr"), 1); assert.equal(J.minYearsRequired("great team"), null)
+  assert.equal(J.matches(mk("Senior Python Developer"), { ...st, freshers_only: false }), true, "switch off to allow experienced roles")
+  const put = await json(await call(A, "PUT", "/x", { cookie: ad, body: { freshers_only: false } })); assert.equal(put.body.settings.freshers_only, false)
+  assert.equal((await json(await call(A, "PUT", "/x", { cookie: ad, body: { freshers_only: true } }))).body.settings.freshers_only, true)
+})

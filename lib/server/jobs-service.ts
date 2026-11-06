@@ -9,7 +9,7 @@ import { ApiError } from "./http"
  * - Manually posted jobs are never touched.
  */
 
-export type AutoSettings = { v?: number; enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
+export type AutoSettings = { v?: number; freshers_only?: boolean; enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
 export type LastRun = { at: string; added: number; closed: number; skipped: number; by: "admin" | "schedule"; sources: Record<string, { found: number; error?: string }> }
 export type RawJob = { source: string; external_id: string; title: string; company: string; location: string; type_hint: string; description: string; tags: string[]; url: string; posted_at: string }
 
@@ -23,6 +23,7 @@ export const PROFILE_VERSION = 2 // bump when the default keywords/locations cha
 
 export const DEFAULT_SETTINGS: AutoSettings = {
   v: PROFILE_VERSION,
+  freshers_only: true,
   enabled: true,
   // One group per course we teach; a job must have one of these phrases in its title or skill tags.
   keywords: ["full stack", "fullstack", "python developer", "python", "ai engineer", "machine learning", "data analyst", "data analytics", "business analyst", "cloud engineer", "cloud support", "cloud", "aws", "azure", "devops", "linux", "system administrator", "sysadmin"],
@@ -50,6 +51,7 @@ export async function saveAutoSettings(input: any): Promise<AutoSettings> {
   const sources = input?.sources === undefined ? cur.sources : list(input.sources, 5).filter((s) => SOURCES.some((x) => x.id === s))
   const next: AutoSettings = {
     v: PROFILE_VERSION,
+    freshers_only: input?.freshers_only === undefined ? cur.freshers_only !== false : input.freshers_only === true,
     enabled: input?.enabled === undefined ? cur.enabled : input.enabled === true,
     keywords: input?.keywords === undefined ? cur.keywords : list(input.keywords, 30),
     locations: input?.locations === undefined ? cur.locations : list(input.locations, 30),
@@ -109,8 +111,30 @@ export function jobType(j: RawJob): "Full-time" | "Part-time" | "Internship" | "
   return "Full-time"
 }
 
+const SENIOR_TITLE = /\b(senior|sr|lead|principal|staff|manager|head|director|architect|vp|chief|consultant|specialist)\b/i
+const FRESHER_WORDS = /\b(fresher|freshers|trainee|intern|internship|junior|jr|entry[ -]level|graduate|graduates|associate|apprentice|campus)\b|\b0\s*(?:-|to|–)\s*[1-3]\s*(?:years?|yrs?)/i
+
+/** The lowest number of years of experience the posting asks for, or null when it does not say. */
+export function minYearsRequired(text: string): number | null {
+  let min: number | null = null
+  for (const sentence of text.split(/[.\n;•]/)) {
+    if (!/experience/i.test(sentence)) continue
+    for (const m of sentence.matchAll(/(\d{1,2})\s*(?:\+|(?:[-–]|to)\s*\d{1,2})?\s*(?:years?|yrs?)/gi)) { const n = Number(m[1]); if (min === null || n < min) min = n }
+  }
+  return min
+}
+
+/** Suitable for freshers: not a senior title, and not asking for 3 or more years of experience. */
+export function fresherFriendly(j: RawJob): boolean {
+  if (SENIOR_TITLE.test(j.title)) return false
+  if (FRESHER_WORDS.test(`${j.title} ${j.tags.join(" ")}`)) return true
+  const y = minYearsRequired(htmlToText(j.description))
+  return y === null || y < 3
+}
+
 export function matches(j: RawJob, st: AutoSettings): boolean {
   if (!j.title || !j.company || !/^https?:\/\//.test(j.url)) return false
+  if (st.freshers_only !== false && !fresherFriendly(j)) return false
   const hay = `${j.title} ${j.tags.join(" ")}`.toLowerCase() // title and skill tags only, so a passing mention in a description does not count
   if (!st.keywords.some((k) => hay.includes(k.toLowerCase()))) return false
   if (st.locations.length === 0) return true
@@ -167,8 +191,9 @@ export async function runAutoSync(by: "admin" | "schedule", opts: { force?: bool
     if (src === "adzuna" && !(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY)) continue // optional source: skipped quietly until its keys are set
     try { const r = await fn(st); run.sources[src] = { found: r.length }; found.push(...r) } catch (e) { run.sources[src] = { found: 0, error: e instanceof Error ? e.message : "failed" } }
   }
-  // newest first, so the cap keeps the freshest postings
-  found.sort((a, b) => b.posted_at.localeCompare(a.posted_at))
+  // fresher-labelled jobs first, then newest, so the per-run cap keeps the best postings for freshers
+  const boost = (j: RawJob) => (FRESHER_WORDS.test(`${j.title} ${j.tags.join(" ")} ${j.description.slice(0, 600)}`) ? 1 : 0)
+  found.sort((a, b) => boost(b) - boost(a) || b.posted_at.localeCompare(a.posted_at))
   const seenNow = new Set<string>()
   for (const j of found) {
     if (run.added >= st.max_per_run) break
