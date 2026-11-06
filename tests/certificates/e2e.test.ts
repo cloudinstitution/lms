@@ -1233,3 +1233,18 @@ test("Jobs: automatic search posts matching jobs once, respects settings, closes
     assert.equal(got.settings.enabled, false); assert.ok(got.settings.last_run.at); assert.equal(got.sources.length, 3)
   } finally { globalThis.fetch = realFetch; delete process.env.CRON_SECRET }
 })
+
+test("Jobs: opening the jobs page refreshes the list only when it is stale", async () => {
+  const A = await import("../../app/api/admin/jobs/auto/route"), RF = await import("../../app/api/jobs/refresh/route")
+  const ad = await admin(), realFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = (async () => { calls++; return new Response(JSON.stringify({ jobs: [{ id: 77, url: "https://remotive.com/j/77", title: "Cloud Engineer", company_name: "Zed", tags: ["aws"], publication_date: new Date().toISOString(), candidate_required_location: "India", description: "d" }] })) }) as any
+  try {
+    await call(A, "PUT", "/x", { cookie: ad, body: { keywords: "cloud", locations: "India", sources: ["remotive"], enabled: false } })
+    assert.equal((await json(await call(RF, "POST", "/api/jobs/refresh"))).body.ran, false, "does nothing while switched off"); assert.equal(calls, 0)
+    await call(A, "PUT", "/x", { cookie: ad, body: { enabled: true } })
+    const first = (await json(await call(RF, "POST", "/api/jobs/refresh"))).body
+    assert.equal(first.ran, true); assert.equal(first.added, 1)
+    assert.equal((await json(await call(RF, "POST", "/api/jobs/refresh"))).body.ran, false, "fresh list is not searched again"); assert.equal(calls, 1)
+  } finally { globalThis.fetch = realFetch }
+})

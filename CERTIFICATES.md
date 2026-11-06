@@ -104,5 +104,5 @@ it in the Razorpay dashboard an admin approves it, which unlocks the course. Not
 ## Automatic job search
 
 Admin → Jobs has an "Automatic job search" panel. It searches public job boards (Remotive and Arbeitnow need no key; Adzuna India needs `ADZUNA_APP_ID` and `ADZUNA_APP_KEY`, free at developer.adzuna.com — the best source for Bangalore jobs), keeps jobs matching your keywords and locations, and writes them to the same `jobs` collection students read. Auto jobs close when they expire; manually posted jobs are never touched; a job an admin deletes is not re-imported.
-- **Daily run:** `vercel.json` schedules `/api/cron/jobs-sync`. Set `CRON_SECRET` in the environment (Vercel sends it as a Bearer token); without it the endpoint refuses all calls. On other hosts, call that URL daily with `Authorization: Bearer $CRON_SECRET`.
+- **Automatic refresh (no scheduler needed):** whenever a student or admin opens the jobs page and the last search is over 12 hours old (and "Search every day" is on), the search runs by itself via `/api/jobs/refresh`. Optionally, any free pinger or scheduler can also call `/api/cron/jobs-sync` with `Authorization: Bearer $CRON_SECRET` (set `CRON_SECRET` first).
 - **On demand:** the "Find jobs now" button.

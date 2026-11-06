@@ -165,3 +165,17 @@ export async function runAutoSync(by: "admin" | "schedule", opts: { force?: bool
   await getDb().collection("job_settings").doc(SETTINGS_ID).set({ ...st, last_run: run })
   return run
 }
+
+let running: Promise<unknown> | null = null
+const STALE_MS = 12 * 3600_000
+
+/** Runs the search only when automatic search is on and the last attempt is over 12 hours old. Safe to call from any page load. */
+export async function runAutoSyncIfStale(): Promise<{ ran: boolean; added: number }> {
+  if (running) return { ran: false, added: 0 }
+  const st = await getAutoSettings()
+  if (!st.enabled) return { ran: false, added: 0 }
+  if (st.last_run && Date.now() - new Date(st.last_run.at).getTime() < STALE_MS) return { ran: false, added: 0 }
+  const p = runAutoSync("schedule")
+  running = p
+  try { const r = (await p) as LastRun; return { ran: true, added: r.added } } finally { running = null }
+}

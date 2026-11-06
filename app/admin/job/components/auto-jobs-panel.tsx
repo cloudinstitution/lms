@@ -21,7 +21,7 @@ export default function AutoJobsPanel({ onSynced }: { onSynced: () => void }) {
   const [open, setOpen] = useState(false)
 
   const load = useCallback(() => api("/api/admin/jobs/auto").then((d) => { setSt(d.settings); setSources(d.sources); setKw(d.settings.keywords.join(", ")); setLoc(d.settings.locations.join(", ")) }).catch(() => {}), [])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); fetch("/api/jobs/refresh", { method: "POST" }).then((r) => r.json()).then((d) => { if (d?.ran) { load(); onSynced() } }).catch(() => {}) }, [load, onSynced])
   if (!st) return null
 
   const save = async (patch: any = {}) => {

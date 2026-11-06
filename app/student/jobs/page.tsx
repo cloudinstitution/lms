@@ -140,6 +140,12 @@ const StudentJobsPage = () => {
 
     loadJobs(data)
 
+    // The job list refreshes itself: if the last automatic search is old, run it now and reload.
+    fetch("/api/jobs/refresh", { method: "POST" })
+      .then((r) => r.json())
+      .then((d) => { if (d?.ran && d.added > 0) loadJobs(data) })
+      .catch(() => {})
+
   }, [])
 
 
