@@ -9,7 +9,7 @@ import { ApiError } from "./http"
  * - Manually posted jobs are never touched.
  */
 
-export type AutoSettings = { enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
+export type AutoSettings = { v?: number; enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
 export type LastRun = { at: string; added: number; closed: number; skipped: number; by: "admin" | "schedule"; sources: Record<string, { found: number; error?: string }> }
 export type RawJob = { source: string; external_id: string; title: string; company: string; location: string; type_hint: string; description: string; tags: string[]; url: string; posted_at: string }
 
@@ -19,10 +19,15 @@ export const SOURCES = [
   { id: "adzuna", label: "Adzuna India (set ADZUNA_APP_ID and ADZUNA_APP_KEY)", needs_key: true },
 ] as const
 
+export const PROFILE_VERSION = 2 // bump when the default keywords/locations change; older saved search terms are then replaced
+
 export const DEFAULT_SETTINGS: AutoSettings = {
+  v: PROFILE_VERSION,
   enabled: true,
-  keywords: ["software", "developer", "python", "java", "react", "data", "cloud", "devops", "aws", "fresher", "intern"],
-  locations: ["India", "Bangalore", "Bengaluru", "Remote", "Worldwide", "Anywhere"],
+  // One group per course we teach; a job must have one of these phrases in its title or skill tags.
+  keywords: ["full stack", "fullstack", "python developer", "python", "ai engineer", "machine learning", "data analyst", "data analytics", "business analyst", "cloud engineer", "cloud support", "cloud", "aws", "azure", "devops", "linux", "system administrator", "sysadmin"],
+  // India only
+  locations: ["India", "Bangalore", "Bengaluru", "Mumbai", "Pune", "Hyderabad", "Chennai", "Delhi", "Gurgaon", "Gurugram", "Noida", "Kolkata", "Kochi", "Ahmedabad", "Coimbatore"],
   sources: ["remotive", "arbeitnow", "adzuna"],
   max_per_run: 30,
   valid_days: 30,
@@ -36,13 +41,15 @@ const clampInt = (v: unknown, d: number, lo: number, hi: number) => { const n = 
 export async function getAutoSettings(): Promise<AutoSettings> {
   const snap = await getDb().collection("job_settings").doc(SETTINGS_ID).get()
   const s = snap.exists ? (snap.data() as Partial<AutoSettings>) : {}
-  return { ...DEFAULT_SETTINGS, ...s, keywords: s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources: s.sources ?? DEFAULT_SETTINGS.sources, locations: s.locations ?? DEFAULT_SETTINGS.locations }
+  const old = (s.v ?? 1) < PROFILE_VERSION // settings saved before the course-based, India-only profile
+  return { ...DEFAULT_SETTINGS, ...s, v: PROFILE_VERSION, keywords: !old && s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources: s.sources ?? DEFAULT_SETTINGS.sources, locations: !old && s.locations ? s.locations : DEFAULT_SETTINGS.locations }
 }
 
 export async function saveAutoSettings(input: any): Promise<AutoSettings> {
   const cur = await getAutoSettings()
   const sources = input?.sources === undefined ? cur.sources : list(input.sources, 5).filter((s) => SOURCES.some((x) => x.id === s))
   const next: AutoSettings = {
+    v: PROFILE_VERSION,
     enabled: input?.enabled === undefined ? cur.enabled : input.enabled === true,
     keywords: input?.keywords === undefined ? cur.keywords : list(input.keywords, 30),
     locations: input?.locations === undefined ? cur.locations : list(input.locations, 30),
@@ -80,7 +87,7 @@ export const PROVIDERS: Record<string, (st: AutoSettings) => Promise<RawJob[]>> 
     const id = process.env.ADZUNA_APP_ID, key = process.env.ADZUNA_APP_KEY
     if (!id || !key) throw new Error("ADZUNA_APP_ID / ADZUNA_APP_KEY are not set")
     const out: RawJob[] = []
-    for (const kw of st.keywords.slice(0, 6)) {
+    for (const kw of st.keywords.slice(0, 12)) {
       const d = await getJson(`https://api.adzuna.com/v1/api/jobs/in/search/1?app_id=${encodeURIComponent(id)}&app_key=${encodeURIComponent(key)}&results_per_page=30&what=${encodeURIComponent(kw)}&sort_by=date&content-type=application/json`)
       for (const j of d.results ?? []) out.push({ source: "adzuna", external_id: s(j.id), title: s(j.title), company: s(j.company?.display_name), location: s(j.location?.display_name) || "India", type_hint: `${s(j.contract_time)} ${s(j.contract_type)}`, description: s(j.description), tags: [s(j.category?.label)].filter(Boolean), url: s(j.redirect_url), posted_at: iso(j.created) })
     }
@@ -104,7 +111,7 @@ export function jobType(j: RawJob): "Full-time" | "Part-time" | "Internship" | "
 
 export function matches(j: RawJob, st: AutoSettings): boolean {
   if (!j.title || !j.company || !/^https?:\/\//.test(j.url)) return false
-  const hay = `${j.title} ${j.tags.join(" ")} ${htmlToText(j.description).slice(0, 400)}`.toLowerCase()
+  const hay = `${j.title} ${j.tags.join(" ")}`.toLowerCase() // title and skill tags only, so a passing mention in a description does not count
   if (!st.keywords.some((k) => hay.includes(k.toLowerCase()))) return false
   if (st.locations.length === 0) return true
   const loc = j.location.toLowerCase()
@@ -136,6 +143,19 @@ export async function closeExpiredAutoJobs(): Promise<number> {
   return n
 }
 
+/** Closes open auto-posted jobs that no longer fit the current keywords/locations (e.g. after the search terms change). */
+export async function closeMismatchedAutoJobs(st: AutoSettings): Promise<number> {
+  const snap = await getDb().collection("jobs").where("auto", "==", true).get()
+  let n = 0
+  for (const d of snap.docs) {
+    const x = d.data() as any
+    if (x.status !== "Open") continue
+    const raw: RawJob = { source: x.source ?? "", external_id: x.external_id ?? "", title: x.title ?? "", company: x.company ?? "x", location: x.location ?? "", type_hint: "", description: x.description ?? "", tags: String(x.requirements ?? "").replace(/^Skills:\s*/, "").split(",").map((t) => t.trim()).filter(Boolean), url: x.applyLink || "https://x", posted_at: "" }
+    if (!matches(raw, st)) { await getDb().collection("jobs").doc(d.id).update({ status: "Closed" }); n++ }
+  }
+  return n
+}
+
 export async function runAutoSync(by: "admin" | "schedule", opts: { force?: boolean } = {}): Promise<LastRun & { skipped_disabled?: boolean }> {
   const st = await getAutoSettings()
   const run: LastRun = { at: new Date().toISOString(), added: 0, closed: 0, skipped: 0, by, sources: {} }
@@ -162,7 +182,7 @@ export async function runAutoSync(by: "admin" | "schedule", opts: { force?: bool
     await imp.set({ source: j.source, external_id: j.external_id, title: j.title, imported_at: run.at })
     run.added++
   }
-  run.closed = await closeExpiredAutoJobs()
+  run.closed = (await closeExpiredAutoJobs()) + (await closeMismatchedAutoJobs(st))
   await getDb().collection("job_settings").doc(SETTINGS_ID).set({ ...st, last_run: run })
   return run
 }

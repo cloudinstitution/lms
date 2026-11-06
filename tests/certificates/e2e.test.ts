@@ -1248,3 +1248,24 @@ test("Jobs: opening the jobs page refreshes the list only when it is stale", asy
     assert.equal((await json(await call(RF, "POST", "/api/jobs/refresh"))).body.ran, false, "fresh list is not searched again"); assert.equal(calls, 1)
   } finally { globalThis.fetch = realFetch }
 })
+
+test("Jobs: default search is course-based and India-only, and old irrelevant auto jobs are closed", async () => {
+  const J = await import("../../lib/server/jobs-service"), db = (await import("../../lib/server/firebase-admin")).getDb()
+  // settings saved before the course-based profile are replaced by the new defaults
+  await db.collection("job_settings").doc("auto").set({ enabled: true, keywords: ["data"], locations: ["Remote", "Worldwide"], sources: ["remotive"], max_per_run: 30, valid_days: 30 })
+  const st = await J.getAutoSettings()
+  assert.ok(st.keywords.includes("full stack") && st.keywords.includes("cloud support") && st.keywords.includes("linux")); assert.ok(st.locations.includes("India") && !st.locations.includes("Remote") && !st.locations.includes("Worldwide"))
+  const mk = (title: string, location: string, tags: string[] = [], description = "") => ({ source: "t", external_id: title, title, company: "Co", location, type_hint: "", description, tags, url: "https://x.com/1", posted_at: "" })
+  const yes = [["Python Full Stack Developer", "Bengaluru, India"], ["AI Engineer", "Pune"], ["Data Analyst", "Hyderabad, Telangana"], ["Cloud Support Engineer", "India"], ["Linux Administrator", "Chennai"], ["Cloud Engineer", "Mumbai"]]
+  for (const [t, l] of yes) assert.equal(J.matches(mk(t, l), st), true, t)
+  assert.equal(J.matches(mk("Python Developer", "Berlin, Germany"), st), false, "outside India")
+  assert.equal(J.matches(mk("Cloud Engineer", "Remote (Worldwide)"), st), false, "worldwide remote is not India")
+  assert.equal(J.matches(mk("Sales Manager", "Mumbai", [], "we use python and aws"), st), false, "a passing mention does not count")
+  assert.equal(J.matches(mk("Chef", "Delhi"), st), false)
+  // open auto jobs that no longer fit get closed; ones that fit stay open; manual jobs untouched
+  await db.collection("jobs").doc("a_bad").set({ auto: true, status: "Open", title: "Sales Manager", company: "Co", location: "Berlin", description: "", requirements: "", applyLink: "https://x.com/2", deadline: "2999-01-01", createdAt: new Date() })
+  await db.collection("jobs").doc("a_good").set({ auto: true, status: "Open", title: "Linux Administrator", company: "Co", location: "Chennai, India", description: "", requirements: "Skills: linux", applyLink: "https://x.com/3", deadline: "2999-01-01", createdAt: new Date() })
+  await db.collection("jobs").doc("m_keep").set({ status: "Open", title: "Anything", deadline: "2999-01-01", createdAt: new Date() })
+  const n = await J.closeMismatchedAutoJobs(st)
+  assert.ok(n >= 1); assert.equal((await db.collection("jobs").doc("a_bad").get()).data().status, "Closed"); assert.equal((await db.collection("jobs").doc("a_good").get()).data().status, "Open"); assert.equal((await db.collection("jobs").doc("m_keep").get()).data().status, "Open")
+})
