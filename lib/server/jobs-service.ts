@@ -19,11 +19,11 @@ export const SOURCES = [
   { id: "adzuna", label: "Adzuna India (set ADZUNA_APP_ID and ADZUNA_APP_KEY)", needs_key: true },
 ] as const
 
-export const PROFILE_VERSION = 2 // bump when the default keywords/locations change; older saved search terms are then replaced
+export const PROFILE_VERSION = 3 // bump when the default keywords/locations change; older saved search terms are then replaced
 
 export const DEFAULT_SETTINGS: AutoSettings = {
   v: PROFILE_VERSION,
-  freshers_only: true,
+  freshers_only: false, // false = both freshers and experienced roles, posted in equal numbers
   enabled: true,
   // One group per course we teach; a job must have one of these phrases in its title or skill tags.
   keywords: ["full stack", "fullstack", "python developer", "python", "ai engineer", "machine learning", "data analyst", "data analytics", "business analyst", "cloud engineer", "cloud support", "cloud", "aws", "azure", "devops", "linux", "system administrator", "sysadmin"],
@@ -43,7 +43,7 @@ export async function getAutoSettings(): Promise<AutoSettings> {
   const snap = await getDb().collection("job_settings").doc(SETTINGS_ID).get()
   const s = snap.exists ? (snap.data() as Partial<AutoSettings>) : {}
   const old = (s.v ?? 1) < PROFILE_VERSION // settings saved before the course-based, India-only profile
-  return { ...DEFAULT_SETTINGS, ...s, v: PROFILE_VERSION, keywords: !old && s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources: s.sources ?? DEFAULT_SETTINGS.sources, locations: !old && s.locations ? s.locations : DEFAULT_SETTINGS.locations }
+  return { ...DEFAULT_SETTINGS, ...s, v: PROFILE_VERSION, freshers_only: old ? DEFAULT_SETTINGS.freshers_only : s.freshers_only === true, keywords: !old && s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources: s.sources ?? DEFAULT_SETTINGS.sources, locations: !old && s.locations ? s.locations : DEFAULT_SETTINGS.locations }
 }
 
 export async function saveAutoSettings(input: any): Promise<AutoSettings> {
@@ -51,7 +51,7 @@ export async function saveAutoSettings(input: any): Promise<AutoSettings> {
   const sources = input?.sources === undefined ? cur.sources : list(input.sources, 5).filter((s) => SOURCES.some((x) => x.id === s))
   const next: AutoSettings = {
     v: PROFILE_VERSION,
-    freshers_only: input?.freshers_only === undefined ? cur.freshers_only !== false : input.freshers_only === true,
+    freshers_only: input?.freshers_only === undefined ? cur.freshers_only === true : input.freshers_only === true,
     enabled: input?.enabled === undefined ? cur.enabled : input.enabled === true,
     keywords: input?.keywords === undefined ? cur.keywords : list(input.keywords, 30),
     locations: input?.locations === undefined ? cur.locations : list(input.locations, 30),
@@ -134,7 +134,7 @@ export function fresherFriendly(j: RawJob): boolean {
 
 export function matches(j: RawJob, st: AutoSettings): boolean {
   if (!j.title || !j.company || !/^https?:\/\//.test(j.url)) return false
-  if (st.freshers_only !== false && !fresherFriendly(j)) return false
+  if (st.freshers_only === true && !fresherFriendly(j)) return false
   const hay = `${j.title} ${j.tags.join(" ")}`.toLowerCase() // title and skill tags only, so a passing mention in a description does not count
   if (!st.keywords.some((k) => hay.includes(k.toLowerCase()))) return false
   if (st.locations.length === 0) return true
@@ -152,7 +152,7 @@ export function toJobDoc(j: RawJob, validDays: number) {
     title: j.title.trim().slice(0, 150), company: j.company.trim().slice(0, 100), location: j.location.trim().slice(0, 100) || "Remote", jobType: jobType(j),
     description: text.slice(0, 3000), requirements: j.tags.length ? `Skills: ${j.tags.slice(0, 12).join(", ")}` : "",
     applyLink: j.url, deadline: ymd(deadline), status: "Open", createdAt: new Date(),
-    source: j.source, auto: true, external_id: j.external_id, posted_at: j.posted_at,
+    level: fresherFriendly(j) ? "Fresher" : "Experienced", source: j.source, auto: true, external_id: j.external_id, posted_at: j.posted_at,
   }
 }
 
@@ -195,12 +195,20 @@ export async function runAutoSync(by: "admin" | "schedule", opts: { force?: bool
   const boost = (j: RawJob) => (FRESHER_WORDS.test(`${j.title} ${j.tags.join(" ")} ${j.description.slice(0, 600)}`) ? 1 : 0)
   found.sort((a, b) => boost(b) - boost(a) || b.posted_at.localeCompare(a.posted_at))
   const seenNow = new Set<string>()
+  const fresh: RawJob[] = [], exp: RawJob[] = []
   for (const j of found) {
-    if (run.added >= st.max_per_run) break
     if (!matches(j, st)) continue
     const id = docId(j)
     if (seenNow.has(id)) continue
     seenNow.add(id)
+    ;(fresherFriendly(j) ? fresh : exp).push(j)
+  }
+  // alternate fresher / experienced so both kinds are posted in equal numbers (the longer list fills any gap)
+  const ordered: RawJob[] = []
+  for (let i = 0; i < Math.max(fresh.length, exp.length); i++) { if (fresh[i]) ordered.push(fresh[i]); if (exp[i]) ordered.push(exp[i]) }
+  for (const j of ordered) {
+    if (run.added >= st.max_per_run) break
+    const id = docId(j)
     const imp = getDb().collection("job_imports").doc(id)
     if ((await imp.get()).exists) { run.skipped++; continue }
     await getDb().collection("jobs").doc(id).set(toJobDoc(j, st.valid_days))

@@ -1272,7 +1272,7 @@ test("Jobs: default search is course-based and India-only, and old irrelevant au
 
 test("Jobs: freshers-only filter skips senior roles and 3+ years, and can be turned off", async () => {
   const J = await import("../../lib/server/jobs-service"), A = await import("../../app/api/admin/jobs/auto/route"), ad = await admin()
-  const st = { ...J.DEFAULT_SETTINGS }
+  const st = { ...J.DEFAULT_SETTINGS, freshers_only: true }
   const mk = (title: string, description = "", tags: string[] = []) => ({ source: "t", external_id: title + description, title, company: "Co", location: "Bangalore", type_hint: "", description, tags, url: "https://x.com/1", posted_at: "" })
   const ok = (title: string, d?: string, t?: string[]) => J.matches(mk(title, d, t), st)
   assert.equal(ok("Python Developer"), true, "no experience stated")
@@ -1286,4 +1286,22 @@ test("Jobs: freshers-only filter skips senior roles and 3+ years, and can be tur
   assert.equal(J.matches(mk("Senior Python Developer"), { ...st, freshers_only: false }), true, "switch off to allow experienced roles")
   const put = await json(await call(A, "PUT", "/x", { cookie: ad, body: { freshers_only: false } })); assert.equal(put.body.settings.freshers_only, false)
   assert.equal((await json(await call(A, "PUT", "/x", { cookie: ad, body: { freshers_only: true } }))).body.settings.freshers_only, true)
+})
+
+test("Jobs: by default fresher and experienced jobs are both posted, in equal numbers", async () => {
+  const J = await import("../../lib/server/jobs-service"), A = await import("../../app/api/admin/jobs/auto/route"), S = await import("../../app/api/admin/jobs/auto/sync/route")
+  const ad = await admin(), db = (await import("../../lib/server/firebase-admin")).getDb(), realFetch = globalThis.fetch
+  await db.collection("job_settings").doc("auto").set({ v: 2, freshers_only: true, enabled: true, keywords: ["x"], locations: ["x"], sources: ["remotive"], max_per_run: 30, valid_days: 30 })
+  assert.equal((await J.getAutoSettings()).freshers_only, false, "older saved settings move to the both-levels default")
+  const now = new Date().toISOString()
+  const mkJob = (id: number, title: string, d = "") => ({ id, url: `https://remotive.com/b/${id}`, title, company_name: "Bal", tags: ["python"], publication_date: now, candidate_required_location: "India", description: d })
+  const jobs = [...[1, 2, 3, 4, 5, 6].map((i) => mkJob(900 + i, `Python Developer Trainee ${i}`)), ...[1, 2, 3, 4, 5, 6].map((i) => mkJob(950 + i, `Senior Python Developer ${i}`, "5+ years of experience"))]
+  globalThis.fetch = (async () => new Response(JSON.stringify({ jobs }))) as any
+  try {
+    await call(A, "PUT", "/x", { cookie: ad, body: { keywords: "python", locations: "India", sources: ["remotive"], max_per_run: 6, enabled: true } })
+    const run = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
+    assert.equal(run.added, 6)
+    const added = (await db.collection("jobs").where("auto", "==", true).get()).docs.map((d: any) => d.data()).filter((j: any) => /Bal|Python Developer/.test(j.title) && j.applyLink.includes("/b/"))
+    assert.equal(added.filter((j: any) => j.level === "Fresher").length, 3); assert.equal(added.filter((j: any) => j.level === "Experienced").length, 3)
+  } finally { globalThis.fetch = realFetch }
 })
