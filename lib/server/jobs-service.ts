@@ -144,6 +144,7 @@ export async function runAutoSync(by: "admin" | "schedule", opts: { force?: bool
   for (const src of st.sources) {
     const fn = PROVIDERS[src]
     if (!fn) continue
+    if (src === "adzuna" && !(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY)) continue // optional source: skipped quietly until its keys are set
     try { const r = await fn(st); run.sources[src] = { found: r.length }; found.push(...r) } catch (e) { run.sources[src] = { found: 0, error: e instanceof Error ? e.message : "failed" } }
   }
   // newest first, so the cap keeps the freshest postings
