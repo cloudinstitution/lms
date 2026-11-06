@@ -37,7 +37,7 @@ export async function downloadPayslip(p: any) {
   doc.setDrawColor(0).setLineWidth(0.8)
   const top = 172
   const info: [string, string][] = [
-    ["Name", p.employee.name], ["Joining Date", dmy(p.employee.joined_on)], ["Designation", p.employee.designation || "-"], ["Department", p.employee.department || "-"],
+    ["Employee ID", p.employee.emp_id || "-"], ["Name", p.employee.name], ["Joining Date", dmy(p.employee.joined_on)], ["Designation", p.employee.designation || "-"], ["Department", p.employee.department || "-"],
     ["Location", p.employee.location || "-"], ["Total Working Days", String(p.working_days)], ["Effective Work Days", String(p.effective_days)], ["LOP", String(p.attendance.loss_of_pay_days)],
   ]
   const lineH = 17, infoH = info.length * lineH + 8

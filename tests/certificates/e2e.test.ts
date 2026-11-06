@@ -1125,3 +1125,49 @@ test("HR: marking an employee exited blocks login and unlocks the experience let
   assert.equal((await call(X, "GET", `/api/admin/hr/experience-letter?employee_id=${id}`, { cookie: ad })).status, 400)
   assert.equal((await call(LG, "POST", "/api/employee/login", { body: { email: "ravi.exit@x.com", password: "longenough1" } })).status, 200)
 })
+
+test("HR: employee IDs are assigned per company, can be overridden and stay unique", async () => {
+  const E = await import("../../app/api/admin/hr/employees/route"), EI = await import("../../app/api/admin/hr/employees/[id]/route")
+  const ad = await admin()
+  const mk = async (name: string, company_id: string, extra: any = {}) => call(E, "POST", "/api/admin/hr/employees", { cookie: ad, body: { name, company_id, ...extra } })
+  const a = (await json(await mk("Gita One", "genai-labs"))).body.employee, b = (await json(await mk("Hari Two", "genai-labs"))).body.employee
+  assert.match(a.emp_id, /^GL\d{3,}$/); assert.equal(Number(b.emp_id.slice(2)), Number(a.emp_id.slice(2)) + 1)
+  const c = (await json(await mk("Indu Three", "cloud-insthire"))).body.employee
+  assert.match(c.emp_id, /^CI\d{3,}$/, "each company has its own prefix")
+  const manual = await json(await mk("Jay Four", "genai-labs", { emp_id: "gl900" }))
+  assert.equal(manual.body.employee.emp_id, "GL900", "manual IDs are upper-cased")
+  assert.equal((await mk("Kim Five", "genai-labs", { emp_id: "GL900" })).status, 409, "duplicate IDs are refused")
+  assert.equal((await call(EI, "PUT", "/x", { cookie: ad, body: { emp_id: "GL900" } }, { id: a.id })).status, 409)
+  assert.equal((await call(EI, "PUT", "/x", { cookie: ad, body: { designation: "Lead" } }, { id: a.id })).status, 200)
+  const list = (await json(await call(E, "GET", "/api/admin/hr/employees", { cookie: ad }))).body.employees
+  assert.equal(list.find((x: any) => x.id === a.id).emp_id, a.emp_id, "an unrelated edit keeps the ID")
+  const ps = (await json(await call(await import("../../app/api/admin/hr/payslip/route"), "GET", `/api/admin/hr/payslip?employee_id=${a.id}&month=2026-11`, { cookie: ad }))).body.payslip
+  assert.equal(ps.employee.emp_id, a.emp_id)
+})
+
+test("HR: GenAI Labs has its logo, stamp and footer details", async () => {
+  const C = await import("../../app/api/admin/hr/companies/route")
+  const ad = await admin(), jn = await john()
+  assert.equal((await call(C, "GET", "/api/admin/hr/companies", { cookie: jn })).status, 403)
+  const g = (await json(await call(C, "GET", "/api/admin/hr/companies", { cookie: ad }))).body.companies.find((x: any) => x.id === "genai-labs")
+  assert.match(g.logo, /genailabs_logo/); assert.match(g.seal, /genailabs_seal/); assert.ok(g.phone && g.email && g.emp_prefix === "GL")
+})
+
+test("HR: offer letters — admin only, validated, totals computed, listed and deleted", async () => {
+  const O = await import("../../app/api/admin/hr/offer-letters/route"), OI = await import("../../app/api/admin/hr/offer-letters/[id]/route")
+  const ad = await admin(), jn = await john()
+  const body = { company_id: "genai-labs", candidate_name: "Dasari K", candidate_email: "dk@x.com", designation: "Software Developer", location: "Bengaluru", offer_date: "2026-11-06", joining_date: "2026-11-20", prior_experience_months: 6,
+    components: [{ label: "Basic", monthly: 10000 }, { label: "HRA", monthly: 5000 }, { label: "Empty", monthly: 0 }] }
+  assert.equal((await call(O, "POST", "/api/admin/hr/offer-letters", { cookie: jn, body })).status, 403)
+  assert.equal((await call(O, "POST", "/api/admin/hr/offer-letters", { body })).status, 401)
+  for (const bad of [{ company_id: "nope" }, { candidate_name: "" }, { designation: "" }, { components: [] }, { joining_date: "2026-11-01" }, { joining_date: "bad" }, { candidate_email: "x" }])
+    assert.equal((await call(O, "POST", "/api/admin/hr/offer-letters", { cookie: ad, body: { ...body, ...bad } })).status, 400, JSON.stringify(bad))
+  const r = await call(O, "POST", "/api/admin/hr/offer-letters", { cookie: ad, body }); assert.equal(r.status, 201)
+  const o = (await json(r)).body.offer
+  assert.equal(o.monthly_total, 15000); assert.equal(o.annual_total, 180000); assert.equal(o.components.length, 2, "zero rows are dropped")
+  assert.deepEqual(o.terms, { probation_months: 3, notice_months: 2, min_service_months: 6, casual_leaves: 12, sick_leaves: 8 }); assert.equal(o.company.id, "genai-labs")
+  assert.equal((await call(O, "GET", "/api/admin/hr/offer-letters", { cookie: jn })).status, 403)
+  assert.ok((await json(await call(O, "GET", "/api/admin/hr/offer-letters", { cookie: ad }))).body.offers.some((x: any) => x.id === o.id))
+  assert.equal((await call(OI, "DELETE", "/x", { cookie: ad }, { id: o.id })).status, 200)
+  assert.equal((await call(OI, "DELETE", "/x", { cookie: ad }, { id: o.id })).status, 404)
+})

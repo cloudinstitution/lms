@@ -50,7 +50,7 @@ export default function EmployeeDashboard() {
       <main className="container mx-auto max-w-5xl space-y-6 px-4 py-6">
         <div>
           <h1 className="text-2xl font-bold">Welcome, {data.employee.name.split(" ")[0]}</h1>
-          <p className="text-sm text-muted-foreground">{[data.employee.designation, data.employee.department].filter(Boolean).join(" · ")}</p>
+          <p className="text-sm text-muted-foreground">{[data.employee.emp_id && `ID ${data.employee.emp_id}`, data.employee.designation, data.employee.department].filter(Boolean).join(" · ")}</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-4">
           {[["Total leaves", l.total], ["Taken", l.taken], ["Remaining", l.remaining], ["Holidays ahead", upcoming.length]].map(([a, b]) => (

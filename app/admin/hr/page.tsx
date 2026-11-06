@@ -14,15 +14,18 @@ const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.m
 const inr = (n: number) => "₹" + Number(n || 0).toLocaleString("en-IN")
 const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const STATUSES = ["Present", "Absent", "Half day", "On leave"]
-const blankEmp = { company_id: "cloud-insthire", name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
+const blankEmp = { company_id: "cloud-insthire", emp_id: "", name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
 
-function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[]; signatory?: string; signatory_title?: string }; onSaved: () => void }) {
+function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[]; signatory?: string; signatory_title?: string; phone?: string; email?: string; emp_prefix?: string }; onSaved: () => void }) {
   const [name, setName] = useState(c.name)
   const [addr, setAddr] = useState((c.address ?? []).join("\n"))
   const [sig, setSig] = useState(c.signatory ?? "")
   const [sigTitle, setSigTitle] = useState(c.signatory_title ?? "")
+  const [phone, setPhone] = useState(c.phone ?? "")
+  const [email, setEmail] = useState(c.email ?? "")
+  const [prefix, setPrefix] = useState(c.emp_prefix ?? "")
   const save = async () => {
-    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr, signatory: sig, signatory_title: sigTitle } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr(""); setSig(""); setSigTitle("") } onSaved() } catch (e) { toast.error(err(e)) }
+    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr, signatory: sig, signatory_title: sigTitle, phone, email, emp_prefix: prefix } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr(""); setSig(""); setSigTitle(""); setPhone(""); setEmail(""); setPrefix("") } onSaved() } catch (e) { toast.error(err(e)) }
   }
   return (
     <div className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_2fr_auto]">
@@ -31,6 +34,9 @@ function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: st
       <Button onClick={save} className="bg-emerald-600 hover:bg-emerald-700">{c.id ? "Save" : "Add"}</Button>
       <Input className="sm:col-span-1" placeholder="Signatory name (letters)" value={sig} onChange={(e) => setSig(e.target.value)} />
       <Input placeholder="Signatory title (e.g. CEO / HR Manager)" value={sigTitle} onChange={(e) => setSigTitle(e.target.value)} />
+      <Input placeholder="Phone (offer letter footer)" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <Input placeholder="Email (offer letter footer)" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <Input placeholder="Employee ID prefix (e.g. GL)" value={prefix} onChange={(e) => setPrefix(e.target.value.toUpperCase())} />
     </div>
   )
 }
@@ -53,6 +59,27 @@ export default function HrPage() {
   const shown = emps.filter((e) => filterCo === "all" || e.company_id === filterCo)
   const active = emps.filter((e) => e.status !== "Inactive" && e.status !== "Exited" && (filterCo === "all" || e.company_id === filterCo))
   const nameOf = (id: string) => emps.find((e) => e.id === id)?.name ?? "—"
+
+  // ----- offer letters -----
+  const defaultComps = ["Basic", "HRA", "Conveyance", "Allowance Medical", "Allowance Advance", "Statutory Bonus", "Special Allowance"]
+  const blankOffer = () => ({ company_id: "genai-labs", candidate_name: "", candidate_email: "", designation: "", location: "Bengaluru", offer_date: todayIst(), joining_date: "", prior_experience_months: "0", probation_months: "3", notice_months: "2", min_service_months: "6", casual_leaves: "12", sick_leaves: "8" })
+  const [offers, setOffers] = useState<any[]>([])
+  const [of, setOf] = useState<any>(blankOffer())
+  const [comps, setComps] = useState<{ label: string; monthly: string }[]>(defaultComps.map((label) => ({ label, monthly: "" })))
+  const [showTerms, setShowTerms] = useState(false)
+  const loadOffers = useCallback(() => api("/api/admin/hr/offer-letters").then((d) => setOffers(d.offers)).catch(() => {}), [])
+  useEffect(() => { loadOffers() }, [loadOffers])
+  const setO = (k: string) => (e: { target: { value: string } }) => setOf({ ...of, [k]: e.target.value })
+  const offerPdf = (o: any) => import("@/lib/offer-letter-pdf").then((m) => m.downloadOfferLetter(o)).catch(() => toast.error("Could not create the PDF"))
+  const createOffer = async () => {
+    try {
+      const d = await api("/api/admin/hr/offer-letters", { method: "POST", body: { ...of, components: comps } })
+      toast.success("Offer letter created"); setOf(blankOffer()); setComps(defaultComps.map((label) => ({ label, monthly: "" }))); loadOffers()
+      await offerPdf(d.offer)
+    } catch (e) { toast.error(err(e)) }
+  }
+  const removeOffer = async (o: any) => { if (!confirm(`Delete the offer letter for ${o.candidate_name}?`)) return; try { await api(`/api/admin/hr/offer-letters/${o.id}`, { method: "DELETE" }); loadOffers() } catch (e) { toast.error(err(e)) } }
+  const compTotal = comps.reduce((n, c) => n + (Number(c.monthly) || 0), 0)
 
   // ----- employees -----
   const [showCo, setShowCo] = useState(false)
@@ -134,7 +161,7 @@ export default function HrPage() {
       </div>
 
       <Tabs defaultValue="employees">
-        <TabsList className="flex-wrap"><TabsTrigger value="employees">Employees</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="holidays">Holidays</TabsTrigger><TabsTrigger value="payslips">Payslips</TabsTrigger></TabsList>
+        <TabsList className="flex-wrap"><TabsTrigger value="employees">Employees</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="holidays">Holidays</TabsTrigger><TabsTrigger value="payslips">Payslips</TabsTrigger><TabsTrigger value="offers">Offer letters</TabsTrigger></TabsList>
 
         <TabsContent value="employees" className="space-y-4">
           <Card>
@@ -142,6 +169,7 @@ export default function HrPage() {
             <CardContent className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-3">
                 <label className="text-xs text-muted-foreground">Company<select className={sel + " w-full"} value={f.company_id} onChange={set("company_id")}>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+                <Input placeholder={editing ? "Employee ID" : "Employee ID (blank = auto, e.g. GL001)"} value={f.emp_id ?? ""} onChange={set("emp_id")} />
                 <Input placeholder="Full name" value={f.name} onChange={set("name")} />
                 <Input placeholder="Email" value={f.email} onChange={set("email")} />
                 <Input placeholder="Phone" value={f.phone} onChange={set("phone")} />
@@ -199,11 +227,12 @@ export default function HrPage() {
           )}
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-left text-sm">
-              <Th cols={["Name", "Company", "Designation", "Contact", "Gross / month", `Leave ${year}: taken`, "Remaining", "Login", "Status", ""]} />
+              <Th cols={["Emp ID", "Name", "Company", "Designation", "Contact", "Gross / month", `Leave ${year}: taken`, "Remaining", "Login", "Status", ""]} />
               <tbody>
-                {shown.length === 0 && <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">No employees yet.</td></tr>}
+                {shown.length === 0 && <tr><td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">No employees yet.</td></tr>}
                 {shown.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
+                    <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{e.emp_id}</td>
                     <td className="px-3 py-2 font-medium">{e.name}<div className="text-xs text-muted-foreground">{e.department}</div></td>
                     <td className="px-3 py-2 text-xs">{coName(e.company_id)}</td><td className="px-3 py-2">{e.designation}</td>
                     <td className="px-3 py-2 text-xs">{e.email}<br />{e.phone}</td>
@@ -311,7 +340,7 @@ export default function HrPage() {
               <CardHeader><CardTitle className="flex items-center justify-between text-base"><span>{slip.employee.name} — {slip.month}</span><Button size="sm" variant="outline" onClick={pdf}><Download className="mr-1 h-4 w-4" />Download PDF</Button></CardTitle></CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <div className="grid gap-x-6 sm:grid-cols-2">
-                  <div>Joining date: {slip.employee.joined_on} · Location: {slip.employee.location || "-"}</div>
+                  <div>Employee ID: {slip.employee.emp_id || "-"} · Joining date: {slip.employee.joined_on} · Location: {slip.employee.location || "-"}</div>
                   <div>Working days {slip.working_days} · Effective {slip.effective_days} · LOP {slip.attendance.loss_of_pay_days}</div>
                 </div>
                 <table className="w-full max-w-xl text-left"><thead><tr className="border-b"><th className="py-1 font-medium">Earnings</th><th className="py-1 text-right font-medium">Full</th><th className="py-1 text-right font-medium">Actual</th></tr></thead>
@@ -324,6 +353,65 @@ export default function HrPage() {
             </Card>
           )}
           <p className="text-xs text-muted-foreground">Actual pay = full amount × effective work days ÷ days in month, where effective days = days in month − LOP (absent days + ½ × half days). Mark attendance for the month first so the payslip is accurate.</p>
+        </TabsContent>
+
+        <TabsContent value="offers" className="space-y-4">
+          <Card>
+            <CardHeader><CardTitle className="text-base">New offer letter</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="text-xs text-muted-foreground">Company<select className={sel + " w-full"} value={of.company_id} onChange={setO("company_id")}>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+                <Input placeholder="Candidate name" value={of.candidate_name} onChange={setO("candidate_name")} />
+                <Input placeholder="Candidate email" value={of.candidate_email} onChange={setO("candidate_email")} />
+                <Input placeholder="Role offered (e.g. Software Developer)" value={of.designation} onChange={setO("designation")} />
+                <Input placeholder="Place of posting" value={of.location} onChange={setO("location")} />
+                <label className="text-xs text-muted-foreground">Prior experience recognised (months)<Input type="number" min={0} value={of.prior_experience_months} onChange={setO("prior_experience_months")} /></label>
+                <label className="text-xs text-muted-foreground">Offer date<Input type="date" value={of.offer_date} onChange={setO("offer_date")} /></label>
+                <label className="text-xs text-muted-foreground">Join on or before<Input type="date" value={of.joining_date} onChange={setO("joining_date")} /></label>
+              </div>
+              <div className="text-xs font-medium text-muted-foreground">Monthly compensation (₹) — rows left at 0 are left out</div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {comps.map((c, i) => (
+                  <div key={i} className="flex gap-2">
+                    <Input value={c.label} onChange={(e) => setComps(comps.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+                    <Input type="number" className="w-36" placeholder="Monthly" value={c.monthly} onChange={(e) => setComps(comps.map((x, j) => (j === i ? { ...x, monthly: e.target.value } : x)))} />
+                    <Button variant="ghost" size="icon" onClick={() => setComps(comps.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <Button size="sm" variant="outline" onClick={() => setComps([...comps, { label: "", monthly: "" }])}>Add row</Button>
+                <span>Monthly total <b>{inr(compTotal)}</b> · Yearly <b>{inr(compTotal * 12)}</b></span>
+                <Button size="sm" variant="ghost" onClick={() => setShowTerms(!showTerms)}>{showTerms ? "Hide terms" : "Edit terms (probation, notice, leave)"}</Button>
+              </div>
+              {showTerms && (
+                <div className="grid gap-3 sm:grid-cols-5">
+                  {([["probation_months", "Probation (months)"], ["notice_months", "Notice (months)"], ["min_service_months", "Minimum service (months)"], ["casual_leaves", "Casual leaves / year"], ["sick_leaves", "Sick leaves / year"]] as const).map(([k, l]) => (
+                    <label key={k} className="text-xs text-muted-foreground">{l}<Input type="number" min={0} value={of[k]} onChange={setO(k)} /></label>
+                  ))}
+                </div>
+              )}
+              <Button onClick={createOffer} className="bg-emerald-600 hover:bg-emerald-700">Create &amp; download offer letter</Button>
+              <p className="text-xs text-muted-foreground">The PDF uses the chosen company's logo, stamp, phone, email and address. The standard terms text lives in lib/offer-letter-terms.ts.</p>
+            </CardContent>
+          </Card>
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-left text-sm">
+              <Th cols={["Candidate", "Company", "Role", "Offer date", "Joining", "Monthly", ""]} />
+              <tbody>
+                {offers.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">No offer letters yet.</td></tr>}
+                {offers.map((o) => (
+                  <tr key={o.id} className="border-b last:border-0">
+                    <td className="px-3 py-2 font-medium">{o.candidate_name}<div className="text-xs text-muted-foreground">{o.candidate_email}</div></td>
+                    <td className="px-3 py-2 text-xs">{o.company?.name}</td><td className="px-3 py-2">{o.designation}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{o.offer_date}</td><td className="px-3 py-2 whitespace-nowrap">{o.joining_date}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{inr(o.monthly_total)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" variant="outline" onClick={() => offerPdf(o)}><Download className="mr-1 h-4 w-4" />Download</Button> <Button size="sm" variant="ghost" onClick={() => removeOffer(o)}><Trash2 className="h-4 w-4" /></Button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

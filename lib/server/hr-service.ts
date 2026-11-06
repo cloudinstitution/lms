@@ -26,20 +26,26 @@ export const ATTENDANCE_STATUSES = ["Present", "Absent", "Half day", "On leave"]
 export const LEAVE_TYPES = ["Casual", "Sick", "Earned", "Other"] as const
 
 // ---------- companies (letterhead on payslips; employees belong to one) ----------
-export interface Company { id: string; name: string; address: string[]; logo: string; signatory: string; signatory_title: string }
+export interface Company { id: string; name: string; address: string[]; logo: string; seal: string; phone: string; email: string; emp_prefix: string; signatory: string; signatory_title: string }
 const DEFAULT_COMPANY_ID = "cloud-insthire"
 const DEFAULT_COMPANIES: Company[] = [
-  { id: DEFAULT_COMPANY_ID, name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"], logo: "/lg_logo.png", signatory: "Dilip D", signatory_title: "CEO" },
-  { id: "genai-labs", name: "GENAI LABS", address: [], logo: "", signatory: "", signatory_title: "Authorized Signatory" },
+  { id: DEFAULT_COMPANY_ID, name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"], logo: "/lg_logo.png", seal: "", phone: "+91 76763 70336", email: "info@cloudinstitution.com", emp_prefix: "CI", signatory: "Dilip D", signatory_title: "CEO" },
+  { id: "genai-labs", name: "GenAI Labs", address: ["4th Floor, No 2, HB complex, 100 Feet Ring Rd,", "Dollar Scheme Colony, BTM 1st Stage, Bengaluru, Karnataka 560068"], logo: "/genailabs_logo.png", seal: "/genailabs_seal.jpg", phone: "+91 63619 58074", email: "info@genailabs.in", emp_prefix: "GL", signatory: "Dilip D", signatory_title: "Authorized Signatory" },
 ]
+
+const initials = (name: string) => (name.match(/[A-Za-z]+/g) ?? []).map((w) => w[0]).join("").toUpperCase().slice(0, 3) || "EM"
 
 /** Built-in companies (editable) plus any the admin added. */
 export async function listCompanies(): Promise<Company[]> {
   const snap = await getDb().collection("hr_companies").get()
   const stored = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...(d.data() as any) } as Company]))
-  const merged = DEFAULT_COMPANIES.map((c) => ({ ...c, ...(stored.get(c.id) ?? {}), id: c.id }))
+  // Saved edits win, but an empty saved logo/seal/etc. never hides the built-in one.
+  const merged = DEFAULT_COMPANIES.map((c) => {
+    const o = (stored.get(c.id) ?? {}) as Partial<Company>
+    return { ...c, ...o, id: c.id, logo: o.logo || c.logo, seal: o.seal || c.seal, phone: o.phone || c.phone, email: o.email || c.email, emp_prefix: o.emp_prefix || c.emp_prefix }
+  })
   const extra = [...stored.values()].filter((c) => !DEFAULT_COMPANIES.some((d) => d.id === c.id)).sort((a, b) => a.name.localeCompare(b.name))
-  return [...merged, ...extra].map((c) => ({ ...c, address: Array.isArray(c.address) ? c.address : [], signatory: c.signatory ?? "", signatory_title: c.signatory_title ?? "Authorized Signatory" }))
+  return [...merged, ...extra].map((c) => ({ ...c, address: Array.isArray(c.address) ? c.address : [], signatory: c.signatory ?? "", signatory_title: c.signatory_title ?? "Authorized Signatory", seal: c.seal ?? "", phone: c.phone ?? "", email: c.email ?? "", emp_prefix: c.emp_prefix || initials(c.name) }))
 }
 
 /** Create a company (no id) or update one (id): name, and address as up to 3 lines. */
@@ -54,10 +60,14 @@ export async function saveCompany(input: any) {
     id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40)
     if (!id || all.some((c) => c.id === id)) throw new ApiError(409, "A company with this name already exists")
   }
-  const logo = all.find((c) => c.id === id)?.logo ?? ""
+  const cur = all.find((c) => c.id === id)
   const signatory = str(input?.signatory, 80), signatory_title = str(input?.signatory_title, 80) || "Authorized Signatory"
-  await getDb().collection("hr_companies").doc(id).set({ name, address: lines, logo, signatory, signatory_title, updated_at: iso() })
-  return { id, name, address: lines, logo, signatory, signatory_title }
+  const phone = str(input?.phone, 30), email = str(input?.email, 120).toLowerCase()
+  if (email && !EMAIL_RE.test(email)) throw new ApiError(400, "Enter a valid company email address")
+  const emp_prefix = str(input?.emp_prefix, 6).toUpperCase().replace(/[^A-Z0-9]/g, "") || cur?.emp_prefix || initials(name)
+  const doc = { name, address: lines, logo: cur?.logo ?? "", seal: cur?.seal ?? "", phone, email, emp_prefix, signatory, signatory_title }
+  await getDb().collection("hr_companies").doc(id).set({ ...doc, updated_at: iso() })
+  return { id, ...doc }
 }
 
 async function assertCompany(id: unknown) {
@@ -67,7 +77,7 @@ async function assertCompany(id: unknown) {
 // ---------- employees ----------
 export interface Employee {
   id: string; name: string; email: string; phone: string; designation: string; department: string
-  company_id: string; has_login?: boolean; joined_on: string; location: string; basic: number; hra: number; special_allowance: number; medical_allowance: number; conveyance: number; cca: number; professional_tax: number; other_deductions: number; status: "Active" | "Inactive" | "Exited"; exit_date?: string; created_at: string
+  company_id: string; emp_id?: string; has_login?: boolean; joined_on: string; location: string; basic: number; hra: number; special_allowance: number; medical_allowance: number; conveyance: number; cca: number; professional_tax: number; other_deductions: number; status: "Active" | "Inactive" | "Exited"; exit_date?: string; created_at: string
 }
 
 const PAY_FIELDS = [
@@ -88,6 +98,11 @@ function cleanEmployee(input: any, partial = false) {
   // (older records / clients used `allowances` and `deductions`)
   const src = { ...input, special_allowance: input?.special_allowance ?? input?.allowances, other_deductions: input?.other_deductions ?? input?.deductions }
   for (const [k, label] of PAY_FIELDS) out[k] = money(src[k], label)
+  if (typeof input?.emp_id === "string" && input.emp_id.trim()) {
+    const id = input.emp_id.trim().toUpperCase()
+    if (!/^[A-Z0-9][A-Z0-9-]{1,19}$/.test(id)) throw new ApiError(400, "Employee ID can use letters, numbers and dashes (2 to 20 characters)")
+    out.emp_id = id
+  }
   if (input?.status === "Inactive" || input?.status === "Active" || input?.status === "Exited") out.status = input.status
   if (input?.status === "Exited") {
     out.exit_date = validDate(input?.exit_date, "Last working day")
@@ -95,6 +110,7 @@ function cleanEmployee(input: any, partial = false) {
   } else if (input?.status === "Active" || input?.status === "Inactive") out.exit_date = ""
   // An edit only changes the fields it actually sent (so flipping Active/Inactive never blanks the details).
   if (partial) for (const k of Object.keys(out)) if (k !== "status" && k !== "exit_date" && (src as any)[k] === undefined) delete out[k]
+  if (partial && !input?.emp_id) delete out.emp_id
   return out
 }
 
@@ -132,10 +148,37 @@ async function loginFields(input: any, email: string, selfId?: string): Promise<
   return { password_hash: hashPassword(pw) }
 }
 
+/** Next free employee ID for a company, e.g. GL001 (the highest existing number with that prefix, plus one). */
+async function nextEmpId(companyId: string): Promise<string> {
+  const company = (await listCompanies()).find((c) => c.id === companyId) ?? DEFAULT_COMPANIES[0]
+  const prefix = company.emp_prefix
+  const snap = await getDb().collection("employees").get()
+  let max = 0
+  for (const d of snap.docs) {
+    const m = String((d.data() as any).emp_id ?? "").match(new RegExp(`^${prefix}-?(\\d+)$`))
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return `${prefix}${String(max + 1).padStart(3, "0")}`
+}
+
+async function assertEmpIdFree(empId: string, selfId?: string) {
+  const dup = (await getDb().collection("employees").where("emp_id", "==", empId).get()).docs.find((d) => d.id !== selfId)
+  if (dup) throw new ApiError(409, `Employee ID ${empId} is already used by another employee`)
+}
+
+/** Give every employee without an ID one (oldest first). Runs when the admin opens the list. */
+async function assignMissingEmpIds() {
+  const snap = await getDb().collection("employees").get()
+  const missing = snap.docs.filter((d) => !(d.data() as any).emp_id).sort((a, b) => String((a.data() as any).created_at).localeCompare(String((b.data() as any).created_at)))
+  for (const d of missing) await getDb().collection("employees").doc(d.id).update({ emp_id: await nextEmpId((d.data() as any).company_id || DEFAULT_COMPANY_ID) })
+}
+
 export async function createEmployee(input: unknown) {
   const clean = cleanEmployee(input)
   clean.company_id = clean.company_id || DEFAULT_COMPANY_ID
   await assertCompany(clean.company_id)
+  if (clean.emp_id) await assertEmpIdFree(String(clean.emp_id))
+  else clean.emp_id = await nextEmpId(String(clean.company_id))
   const doc = { ...clean, ...(await loginFields(input, String(clean.email ?? ""))), status: "Active", created_at: iso() }
   const ref = getDb().collection("employees").doc()
   await ref.set(doc)
@@ -146,6 +189,7 @@ export async function updateEmployee(id: string, input: unknown) {
   const cur = await getEmployee(id)
   const clean = cleanEmployee(input, true)
   if (clean.company_id !== undefined) await assertCompany(clean.company_id)
+  if (clean.emp_id && clean.emp_id !== cur.emp_id) await assertEmpIdFree(String(clean.emp_id), id)
   if (clean.status === "Exited" && String(clean.exit_date) < String(clean.joined_on ?? cur.joined_on)) throw new ApiError(400, "The last working day is before the joining date")
   const email = String(clean.email ?? "") || cur.email
   if (clean.email && clean.email !== cur.email && cur.has_login) {
@@ -178,7 +222,7 @@ export async function employeeOverview(user: EmployeeUser, month: string | undef
   const attendance = snap.docs.map((d) => d.data() as any).filter((a) => a.employee_id === user.docId && String(a.date).startsWith(m))
     .map((a) => ({ date: a.date as string, status: a.status as string })).sort((a, b) => a.date.localeCompare(b.date))
   return {
-    employee: { name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, joined_on: emp.joined_on },
+    employee: { emp_id: emp.emp_id ?? "", name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, joined_on: emp.joined_on },
     year, month: m, leave: balance, leaves, holidays, attendance,
   }
 }
@@ -299,6 +343,7 @@ export async function leaveBalance(employeeId: string, year: string) {
 
 /** Every employee with leave taken / remaining for the year. */
 export async function employeesWithBalance(year: string) {
+  await assignMissingEmpIds()
   const [emps, leaves] = await Promise.all([listEmployees(), listLeaves({ year })])
   const total = LEAVES_PER_YEAR()
   return emps.map((e) => {
@@ -369,8 +414,8 @@ export async function payslipData(employeeId: string, month: string) {
   const bal = await leaveBalance(emp.id, String(y))
   const company = (await listCompanies()).find((c) => c.id === emp.company_id) ?? DEFAULT_COMPANIES[0]
   return {
-    company: { id: company.id, name: company.name, address: company.address, logo: company.logo },
-    employee: { id: emp.id, name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, location: emp.location, joined_on: emp.joined_on },
+    company,
+    employee: { id: emp.id, emp_id: emp.emp_id ?? "", name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, location: emp.location, joined_on: emp.joined_on },
     month, days_in_month: daysInMonth, working_days: daysInMonth, effective_days: effective,
     attendance: { present: count("Present"), absent, half_day: half, on_leave: count("On leave"), loss_of_pay_days: lopDays },
     earnings, total_full: totalFull, total_actual: totalActual,
@@ -398,9 +443,59 @@ export async function experienceLetterData(employeeId: string) {
   const issued = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
   return {
     company,
-    employee: { id: emp.id, name: emp.name, designation: emp.designation, department: emp.department, joined_on: emp.joined_on, exit_date: emp.exit_date },
+    employee: { id: emp.id, emp_id: emp.emp_id ?? "", name: emp.name, designation: emp.designation, department: emp.department, joined_on: emp.joined_on, exit_date: emp.exit_date },
     tenure: tenure(emp.joined_on, emp.exit_date),
     issued_on: issued,
     reference: `EXP/${issued.slice(0, 4)}/${emp.id.slice(0, 5).toUpperCase()}`,
   }
+}
+
+// ---------- offer letters ----------
+const int = (v: unknown, def: number, min: number, max: number, label: string) => {
+  if (v === undefined || v === null || v === "") return def
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < min || n > max) throw new ApiError(400, `${label} must be a whole number from ${min} to ${max}`)
+  return n
+}
+
+export async function createOfferLetter(input: any) {
+  const company = (await listCompanies()).find((c) => c.id === input?.company_id)
+  if (!company) throw new ApiError(400, "Choose a company")
+  const name = str(input?.candidate_name, 80)
+  if (name.length < 2) throw new ApiError(400, "Enter the candidate's name")
+  const email = str(input?.candidate_email, 120).toLowerCase()
+  if (email && !EMAIL_RE.test(email)) throw new ApiError(400, "Enter a valid candidate email address")
+  const designation = str(input?.designation, 100)
+  if (!designation) throw new ApiError(400, "Enter the role being offered")
+  const rows = Array.isArray(input?.components) ? input.components : []
+  const components = rows.map((r: any) => ({ label: str(r?.label, 60), monthly: money(r?.monthly, "Each salary amount") })).filter((r: { label: string; monthly: number }) => r.label && r.monthly > 0)
+  if (components.length === 0 || components.length > 15) throw new ApiError(400, "Add the salary components (up to 15) with their monthly amounts")
+  const monthly_total = Math.round(components.reduce((n: number, c: { monthly: number }) => n + c.monthly, 0) * 100) / 100
+  const doc = {
+    company_id: company.id, candidate_name: name, candidate_email: email, designation, location: str(input?.location, 80),
+    offer_date: validDate(input?.offer_date ?? iso().slice(0, 10), "Offer date"), joining_date: validDate(input?.joining_date, "Joining date"),
+    prior_experience_months: int(input?.prior_experience_months, 0, 0, 600, "Prior experience (months)"),
+    components, monthly_total, annual_total: Math.round(monthly_total * 12 * 100) / 100,
+    terms: {
+      probation_months: int(input?.probation_months, 3, 0, 24, "Probation"), notice_months: int(input?.notice_months, 2, 0, 12, "Notice period"),
+      min_service_months: int(input?.min_service_months, 6, 0, 60, "Minimum service"), casual_leaves: int(input?.casual_leaves, 12, 0, 60, "Casual leaves"), sick_leaves: int(input?.sick_leaves, 8, 0, 60, "Sick leaves"),
+    },
+    created_at: iso(),
+  }
+  if (doc.joining_date < doc.offer_date) throw new ApiError(400, "The joining date is before the offer date")
+  const ref = getDb().collection("offer_letters").doc()
+  await ref.set(doc)
+  return { id: ref.id, ...doc, company }
+}
+
+export async function listOfferLetters() {
+  const [snap, companies] = await Promise.all([getDb().collection("offer_letters").get(), listCompanies()])
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+    .map((o) => ({ ...o, company: companies.find((c) => c.id === o.company_id) ?? DEFAULT_COMPANIES[0] }))
+}
+
+export async function deleteOfferLetter(id: string) {
+  const ref = getDb().collection("offer_letters").doc(id)
+  if (!(await ref.get()).exists) throw new ApiError(404, "Offer letter not found")
+  await ref.delete()
 }

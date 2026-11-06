@@ -42,7 +42,7 @@ export async function downloadExperienceLetter(l: any) {
   const dept = e.department ? ` in the ${e.department} department` : ""
   const role = e.designation ? ` as ${e.designation}` : ""
   const paras = [
-    `This is to certify that ${e.name} was employed with ${c.name}${role}${dept}, from ${dmy(e.joined_on)} to ${dmy(e.exit_date)}, a total period of ${parts.join(" and ")}.`,
+    `This is to certify that ${e.name} was employed with ${c.name}${role}${dept}, from ${dmy(e.joined_on)} to ${dmy(e.exit_date)}, a total period of ${parts.join(" and ")}${e.emp_id ? ` (Employee ID: ${e.emp_id})` : ""}.`,
     `During this period, ${e.name}'s conduct and performance were found to be good, and ${e.name} discharged all assigned responsibilities with sincerity and dedication.`,
     `${e.name} has been relieved from the services of the company with effect from ${dmy(e.exit_date)}. We wish ${e.name} all the very best in future endeavours.`,
   ]
