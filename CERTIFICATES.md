@@ -92,7 +92,7 @@ Environment variables:
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Required for payments (without them "Buy now" says payments are not enabled) |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional but recommended: set the Razorpay webhook to `https://<site>/api/payments/webhook` (events `payment.captured`, `order.paid`) so a course is granted even if the buyer closes the tab right after paying |
 
-If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies` and `offer_letters`.
+If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `job_settings` and `job_imports` (plus write access to `jobs`, which the automatic job search fills).
 
 ### Paying through a Razorpay.me page (no API keys)
 
@@ -100,3 +100,9 @@ While `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` are not set, "Buy now" shows the
 (`PAYMENT_LINK_URL`, default `https://razorpay.me/@cloudinsthireprivatelimited`). The learner pays, enters the payment ID or UTR from the
 receipt and taps "I have paid". The request appears under **Admin → Enrollments → Payments waiting for confirmation**; after checking
 it in the Razorpay dashboard an admin approves it, which unlocks the course. Nothing unlocks without that approval.
+
+## Automatic job search
+
+Admin → Jobs has an "Automatic job search" panel. It searches public job boards (Remotive and Arbeitnow need no key; Adzuna India needs `ADZUNA_APP_ID` and `ADZUNA_APP_KEY`, free at developer.adzuna.com — the best source for Bangalore jobs), keeps jobs matching your keywords and locations, and writes them to the same `jobs` collection students read. Auto jobs close when they expire; manually posted jobs are never touched; a job an admin deletes is not re-imported.
+- **Daily run:** `vercel.json` schedules `/api/cron/jobs-sync`. Set `CRON_SECRET` in the environment (Vercel sends it as a Bearer token); without it the endpoint refuses all calls. On other hosts, call that URL daily with `Authorization: Bearer $CRON_SECRET`.
+- **On demand:** the "Find jobs now" button.

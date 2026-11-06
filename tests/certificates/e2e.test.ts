@@ -1171,3 +1171,65 @@ test("HR: offer letters — admin only, validated, totals computed, listed and d
   assert.equal((await call(OI, "DELETE", "/x", { cookie: ad }, { id: o.id })).status, 200)
   assert.equal((await call(OI, "DELETE", "/x", { cookie: ad }, { id: o.id })).status, 404)
 })
+
+test("Jobs: automatic search posts matching jobs once, respects settings, closes expired ones", async () => {
+  const A = await import("../../app/api/admin/jobs/auto/route"), S = await import("../../app/api/admin/jobs/auto/sync/route"), CR = await import("../../app/api/cron/jobs-sync/route")
+  const ad = await admin(), jn = await john()
+  const realFetch = globalThis.fetch
+  const day = new Date().toISOString()
+  const hits: string[] = []
+  globalThis.fetch = (async (u: any) => {
+    const url = String(u); hits.push(url)
+    if (url.includes("remotive")) return new Response(JSON.stringify({ jobs: [
+      { id: 1, url: "https://remotive.com/j/1", title: "Python Developer", company_name: "Acme", category: "software-dev", tags: ["python", "django"], job_type: "full_time", publication_date: day, candidate_required_location: "Worldwide", description: "<p>Build <b>APIs</b>&nbsp;&amp; more</p><ul><li>Python</li></ul>" },
+      { id: 2, url: "https://remotive.com/j/2", title: "Sales Manager", company_name: "Acme", tags: [], publication_date: day, candidate_required_location: "Worldwide", description: "sell things" },
+      { id: 3, url: "https://remotive.com/j/3", title: "Java Intern", company_name: "Beta", tags: ["java"], job_type: "internship", publication_date: day, candidate_required_location: "USA Only", description: "x" },
+    ] }))
+    if (url.includes("arbeitnow")) throw new Error("network down")
+    return new Response("{}", { status: 404 })
+  }) as any
+  try {
+    const body = { keywords: "python, java", locations: "Worldwide, India", sources: ["remotive", "arbeitnow"], max_per_run: 10, valid_days: 30, enabled: true }
+    assert.equal((await call(A, "PUT", "/x", { cookie: jn, body })).status, 403)
+    assert.equal((await call(A, "PUT", "/x", { cookie: ad, body: { ...body, keywords: "" } })).status, 400)
+    assert.equal((await call(A, "PUT", "/x", { cookie: ad, body: { ...body, sources: ["bogus"] } })).status, 400)
+    assert.equal((await call(A, "PUT", "/x", { cookie: ad, body })).status, 200)
+    assert.equal((await call(S, "POST", "/x", { cookie: jn })).status, 403)
+
+    const run = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
+    assert.equal(run.added, 1, "only the matching job in an allowed location is posted"); assert.equal(run.sources.remotive.found, 3); assert.match(run.sources.arbeitnow.error, /network down/, "one failing source does not stop the others")
+    const db = (await import("../../lib/server/firebase-admin")).getDb()
+    let jobs = (await db.collection("jobs").where("auto", "==", true).get()).docs.map((d: any) => d.data())
+    assert.equal(jobs.length, 1)
+    const j = jobs[0]
+    assert.equal(j.title, "Python Developer"); assert.equal(j.company, "Acme"); assert.equal(j.status, "Open"); assert.equal(j.jobType, "Full-time"); assert.equal(j.applyLink, "https://remotive.com/j/1")
+    assert.ok(j.createdAt instanceof Date); assert.match(j.deadline, /^\d{4}-\d{2}-\d{2}$/); assert.match(j.description, /Build APIs & more/); assert.doesNotMatch(j.description, /<|&amp;/); assert.equal(j.requirements, "Skills: python, django")
+
+    assert.equal((await json(await call(S, "POST", "/x", { cookie: ad }))).body.run.added, 0, "running again does not duplicate")
+    // a deleted auto job is not re-imported
+    const id = (await db.collection("jobs").where("auto", "==", true).get()).docs[0].id
+    await db.collection("jobs").doc(id).delete()
+    assert.equal((await json(await call(S, "POST", "/x", { cookie: ad }))).body.run.added, 0)
+    // widening the filters brings in the internship
+    await call(A, "PUT", "/x", { cookie: ad, body: { ...body, locations: "" } })
+    assert.equal((await json(await call(S, "POST", "/x", { cookie: ad }))).body.run.added, 1)
+    jobs = (await db.collection("jobs").where("auto", "==", true).get()).docs.map((d: any) => d.data())
+    assert.equal(jobs[0].jobType, "Internship")
+    // expired auto jobs close; a manual job is left alone
+    const jid = (await db.collection("jobs").where("auto", "==", true).get()).docs[0].id
+    await db.collection("jobs").doc(jid).update({ deadline: "2020-01-01" })
+    await db.collection("jobs").doc("manual1").set({ title: "Manual", status: "Open", deadline: "2020-01-01", createdAt: new Date() })
+    await call(A, "PUT", "/x", { cookie: ad, body: { ...body, enabled: false } })
+    const r2 = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
+    assert.equal(r2.closed, 1); assert.equal((await db.collection("jobs").doc(jid).get()).data().status, "Closed"); assert.equal((await db.collection("jobs").doc("manual1").get()).data().status, "Open")
+    // schedule endpoint: needs the secret, and honours the on/off switch
+    delete process.env.CRON_SECRET
+    assert.equal((await call(CR, "GET", "/x", {})).status, 401)
+    process.env.CRON_SECRET = "s3cret"
+    assert.equal((await CR.GET(new NextRequest(new URL("/api/cron/jobs-sync", ORIGIN), { headers: { authorization: "Bearer wrong" } }), { params: Promise.resolve({}) })).status, 401)
+    const sc = await json(await CR.GET(new NextRequest(new URL("/api/cron/jobs-sync", ORIGIN), { headers: { authorization: "Bearer s3cret" } }), { params: Promise.resolve({}) }))
+    assert.equal(sc.status, 200); assert.equal(sc.body.run.skipped_disabled, true)
+    const got = (await json(await call(A, "GET", "/x", { cookie: ad }))).body
+    assert.equal(got.settings.enabled, false); assert.ok(got.settings.last_run.at); assert.equal(got.sources.length, 3)
+  } finally { globalThis.fetch = realFetch; delete process.env.CRON_SECRET }
+})

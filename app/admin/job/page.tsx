@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import AutoJobsPanel from "./components/auto-jobs-panel"
 import { db } from "@/lib/firebase"
 import {
   addDoc,
@@ -55,6 +56,7 @@ type Job = {
   status: JobStatus
   createdAt: Date
   applicantCount?: number
+  auto?: boolean
 }
 
 type Applicant = {
@@ -129,6 +131,7 @@ const AdminJobsPage = () => {
           applyLink: data.applyLink || "",
           deadline: data.deadline || "",
           status: data.status || "Open",
+          auto: data.auto === true,
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
         })
       }
@@ -331,6 +334,8 @@ const AdminJobsPage = () => {
         </Button>
       </div>
 
+      <AutoJobsPanel onSynced={fetchJobs} />
+
       {showForm && (
         <Card>
           <CardHeader>
@@ -497,7 +502,7 @@ const AdminJobsPage = () => {
                         <div className="flex items-start justify-between flex-wrap gap-2">
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-lg">{job.title}</h3>
+                              <h3 className="font-semibold text-lg">{job.title}{job.auto && <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 align-middle text-[10px] font-medium text-violet-700">Auto-posted</span>}</h3>
                               <span
                                 className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                   job.status === "Open"
