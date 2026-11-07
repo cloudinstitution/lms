@@ -1230,7 +1230,7 @@ test("Jobs: automatic search posts matching jobs once, respects settings, closes
     const sc = await json(await CR.GET(new NextRequest(new URL("/api/cron/jobs-sync", ORIGIN), { headers: { authorization: "Bearer s3cret" } }), { params: Promise.resolve({}) }))
     assert.equal(sc.status, 200); assert.equal(sc.body.run.skipped_disabled, true)
     const got = (await json(await call(A, "GET", "/x", { cookie: ad }))).body
-    assert.equal(got.settings.enabled, false); assert.ok(got.settings.last_run.at); assert.equal(got.sources.length, 3)
+    assert.equal(got.settings.enabled, false); assert.ok(got.settings.last_run.at); assert.equal(got.sources.length, 5)
   } finally { globalThis.fetch = realFetch; delete process.env.CRON_SECRET }
 })
 
@@ -1379,4 +1379,42 @@ test("Resume: an uploaded PDF/DOCX is read into form fields (nothing stored), ba
   assert.equal((await post(new File([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 1, 2, 3])], "old.doc"))).status, 400)
   assert.equal((await post(new File([new Uint8Array(5 * 1024 * 1024 + 1)], "big.pdf"))).status, 400)
   assert.equal((await post(new File(["%PDF-1.4 not really a pdf"], "bad.pdf"))).status, 400)
+})
+
+test("Jobs: LinkedIn/Naukri/Indeed listings arrive through JSearch and Jooble, skipped quietly without keys", async () => {
+  const J = await import("../../lib/server/jobs-service"), A = await import("../../app/api/admin/jobs/auto/route"), S = await import("../../app/api/admin/jobs/auto/sync/route")
+  const ad = await admin(), db = (await import("../../lib/server/firebase-admin")).getDb(), realFetch = globalThis.fetch
+  const reqs: { url: string; init: any }[] = []
+  const now = new Date().toISOString()
+  globalThis.fetch = (async (u: any, init: any) => {
+    const url = String(u); reqs.push({ url, init })
+    if (url.includes("jsearch.p.rapidapi.com")) return new Response(JSON.stringify({ data: [
+      { job_id: "ls1", employer_name: "TechCo", job_title: "Python Developer", job_description: "<p>Build services</p>", job_apply_link: "https://www.linkedin.com/jobs/view/111", job_city: "Bengaluru", job_state: "Karnataka", job_country: "IN", job_employment_type: "FULLTIME", job_publisher: "LinkedIn", job_posted_at_datetime_utc: now, job_required_experience: { no_experience_required: true } },
+      { job_id: "nk1", employer_name: "BigCorp", job_title: "Python Developer", job_description: "Strong python", job_apply_link: "https://www.naukri.com/job-listings-222", job_city: "Pune", job_country: "IN", job_publisher: "Naukri", job_posted_at_datetime_utc: now, job_required_experience: { required_experience_in_months: 60 } },
+      { job_id: "us1", employer_name: "Abroad", job_title: "Python Developer", job_description: "x", job_apply_link: "https://x.com/1", job_city: "Austin", job_country: "US", job_publisher: "Indeed", job_posted_at_datetime_utc: now },
+    ] }))
+    if (url.includes("jooble.org/api/")) return new Response(JSON.stringify({ jobs: [{ id: 99, title: "Data Analyst Trainee", company: "Numbers", location: "Chennai", snippet: "SQL and Excel", link: "https://in.jooble.org/desc/99", source: "naukri.com", type: "", updated: now }] }))
+    return new Response("{}", { status: 404 })
+  }) as any
+  try {
+    for (const k of ["JSEARCH_API_KEY", "JOOBLE_API_KEY"]) delete process.env[k]
+    await call(A, "PUT", "/x", { cookie: ad, body: { keywords: "python developer, data analyst", locations: "India", sources: ["jsearch", "jooble"], freshers_only: false, max_per_run: 30, enabled: true } })
+    const quiet = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
+    assert.deepEqual(quiet.sources, {}, "no keys: nothing is called and no error is shown"); assert.equal(reqs.length, 0)
+    assert.equal((await json(await call(A, "GET", "/x", { cookie: ad }))).body.sources.filter((s: any) => s.ready).length, 2, "only the free sources show as ready")
+
+    process.env.JSEARCH_API_KEY = "rk"; process.env.JOOBLE_API_KEY = "jk"
+    const run = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
+    assert.equal(run.sources.jsearch.error, undefined); assert.equal(run.sources.jooble.error, undefined)
+    const js = reqs.find((r) => r.url.includes("jsearch"))!; assert.equal(js.init.headers["X-RapidAPI-Key"], "rk"); assert.match(js.url, /country=in/)
+    const jo = reqs.find((r) => r.url.includes("jooble"))!; assert.equal(jo.init.method, "POST"); assert.match(jo.url, /jooble\.org\/api\/jk$/); assert.equal(JSON.parse(jo.init.body).location, "India")
+    assert.equal(run.added, 3, "LinkedIn, Naukri and Jooble results are posted; the US job is not")
+    const jobs = (await db.collection("jobs").where("auto", "==", true).get()).docs.map((d: any) => d.data())
+    const ln = jobs.find((j: any) => j.applyLink === "https://www.linkedin.com/jobs/view/111"), nk = jobs.find((j: any) => j.applyLink.includes("naukri.com/job-listings-222")), jb = jobs.find((j: any) => j.applyLink.includes("jooble.org"))
+    assert.ok(ln && nk && jb); assert.equal(ln.portal, "LinkedIn"); assert.equal(ln.level, "Fresher"); assert.equal(ln.location, "Bengaluru, Karnataka, India"); assert.equal(nk.portal, "Naukri"); assert.equal(nk.level, "Experienced", "5 years of experience from the listing"); assert.equal(jb.portal, "naukri.com"); assert.equal(jb.jobType, "Full-time")
+    assert.equal(J.sourceReady("jsearch"), true); assert.equal(J.sourceReady("adzuna"), false)
+    // older saved source lists gain the two new sources
+    await db.collection("job_settings").doc("auto").set({ v: 3, enabled: true, keywords: ["python"], locations: ["India"], sources: ["remotive"], max_per_run: 30, valid_days: 30 })
+    assert.deepEqual((await J.getAutoSettings()).sources.sort(), ["jooble", "jsearch", "remotive"])
+  } finally { globalThis.fetch = realFetch; delete process.env.JSEARCH_API_KEY; delete process.env.JOOBLE_API_KEY }
 })

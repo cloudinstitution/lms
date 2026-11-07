@@ -9,15 +9,21 @@ import { ApiError } from "./http"
  * - Manually posted jobs are never touched.
  */
 
-export type AutoSettings = { v?: number; freshers_only?: boolean; enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
+export type AutoSettings = { v?: number; sources_v?: number; freshers_only?: boolean; enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
 export type LastRun = { at: string; added: number; closed: number; skipped: number; by: "admin" | "schedule"; sources: Record<string, { found: number; error?: string }> }
-export type RawJob = { source: string; external_id: string; title: string; company: string; location: string; type_hint: string; description: string; tags: string[]; url: string; posted_at: string }
+export type RawJob = { portal?: string; source: string; external_id: string; title: string; company: string; location: string; type_hint: string; description: string; tags: string[]; url: string; posted_at: string }
 
 export const SOURCES = [
   { id: "remotive", label: "Remotive (remote tech jobs, free)", needs_key: false },
   { id: "arbeitnow", label: "Arbeitnow (tech jobs, free)", needs_key: false },
   { id: "adzuna", label: "Adzuna India (set ADZUNA_APP_ID and ADZUNA_APP_KEY)", needs_key: true },
+  { id: "jsearch", label: "JSearch — LinkedIn, Naukri, Indeed, Glassdoor… (set JSEARCH_API_KEY)", needs_key: true },
+  { id: "jooble", label: "Jooble — Naukri and many other portals (set JOOBLE_API_KEY)", needs_key: true },
 ] as const
+
+/** Environment variables each optional source needs; a source without its keys is skipped quietly. */
+export const SOURCE_KEYS: Record<string, string[]> = { adzuna: ["ADZUNA_APP_ID", "ADZUNA_APP_KEY"], jsearch: ["JSEARCH_API_KEY"], jooble: ["JOOBLE_API_KEY"] }
+export const sourceReady = (id: string) => (SOURCE_KEYS[id] ?? []).every((k) => Boolean(process.env[k]))
 
 export const PROFILE_VERSION = 3 // bump when the default keywords/locations change; older saved search terms are then replaced
 
@@ -29,7 +35,7 @@ export const DEFAULT_SETTINGS: AutoSettings = {
   keywords: ["full stack", "fullstack", "python developer", "python", "ai engineer", "machine learning", "data analyst", "data analytics", "business analyst", "cloud engineer", "cloud support", "cloud", "aws", "azure", "devops", "linux", "system administrator", "sysadmin"],
   // India only
   locations: ["India", "Bangalore", "Bengaluru", "Mumbai", "Pune", "Hyderabad", "Chennai", "Delhi", "Gurgaon", "Gurugram", "Noida", "Kolkata", "Kochi", "Ahmedabad", "Coimbatore"],
-  sources: ["remotive", "arbeitnow", "adzuna"],
+  sources: ["remotive", "arbeitnow", "adzuna", "jsearch", "jooble"],
   max_per_run: 30,
   valid_days: 30,
 }
@@ -42,15 +48,18 @@ const clampInt = (v: unknown, d: number, lo: number, hi: number) => { const n = 
 export async function getAutoSettings(): Promise<AutoSettings> {
   const snap = await getDb().collection("job_settings").doc(SETTINGS_ID).get()
   const s = snap.exists ? (snap.data() as Partial<AutoSettings>) : {}
+  const SOURCES_V = 2 // v2 added JSearch and Jooble: older saved source lists get them added
+  const savedSources = s.sources ?? DEFAULT_SETTINGS.sources
+  const sources = (s.sources_v ?? 1) < SOURCES_V ? [...new Set([...savedSources, "jsearch", "jooble"])] : savedSources
   const old = (s.v ?? 1) < PROFILE_VERSION // settings saved before the course-based, India-only profile
-  return { ...DEFAULT_SETTINGS, ...s, v: PROFILE_VERSION, freshers_only: old ? DEFAULT_SETTINGS.freshers_only : s.freshers_only === true, keywords: !old && s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources: s.sources ?? DEFAULT_SETTINGS.sources, locations: !old && s.locations ? s.locations : DEFAULT_SETTINGS.locations }
+  return { ...DEFAULT_SETTINGS, ...s, v: PROFILE_VERSION, sources_v: SOURCES_V, freshers_only: old ? DEFAULT_SETTINGS.freshers_only : s.freshers_only === true, keywords: !old && s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources, locations: !old && s.locations ? s.locations : DEFAULT_SETTINGS.locations }
 }
 
 export async function saveAutoSettings(input: any): Promise<AutoSettings> {
   const cur = await getAutoSettings()
   const sources = input?.sources === undefined ? cur.sources : list(input.sources, 5).filter((s) => SOURCES.some((x) => x.id === s))
   const next: AutoSettings = {
-    v: PROFILE_VERSION,
+    v: PROFILE_VERSION, sources_v: 2,
     freshers_only: input?.freshers_only === undefined ? cur.freshers_only === true : input.freshers_only === true,
     enabled: input?.enabled === undefined ? cur.enabled : input.enabled === true,
     keywords: input?.keywords === undefined ? cur.keywords : list(input.keywords, 30),
@@ -65,8 +74,8 @@ export async function saveAutoSettings(input: any): Promise<AutoSettings> {
 }
 
 // ---------- fetching ----------
-async function getJson(url: string): Promise<any> {
-  const res = await fetch(url, { headers: { accept: "application/json", "user-agent": "CloudInstitutionJobs/1.0" }, signal: AbortSignal.timeout(15000) })
+async function getJson(url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<any> {
+  const res = await fetch(url, { method: init.method, body: init.body, headers: { accept: "application/json", "user-agent": "CloudInstitutionJobs/1.0", ...init.headers }, signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
@@ -75,6 +84,9 @@ const iso = (v: unknown): string => {
   const d = typeof v === "number" ? new Date(v < 1e12 ? v * 1000 : v) : new Date(s(v))
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
 }
+
+/** These sources were searched for India only, so a bare city name ("Chennai") is tagged "…, India". */
+const inIndia = (loc: string) => (/india/i.test(loc) ? loc : loc ? `${loc}, India` : "India")
 
 export const PROVIDERS: Record<string, (st: AutoSettings) => Promise<RawJob[]>> = {
   async remotive() {
@@ -91,7 +103,34 @@ export const PROVIDERS: Record<string, (st: AutoSettings) => Promise<RawJob[]>> 
     const out: RawJob[] = []
     for (const kw of st.keywords.slice(0, 12)) {
       const d = await getJson(`https://api.adzuna.com/v1/api/jobs/in/search/1?app_id=${encodeURIComponent(id)}&app_key=${encodeURIComponent(key)}&results_per_page=30&what=${encodeURIComponent(kw)}&sort_by=date&content-type=application/json`)
-      for (const j of d.results ?? []) out.push({ source: "adzuna", external_id: s(j.id), title: s(j.title), company: s(j.company?.display_name), location: s(j.location?.display_name) || "India", type_hint: `${s(j.contract_time)} ${s(j.contract_type)}`, description: s(j.description), tags: [s(j.category?.label)].filter(Boolean), url: s(j.redirect_url), posted_at: iso(j.created) })
+      for (const j of d.results ?? []) out.push({ source: "adzuna", external_id: s(j.id), title: s(j.title), company: s(j.company?.display_name), location: inIndia(s(j.location?.display_name)), type_hint: `${s(j.contract_time)} ${s(j.contract_type)}`, description: s(j.description), tags: [s(j.category?.label)].filter(Boolean), url: s(j.redirect_url), posted_at: iso(j.created) })
+    }
+    return out
+  },
+  /** JSearch (RapidAPI) returns Google-for-Jobs listings from LinkedIn, Naukri, Indeed, Glassdoor and others, each with the portal's apply link. */
+  async jsearch(st) {
+    const key = process.env.JSEARCH_API_KEY
+    if (!key) throw new Error("JSEARCH_API_KEY is not set")
+    const out: RawJob[] = []
+    const queries = [...new Set(st.keywords.filter((k) => k.includes(" ") || k.length > 4))].slice(0, 6) // few, specific queries: the free plan is small
+    for (const kw of queries) {
+      const d = await getJson(`https://jsearch.p.rapidapi.com/search?query=${encodeURIComponent(`${kw}${st.freshers_only === true ? " fresher" : ""} in India`)}&page=1&num_pages=1&country=in&date_posted=month`, { headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": "jsearch.p.rapidapi.com" } })
+      for (const j of d.data ?? []) {
+        const months = Number(j.job_required_experience?.required_experience_in_months)
+        const exp = j.job_required_experience?.no_experience_required ? "No experience required." : Number.isFinite(months) && months > 0 ? `Experience: ${Math.round((months / 12) * 10) / 10 >= 1 ? Math.round(months / 12) : "<1"} years.` : ""
+        out.push({ source: "jsearch", portal: s(j.job_publisher), external_id: s(j.job_id), title: s(j.job_title), company: s(j.employer_name), location: [j.job_city, j.job_state, s(j.job_country).toUpperCase() === "IN" ? "India" : j.job_country].filter(Boolean).map(s).join(", ") || (j.job_is_remote ? "India (Remote)" : "India"), type_hint: s(j.job_employment_type), description: `${exp}\n${s(j.job_description)}`, tags: (j.job_required_skills ?? []).map(s), url: s(j.job_apply_link), posted_at: iso(j.job_posted_at_datetime_utc) })
+      }
+    }
+    return out
+  },
+  /** Jooble searches Naukri and many other portals; each result links to the original posting. */
+  async jooble(st) {
+    const key = process.env.JOOBLE_API_KEY
+    if (!key) throw new Error("JOOBLE_API_KEY is not set")
+    const out: RawJob[] = []
+    for (const kw of st.keywords.slice(0, 8)) {
+      const d = await getJson(`https://jooble.org/api/${encodeURIComponent(key)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keywords: kw, location: "India", page: "1" }) })
+      for (const j of d.jobs ?? []) out.push({ source: "jooble", portal: s(j.source), external_id: s(j.id), title: s(j.title), company: s(j.company), location: inIndia(s(j.location)), type_hint: s(j.type), description: s(j.snippet), tags: [], url: s(j.link), posted_at: iso(j.updated) })
     }
     return out
   },
@@ -152,7 +191,7 @@ export function toJobDoc(j: RawJob, validDays: number) {
     title: j.title.trim().slice(0, 150), company: j.company.trim().slice(0, 100), location: j.location.trim().slice(0, 100) || "Remote", jobType: jobType(j),
     description: text.slice(0, 3000), requirements: j.tags.length ? `Skills: ${j.tags.slice(0, 12).join(", ")}` : "",
     applyLink: j.url, deadline: ymd(deadline), status: "Open", createdAt: new Date(),
-    level: fresherFriendly(j) ? "Fresher" : "Experienced", source: j.source, auto: true, external_id: j.external_id, posted_at: j.posted_at,
+    level: fresherFriendly(j) ? "Fresher" : "Experienced", source: j.source, portal: j.portal || j.source, auto: true, external_id: j.external_id, posted_at: j.posted_at,
   }
 }
 
@@ -188,7 +227,7 @@ export async function runAutoSync(by: "admin" | "schedule", opts: { force?: bool
   for (const src of st.sources) {
     const fn = PROVIDERS[src]
     if (!fn) continue
-    if (src === "adzuna" && !(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY)) continue // optional source: skipped quietly until its keys are set
+    if (!sourceReady(src) && SOURCE_KEYS[src]) continue // optional source: skipped quietly until its keys are set
     try { const r = await fn(st); run.sources[src] = { found: r.length }; found.push(...r) } catch (e) { run.sources[src] = { found: 0, error: e instanceof Error ? e.message : "failed" } }
   }
   // fresher-labelled jobs first, then newest, so the per-run cap keeps the best postings for freshers
