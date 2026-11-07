@@ -92,7 +92,7 @@ Environment variables:
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Required for payments (without them "Buy now" says payments are not enabled) |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional but recommended: set the Razorpay webhook to `https://<site>/api/payments/webhook` (events `payment.captured`, `order.paid`) so a course is granted even if the buyer closes the tab right after paying |
 
-If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `job_settings` and `job_imports` (plus write access to `jobs`, which the automatic job search fills).
+If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `job_settings`, `job_imports` and `student_resumes` (plus write access to `jobs`, which the automatic job search fills).
 
 ### Paying through a Razorpay.me page (no API keys)
 
@@ -106,3 +106,7 @@ it in the Razorpay dashboard an admin approves it, which unlocks the course. Not
 Admin → Jobs has an "Automatic job search" panel. It searches public job boards (Remotive and Arbeitnow need no key; Adzuna India needs `ADZUNA_APP_ID` and `ADZUNA_APP_KEY`, free at developer.adzuna.com — the best source for Bangalore jobs), keeps jobs whose title or skills match your course keywords (full stack, Python, AI, data analytics, cloud, Linux…) and that are in India, and writes them to the same `jobs` collection students read. Auto jobs close when they expire; manually posted jobs are never touched; a job an admin deletes is not re-imported.
 - **Automatic refresh (no scheduler needed):** whenever a student or admin opens the jobs page and the last search is over 12 hours old (and "Search every day" is on), the search runs by itself via `/api/jobs/refresh`. Optionally, any free pinger or scheduler can also call `/api/cron/jobs-sync` with `Authorization: Bearer $CRON_SECRET` (set `CRON_SECRET` first).
 - **On demand:** the "Find jobs now" button.
+
+## ATS resume builder (student jobs)
+
+When applying, a student can press "Build ATS resume for this job". The resume is tailored by plain keyword matching (no AI service, no cost): the job's skills are read from its title, requirements and description, the student's matching skills and most relevant projects are moved to the top, a role-specific summary line is added, and an ATS score with tips is shown. Skills the student does not have are never added; the job's other keywords appear as tick-boxes ("I have this"). The PDF is single-column plain text with standard headings, so applicant-tracking systems can read it, and "Use this resume" attaches it to the application. The student's details are saved in `student_resumes/{studentId}` (and in the browser), so the next application starts filled in. Allow client read/write on `student_resumes` in the Firestore rules, as for `job_applications`.

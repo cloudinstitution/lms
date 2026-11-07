@@ -1305,3 +1305,39 @@ test("Jobs: by default fresher and experienced jobs are both posted, in equal nu
     assert.equal(added.filter((j: any) => j.level === "Fresher").length, 3); assert.equal(added.filter((j: any) => j.level === "Experienced").length, 3)
   } finally { globalThis.fetch = realFetch }
 })
+
+test("Resume: tailored to the job, never invents skills, scores keyword coverage, and makes a text-based PDF", async () => {
+  const R = await import("../../lib/resume-ats"), P = await import("../../lib/resume-pdf")
+  const job = { title: "Python Full Stack Developer (Fresher) - Bangalore", company: "Acme", requirements: "Python, Django, React, SQL. REST APIs and Git. Docker is a plus.", description: "We use Node.js and AWS. We express interest in people who excel. The rest of the team is great." }
+  const kw = R.jobKeywords(job).map((k) => k.word)
+  for (const k of ["Python", "Django", "React", "SQL", "REST APIs", "Git", "Docker", "Node.js", "AWS"]) assert.ok(kw.includes(k), k)
+  assert.ok(!kw.includes("Excel") && !kw.includes("Express"), "ordinary words are not skills"); assert.equal(kw[0], "Python", "title mentions weigh most")
+  assert.equal(R.roleName(job.title), "Python Full Stack Developer")
+  const base = { ...R.emptyProfile(), name: "Asha K", email: "asha@x.com", phone: "9876543210", github: "github.com/asha", skills: ["html", "css", "Js", "mysql", "Git", "python"], education: [{ degree: "B.Sc CS", institution: "ABC College", year: "2025", score: "8.1 CGPA" }],
+    projects: [{ name: "Notes app", tech: "HTML, CSS", points: ["Designed responsive pages", "Added search"] }, { name: "Inventory", tech: "Django, SQL", points: ["Built a REST API with Django", "Wrote SQL reports"] }] }
+  const t = R.tailorResume(base, job)
+  assert.ok(t.matched.includes("Python") && t.matched.includes("Django") && t.matched.includes("SQL") && t.matched.includes("REST APIs"), "evidence from projects counts")
+  assert.ok(!t.resume.skills.includes("React") && !t.resume.skills.includes("Docker") && !t.resume.skills.includes("AWS"), "skills the student does not have are never added")
+  assert.deepEqual(t.missing.sort(), ["AWS", "Docker", "Node.js", "React"])
+  assert.equal(t.resume.skills[0], "Python", "matching skills lead"); assert.ok(t.resume.skills.includes("JavaScript") && t.resume.skills.includes("HTML"), "other listed skills are kept, aliases tidied")
+  assert.equal(t.resume.projects[0].name, "Inventory", "the more relevant project comes first"); assert.equal(t.resume.headline, "Python Full Stack Developer")
+  assert.match(t.resume.summary, /^Motivated Python Full Stack Developer candidate/); assert.match(t.resume.summary, /Acme/)
+  const t2 = R.tailorResume(base, job, ["React", "Docker"])
+  assert.ok(t2.resume.skills.includes("React") && t2.resume.skills.includes("Docker") && t2.ats.score > t.ats.score, "ticking skills the student has raises the score")
+  assert.ok(t.ats.score <= 100 && t.ats.structure_score === 40, JSON.stringify(t.ats))
+  const weak = R.tailorResume({ ...R.emptyProfile(), name: "X" }, job)
+  assert.ok(weak.ats.score < 30 && weak.ats.tips.length >= 4, "an empty resume scores low and gets tips")
+  // different roles produce different, role-specific resumes
+  const cloud = R.tailorResume({ ...base, skills: [...base.skills, "AWS", "Linux", "EC2"] }, { title: "Cloud Support Engineer", company: "Zed", description: "AWS, Linux, troubleshooting, EC2, networking", requirements: "" })
+  assert.equal(cloud.resume.skills[0], "AWS"); assert.match(cloud.resume.summary, /resolving technical issues/)
+  assert.equal(R.roleFamily("Cloud Support Engineer"), "support"); assert.equal(R.roleFamily("Linux Administrator"), "linux"); assert.equal(R.roleFamily("AI Engineer"), "ai"); assert.equal(R.roleFamily("Data Analyst"), "data"); assert.equal(R.roleFamily("Cloud Engineer"), "cloud")
+
+  const doc = P.buildResumePdf(t2.resume)
+  const bytes = Buffer.from(doc.output("arraybuffer")); assert.equal(bytes.subarray(0, 4).toString(), "%PDF")
+  const { execFileSync } = await import("node:child_process"), fs = await import("node:fs"), os = await import("node:os"), path = await import("node:path")
+  const f = path.join(os.tmpdir(), `resume-${Date.now()}.pdf`); fs.writeFileSync(f, bytes)
+  let txt = ""; try { txt = execFileSync("pdftotext", ["-layout", f, "-"]).toString() } catch { /* pdftotext not installed */ }
+  fs.rmSync(f, { force: true })
+  if (txt) for (const h of ["PROFESSIONAL SUMMARY", "SKILLS", "PROJECTS", "EDUCATION", "Asha K", "asha@x.com", "Inventory", "B.Sc CS"]) assert.ok(txt.includes(h), `PDF text contains ${h}`)
+  assert.equal(P.resumeFileName("Asha K", "Acme Pvt. Ltd"), "Asha_K_Resume_Acme_Pvt_Ltd.pdf")
+})

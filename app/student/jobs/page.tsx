@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { db } from "@/lib/firebase"
 import { getStudentSession } from "@/lib/session-storage"
+import ResumeBuilder from "@/components/resume-builder"
 
 import {
   addDoc,
@@ -125,6 +126,9 @@ const StudentJobsPage = () => {
     useState<File | null>(null)
 
   const [submittingApplication, setSubmittingApplication] =
+    useState(false)
+
+  const [showResumeBuilder, setShowResumeBuilder] =
     useState(false)
 
 
@@ -1403,6 +1407,26 @@ const StudentJobsPage = () => {
 
                       </label>
 
+                      <div className="mt-1 flex flex-wrap items-center gap-3 rounded-md border border-purple-200 bg-purple-50 p-3 dark:border-purple-900 dark:bg-purple-950/30">
+
+                        <p className="flex-1 text-sm text-purple-900 dark:text-purple-200">
+
+                          No resume? Build an ATS-friendly one tailored to this job and attach it in one click.
+
+                        </p>
+
+                        <Button
+                          type="button"
+                          className="bg-purple-600 text-white hover:bg-purple-700"
+                          onClick={() => setShowResumeBuilder(true)}
+                        >
+
+                          Build ATS resume for this job
+
+                        </Button>
+
+                      </div>
+
                       <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 dark:border-slate-700 px-4 py-6 hover:bg-slate-50 dark:hover:bg-slate-900">
 
                         <Upload className="h-5 w-5 text-purple-500" />
@@ -1484,6 +1508,25 @@ const StudentJobsPage = () => {
           )}
 
       </div>
+
+      {showResumeBuilder && selectedJob && studentData && (
+        <ResumeBuilder
+          job={{
+            title: selectedJob.title,
+            company: selectedJob.company,
+            description: selectedJob.description,
+            requirements: selectedJob.requirements,
+          }}
+          student={{
+            id: studentData.id || studentData.studentId,
+            name: applicationName || studentData.name,
+            email: applicationEmail || studentData.email || studentData.username,
+            phone: applicationPhone || studentData.phone,
+          }}
+          onUse={(file) => setResume(file)}
+          onClose={() => setShowResumeBuilder(false)}
+        />
+      )}
 
     </StudentLayout>
 
