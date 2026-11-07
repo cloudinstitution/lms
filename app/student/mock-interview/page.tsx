@@ -19,6 +19,7 @@ const scoreColor = (n: number, of = 10) => { const p = n / of; return p >= 0.7 ?
 
 export default function MockInterviewPage() {
   const [ready, setReady] = useState<boolean | null>(null)
+  const [loadError, setLoadError] = useState("")
   const [topics, setTopics] = useState<Topic[]>([])
   const [levels, setLevels] = useState<string[]>([])
   const [history, setHistory] = useState<any[]>([])
@@ -39,7 +40,7 @@ export default function MockInterviewPage() {
   const canSpeak = typeof window !== "undefined" && "speechSynthesis" in window
   const SR = typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null
 
-  const load = useCallback(() => api("/api/student/interview").then((d) => { setReady(d.ready); setTopics(d.topics); setLevels(d.levels); setHistory(d.history) }).catch((e) => { setReady(false); toast.error(err(e)) }), [])
+  const load = useCallback(() => api("/api/student/interview").then((d) => { setReady(d.ready); setLoadError(""); setTopics(d.topics); setLevels(d.levels); setHistory(d.history) }).catch((e) => { setReady(false); setLoadError(err(e)) }), [])
   useEffect(() => { load() }, [load])
 
   const speak = useCallback((text: string) => {
@@ -92,7 +93,8 @@ export default function MockInterviewPage() {
           <p className="text-sm text-muted-foreground">Practise topic by topic. The AI interviewer asks one question at a time, scores each answer and gives you a report at the end.</p>
         </div>
 
-        {ready === false && <Card className="border-amber-300"><CardContent className="pt-6 text-sm">The AI interviewer isn&apos;t switched on yet. Please ask your admin to set it up.</CardContent></Card>}
+        {ready === false && loadError && <Card className="border-red-300"><CardContent className="pt-6 text-sm">{loadError.toLowerCase().includes("authentication") || loadError.toLowerCase().includes("session") ? "Your session has expired. Please log out and log in again to use the mock interview." : `Couldn't load the mock interview: ${loadError}`}</CardContent></Card>}
+        {ready === false && !loadError && <Card className="border-amber-300"><CardContent className="pt-6 text-sm">The AI interviewer isn&apos;t switched on yet. Please ask your admin to set it up (the server needs the <code>ANTHROPIC_API_KEY</code> setting).</CardContent></Card>}
 
         {phase === "setup" && ready && (
           <>
