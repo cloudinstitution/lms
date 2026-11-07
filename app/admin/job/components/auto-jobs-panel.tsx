@@ -33,7 +33,9 @@ export default function AutoJobsPanel({ onSynced }: { onSynced: () => void }) {
       await save()
       const { run } = await api("/api/admin/jobs/auto/sync", { method: "POST" })
       const failed = Object.entries(run.sources as Record<string, { error?: string }>).filter(([, v]) => v.error)
-      toast.success(`${run.added} new job${run.added === 1 ? "" : "s"} posted for students`)
+      const found = Object.values(run.sources as Record<string, { found: number }>).reduce((n, x) => n + x.found, 0)
+      if (run.added > 0) toast.success(`${run.added} new job${run.added === 1 ? "" : "s"} posted for students`)
+      else toast.info(found === 0 ? "No jobs came back from the job sites. Check the messages below." : `Found ${found} jobs, ${run.matched ?? 0} matched your filters, ${run.skipped} already posted — nothing new to add.`, { autoClose: 9000 })
       failed.forEach(([k, v]) => toast.warn(`${k}: ${v.error}`))
       await load(); onSynced()
     } catch (e) { toast.error(err(e)) } finally { setBusy(false) }
@@ -55,8 +57,15 @@ export default function AutoJobsPanel({ onSynced }: { onSynced: () => void }) {
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">Matching jobs are found on public job boards and shown to students automatically, with no manual posting. Auto-posted jobs close by themselves when they expire. Last search: <b>{when(lr?.at)}</b>{lr ? ` — ${lr.added} added, ${lr.closed} closed` : ""}.</p>
-        {lr && Object.entries(lr.sources as Record<string, { found: number; error?: string }>).some(([, v]) => v.error) && (
-          <p className="text-xs text-red-600">{Object.entries(lr.sources as Record<string, { found: number; error?: string }>).filter(([, v]) => v.error).map(([k, v]) => `${k}: ${v.error}`).join(" · ")}</p>
+        {lr && (
+          <div className="space-y-1 rounded-md bg-slate-50 p-3 text-xs dark:bg-slate-800/50">
+            <div className="font-medium">Last search: {Object.values(lr.sources as Record<string, { found: number }>).reduce((n, x) => n + x.found, 0)} jobs found → {lr.matched ?? 0} matched your keywords, location and level → {lr.added} added{lr.skipped ? `, ${lr.skipped} already posted` : ""}</div>
+            {Object.entries(lr.sources as Record<string, { found: number; matched?: number; error?: string }>).map(([k, v]) => (
+              <div key={k} className={v.error ? "text-red-600" : ""}>{k}: {v.error ? `failed — ${v.error}` : `${v.found} found, ${v.matched ?? 0} matched`}</div>
+            ))}
+            {lr.not_set_up?.length > 0 && <div className="text-amber-700">Not set up (add their keys on the server to include them): {lr.not_set_up.join(", ")}</div>}
+            {(lr.matched ?? 0) === 0 && <div className="text-amber-700">Nothing matched. The free sources list few India jobs — add an Adzuna, JSearch or Jooble key for India listings, or widen the keywords / turn off &quot;Freshers only&quot; under Settings.</div>}
+          </div>
         )}
         {open && (
           <div className="space-y-3">

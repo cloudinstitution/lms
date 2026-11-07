@@ -10,11 +10,12 @@ import { ApiError } from "./http"
  */
 
 export type AutoSettings = { v?: number; sources_v?: number; freshers_only?: boolean; enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
-export type LastRun = { at: string; added: number; closed: number; skipped: number; by: "admin" | "schedule"; sources: Record<string, { found: number; error?: string }> }
+export type LastRun = { at: string; added: number; closed: number; skipped: number; matched?: number; not_set_up?: string[]; by: "admin" | "schedule"; sources: Record<string, { found: number; matched?: number; error?: string }> }
 export type RawJob = { portal?: string; source: string; external_id: string; title: string; company: string; location: string; type_hint: string; description: string; tags: string[]; url: string; posted_at: string }
 
 export const SOURCES = [
   { id: "remotive", label: "Remotive (remote tech jobs, free)", needs_key: false },
+  { id: "jobicy", label: "Jobicy (remote jobs open to India, free)", needs_key: false },
   { id: "arbeitnow", label: "Arbeitnow (tech jobs, free)", needs_key: false },
   { id: "adzuna", label: "Adzuna India (set ADZUNA_APP_ID and ADZUNA_APP_KEY)", needs_key: true },
   { id: "jsearch", label: "JSearch — LinkedIn, Naukri, Indeed, Glassdoor… (set JSEARCH_API_KEY)", needs_key: true },
@@ -35,7 +36,7 @@ export const DEFAULT_SETTINGS: AutoSettings = {
   keywords: ["full stack", "fullstack", "python developer", "python", "ai engineer", "machine learning", "data analyst", "data analytics", "business analyst", "cloud engineer", "cloud support", "cloud", "aws", "azure", "devops", "linux", "system administrator", "sysadmin"],
   // India only
   locations: ["India", "Bangalore", "Bengaluru", "Mumbai", "Pune", "Hyderabad", "Chennai", "Delhi", "Gurgaon", "Gurugram", "Noida", "Kolkata", "Kochi", "Ahmedabad", "Coimbatore"],
-  sources: ["remotive", "arbeitnow", "adzuna", "jsearch", "jooble"],
+  sources: ["remotive", "jobicy", "arbeitnow", "adzuna", "jsearch", "jooble"],
   max_per_run: 30,
   valid_days: 30,
 }
@@ -48,9 +49,9 @@ const clampInt = (v: unknown, d: number, lo: number, hi: number) => { const n = 
 export async function getAutoSettings(): Promise<AutoSettings> {
   const snap = await getDb().collection("job_settings").doc(SETTINGS_ID).get()
   const s = snap.exists ? (snap.data() as Partial<AutoSettings>) : {}
-  const SOURCES_V = 2 // v2 added JSearch and Jooble: older saved source lists get them added
+  const SOURCES_V = 3 // v2 added JSearch and Jooble, v3 Jobicy: older saved source lists get them added
   const savedSources = s.sources ?? DEFAULT_SETTINGS.sources
-  const sources = (s.sources_v ?? 1) < SOURCES_V ? [...new Set([...savedSources, "jsearch", "jooble"])] : savedSources
+  const sources = (s.sources_v ?? 1) < SOURCES_V ? [...new Set([...savedSources, "jobicy", "jsearch", "jooble"])] : savedSources
   const old = (s.v ?? 1) < PROFILE_VERSION // settings saved before the course-based, India-only profile
   return { ...DEFAULT_SETTINGS, ...s, v: PROFILE_VERSION, sources_v: SOURCES_V, freshers_only: old ? DEFAULT_SETTINGS.freshers_only : s.freshers_only === true, keywords: !old && s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources, locations: !old && s.locations ? s.locations : DEFAULT_SETTINGS.locations }
 }
@@ -59,7 +60,7 @@ export async function saveAutoSettings(input: any): Promise<AutoSettings> {
   const cur = await getAutoSettings()
   const sources = input?.sources === undefined ? cur.sources : list(input.sources, 5).filter((s) => SOURCES.some((x) => x.id === s))
   const next: AutoSettings = {
-    v: PROFILE_VERSION, sources_v: 2,
+    v: PROFILE_VERSION, sources_v: 3,
     freshers_only: input?.freshers_only === undefined ? cur.freshers_only === true : input.freshers_only === true,
     enabled: input?.enabled === undefined ? cur.enabled : input.enabled === true,
     keywords: input?.keywords === undefined ? cur.keywords : list(input.keywords, 30),
@@ -92,6 +93,11 @@ export const PROVIDERS: Record<string, (st: AutoSettings) => Promise<RawJob[]>> 
   async remotive() {
     const d = await getJson("https://remotive.com/api/remote-jobs?category=software-dev&limit=100")
     return (d.jobs ?? []).map((j: any): RawJob => ({ source: "remotive", external_id: s(j.id), title: s(j.title), company: s(j.company_name), location: s(j.candidate_required_location) || "Remote", type_hint: s(j.job_type), description: s(j.description), tags: (j.tags ?? []).map(s), url: s(j.url), posted_at: iso(j.publication_date) }))
+  },
+  /** Jobicy lists remote jobs and can filter to those open to India. Its job level (Junior/Senior…) is passed on so freshers are recognised. */
+  async jobicy() {
+    const d = await getJson("https://jobicy.com/api/v2/remote-jobs?count=50&geo=india&industry=dev")
+    return (d.jobs ?? []).map((j: any): RawJob => ({ source: "jobicy", external_id: s(j.id), title: s(j.jobTitle), company: s(j.companyName), location: `${s(j.jobGeo) || "Anywhere"}, India (Remote)`, type_hint: Array.isArray(j.jobType) ? j.jobType.join(" ") : s(j.jobType), description: `${/junior|entry/i.test(s(j.jobLevel)) ? "Fresher / entry level. " : ""}${s(j.jobDescription) || s(j.jobExcerpt)}`, tags: [s(j.jobLevel)].filter(Boolean), url: s(j.url), posted_at: iso(j.pubDate) }))
   },
   async arbeitnow() {
     const d = await getJson("https://www.arbeitnow.com/api/job-board-api")
@@ -227,7 +233,7 @@ export async function runAutoSync(by: "admin" | "schedule", opts: { force?: bool
   for (const src of st.sources) {
     const fn = PROVIDERS[src]
     if (!fn) continue
-    if (!sourceReady(src) && SOURCE_KEYS[src]) continue // optional source: skipped quietly until its keys are set
+    if (!sourceReady(src) && SOURCE_KEYS[src]) { (run.not_set_up ??= []).push(src); continue } // optional source: skipped until its keys are set
     try { const r = await fn(st); run.sources[src] = { found: r.length }; found.push(...r) } catch (e) { run.sources[src] = { found: 0, error: e instanceof Error ? e.message : "failed" } }
   }
   // fresher-labelled jobs first, then newest, so the per-run cap keeps the best postings for freshers
@@ -235,8 +241,11 @@ export async function runAutoSync(by: "admin" | "schedule", opts: { force?: bool
   found.sort((a, b) => boost(b) - boost(a) || b.posted_at.localeCompare(a.posted_at))
   const seenNow = new Set<string>()
   const fresh: RawJob[] = [], exp: RawJob[] = []
+  run.matched = 0
   for (const j of found) {
     if (!matches(j, st)) continue
+    run.matched++
+    if (run.sources[j.source]) run.sources[j.source].matched = (run.sources[j.source].matched ?? 0) + 1
     const id = docId(j)
     if (seenNow.has(id)) continue
     seenNow.add(id)

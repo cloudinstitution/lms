@@ -1230,7 +1230,7 @@ test("Jobs: automatic search posts matching jobs once, respects settings, closes
     const sc = await json(await CR.GET(new NextRequest(new URL("/api/cron/jobs-sync", ORIGIN), { headers: { authorization: "Bearer s3cret" } }), { params: Promise.resolve({}) }))
     assert.equal(sc.status, 200); assert.equal(sc.body.run.skipped_disabled, true)
     const got = (await json(await call(A, "GET", "/x", { cookie: ad }))).body
-    assert.equal(got.settings.enabled, false); assert.ok(got.settings.last_run.at); assert.equal(got.sources.length, 5)
+    assert.equal(got.settings.enabled, false); assert.ok(got.settings.last_run.at); assert.equal(got.sources.length, 6)
   } finally { globalThis.fetch = realFetch; delete process.env.CRON_SECRET }
 })
 
@@ -1400,8 +1400,8 @@ test("Jobs: LinkedIn/Naukri/Indeed listings arrive through JSearch and Jooble, s
     for (const k of ["JSEARCH_API_KEY", "JOOBLE_API_KEY"]) delete process.env[k]
     await call(A, "PUT", "/x", { cookie: ad, body: { keywords: "python developer, data analyst", locations: "India", sources: ["jsearch", "jooble"], freshers_only: false, max_per_run: 30, enabled: true } })
     const quiet = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
-    assert.deepEqual(quiet.sources, {}, "no keys: nothing is called and no error is shown"); assert.equal(reqs.length, 0)
-    assert.equal((await json(await call(A, "GET", "/x", { cookie: ad }))).body.sources.filter((s: any) => s.ready).length, 2, "only the free sources show as ready")
+    assert.deepEqual(quiet.sources, {}, "no keys: nothing is called and no error is shown"); assert.deepEqual(quiet.not_set_up.sort(), ["jooble", "jsearch"], "but the run says which sources lack keys"); assert.equal(reqs.length, 0)
+    assert.equal((await json(await call(A, "GET", "/x", { cookie: ad }))).body.sources.filter((s: any) => s.ready).length, 3, "only the free sources show as ready")
 
     process.env.JSEARCH_API_KEY = "rk"; process.env.JOOBLE_API_KEY = "jk"
     const run = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
@@ -1415,6 +1415,22 @@ test("Jobs: LinkedIn/Naukri/Indeed listings arrive through JSearch and Jooble, s
     assert.equal(J.sourceReady("jsearch"), true); assert.equal(J.sourceReady("adzuna"), false)
     // older saved source lists gain the two new sources
     await db.collection("job_settings").doc("auto").set({ v: 3, enabled: true, keywords: ["python"], locations: ["India"], sources: ["remotive"], max_per_run: 30, valid_days: 30 })
-    assert.deepEqual((await J.getAutoSettings()).sources.sort(), ["jooble", "jsearch", "remotive"])
+    assert.deepEqual((await J.getAutoSettings()).sources.sort(), ["jobicy", "jooble", "jsearch", "remotive"])
   } finally { globalThis.fetch = realFetch; delete process.env.JSEARCH_API_KEY; delete process.env.JOOBLE_API_KEY }
+})
+
+test("Jobs: Jobicy (free, India filter) is read, and each run reports found / matched per source", async () => {
+  const A = await import("../../app/api/admin/jobs/auto/route"), S = await import("../../app/api/admin/jobs/auto/sync/route")
+  const ad = await admin(), realFetch = globalThis.fetch, now = new Date().toISOString(); let url = ""
+  globalThis.fetch = (async (u: any) => { url = String(u); return new Response(JSON.stringify({ jobs: [
+    { id: 1, url: "https://jobicy.com/jobs/1", jobTitle: "Junior Python Developer", companyName: "RemoteCo", jobGeo: "India", jobLevel: "Junior", jobType: ["Full-Time"], jobDescription: "<p>Python and Django</p>", pubDate: now },
+    { id: 2, url: "https://jobicy.com/jobs/2", jobTitle: "Marketing Lead", companyName: "RemoteCo", jobGeo: "Anywhere", jobLevel: "Senior", jobType: ["Full-Time"], jobDescription: "x", pubDate: now },
+  ] })) }) as any
+  try {
+    await call(A, "PUT", "/x", { cookie: ad, body: { keywords: "python", locations: "India", sources: ["jobicy"], freshers_only: false, max_per_run: 30, enabled: true } })
+    const run = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
+    assert.match(url, /jobicy\.com\/api\/v2\/remote-jobs.*geo=india/); assert.deepEqual(run.sources.jobicy, { found: 2, matched: 1 }); assert.equal(run.matched, 1); assert.equal(run.added, 1)
+    const again = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
+    assert.equal(again.added, 0); assert.equal(again.skipped, 1); assert.equal(again.matched, 1, "matched count shows why nothing new was added")
+  } finally { globalThis.fetch = realFetch }
 })
