@@ -79,6 +79,10 @@ const isJobExpired = (deadline: string): boolean => {
   return deadlineDate < today
 }
 
+// A job with a website link is applied for on that website (no in-app form).
+const hasSiteLink = (job: { applyLink?: string }): boolean =>
+  /^https?:\/\//i.test((job.applyLink || "").trim())
+
 // "https://www.remotive.com/jobs/1" -> "remotive.com"
 const siteName = (url: string): string => {
   try { return new URL(url).hostname.replace(/^www\./, "") } catch { return "website" }
@@ -309,6 +313,15 @@ const StudentJobsPage = () => {
   // ==============================
 
   const handleApply = (job: Job) => {
+
+    // Safety net: jobs with a website link never open the in-app form.
+    if (hasSiteLink(job)) {
+
+      window.open(job.applyLink!.trim(), "_blank", "noopener,noreferrer")
+
+      return
+
+    }
 
     if (isJobExpired(job.deadline)) {
 
@@ -1132,7 +1145,7 @@ const StudentJobsPage = () => {
 
                         <div className="flex items-center gap-2">
 
-                          {job.auto && job.applyLink ? (
+                          {hasSiteLink(job) ? (
 
                             <>
 
@@ -1154,7 +1167,7 @@ const StudentJobsPage = () => {
                               </Button>
 
                               <a
-                                href={job.applyLink}
+                                href={job.applyLink?.trim()}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 aria-disabled={expired}
@@ -1171,7 +1184,7 @@ const StudentJobsPage = () => {
 
                                   {expired
                                     ? "Applications Closed"
-                                    : `Apply on ${siteName(job.applyLink)}`}
+                                    : `Apply on ${siteName(job.applyLink || "")}`}
 
                                 </Button>
 
@@ -1598,7 +1611,7 @@ const StudentJobsPage = () => {
             email: studentData.email || studentData.username,
             phone: studentData.phone,
           }}
-          applyUrl={siteJob.applyLink}
+          applyUrl={siteJob.applyLink?.trim()}
           onUse={() => {}}
           onClose={() => setSiteJob(null)}
         />
