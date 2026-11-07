@@ -1259,7 +1259,8 @@ test("Jobs: default search is course-based and India-only, and old irrelevant au
   const yes = [["Python Full Stack Developer", "Bengaluru, India"], ["AI Engineer", "Pune"], ["Data Analyst", "Hyderabad, Telangana"], ["Cloud Support Engineer", "India"], ["Linux Administrator", "Chennai"], ["Cloud Engineer", "Mumbai"]]
   for (const [t, l] of yes) assert.equal(J.matches(mk(t, l), st), true, t)
   assert.equal(J.matches(mk("Python Developer", "Berlin, Germany"), st), false, "outside India")
-  assert.equal(J.matches(mk("Cloud Engineer", "Remote (Worldwide)"), st), false, "worldwide remote is not India")
+  assert.equal(J.matches(mk("Cloud Engineer", "Remote (Worldwide)"), st), true, "remote jobs open to anywhere are posted")
+  assert.equal(J.matches(mk("Cloud Engineer", "Remote (Worldwide)"), { ...st, include_remote: false }), false, "unless remote jobs are switched off")
   assert.equal(J.matches(mk("Sales Manager", "Mumbai", [], "we use python and aws"), st), false, "a passing mention does not count")
   assert.equal(J.matches(mk("Chef", "Delhi"), st), false)
   // open auto jobs that no longer fit get closed; ones that fit stay open; manual jobs untouched
@@ -1433,4 +1434,22 @@ test("Jobs: Jobicy (free, India filter) is read, and each run reports found / ma
     const again = (await json(await call(S, "POST", "/x", { cookie: ad }))).body.run
     assert.equal(again.added, 0); assert.equal(again.skipped, 1); assert.equal(again.matched, 1, "matched count shows why nothing new was added")
   } finally { globalThis.fetch = realFetch }
+})
+
+test("Jobs: remote jobs that match are posted when open to India/anywhere, not when tied to another country", async () => {
+  const J = await import("../../lib/server/jobs-service"), A = await import("../../app/api/admin/jobs/auto/route"), ad = await admin()
+  const open = (location: string, extra: any = {}) => J.isOpenRemote({ remote: true, location, title: "Python Developer", tags: [], ...extra })
+  for (const l of ["Remote", "Worldwide", "Anywhere", "APAC", "Asia", "India", "Remote - India", "Anywhere in the World", ""]) assert.equal(open(l), true, l)
+  for (const l of ["USA Only", "US only", "Berlin (Remote)", "EMEA", "Canada", "United Kingdom", "Europe"]) assert.equal(open(l), false, l)
+  assert.equal(J.isOpenRemote({ remote: false, location: "Pune", title: "Python Developer", tags: [] }), false, "an office job is not remote")
+  assert.equal(J.isOpenRemote({ location: "Worldwide", title: "Python Developer", tags: [] }), true, "remote is recognised from the location text")
+  assert.equal(J.isOpenRemote({ location: "Hyderabad", title: "Python Developer (Remote)", tags: [] }), false, "tied to a city")
+  const st = { ...J.DEFAULT_SETTINGS }
+  const mk = (title: string, location: string, remote = true, tags = ["python"]) => ({ source: "t", external_id: title + location, title, company: "Co", location, type_hint: "", description: "", tags, url: "https://x.com/1", posted_at: "", remote })
+  assert.equal(J.matches(mk("Python Developer", "Worldwide"), st), true); assert.equal(J.matches(mk("Python Developer", "USA Only"), st), false)
+  assert.equal(J.matches(mk("Sales Manager", "Worldwide", true, []), st), false, "still must match the course keywords")
+  assert.equal(J.matches(mk("Python Developer", "Berlin, Germany", false), st), false, "an office job abroad is not posted")
+  assert.equal((await json(await call(A, "GET", "/x", { cookie: ad }))).body.settings.include_remote, true)
+  assert.equal((await json(await call(A, "PUT", "/x", { cookie: ad, body: { include_remote: false } }))).body.settings.include_remote, false)
+  assert.equal((await json(await call(A, "PUT", "/x", { cookie: ad, body: { include_remote: true } }))).body.settings.include_remote, true)
 })

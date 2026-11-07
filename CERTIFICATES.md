@@ -119,3 +119,5 @@ When applying, a student can press "Build ATS resume for this job". The resume i
 - `JSEARCH_API_KEY` — JSearch on RapidAPI (rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch): Google-for-Jobs results from LinkedIn, Naukri, Indeed, Glassdoor and more, with experience requirements. It has a small free plan (a few hundred searches a month), so the search uses at most 6 queries per run.
 - `JOOBLE_API_KEY` — Jooble (jooble.org/api/about, free key): aggregates Naukri and many other portals.
 Students apply by being sent to the posting on its own portal (the job's `portal` field records which one).
+
+**Remote jobs:** besides jobs located in India, the search posts remote jobs that match the keywords when they are open to India or anywhere ("Remote", "Worldwide", "Anywhere", "APAC", "Asia"). Remote jobs tied to another country ("USA only", "Berlin (Remote)", "EMEA") are skipped, since students there couldn't take them. Turn this off with "Also post remote jobs" in Admin → Jobs → Settings.

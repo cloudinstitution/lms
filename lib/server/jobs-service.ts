@@ -9,9 +9,9 @@ import { ApiError } from "./http"
  * - Manually posted jobs are never touched.
  */
 
-export type AutoSettings = { v?: number; sources_v?: number; freshers_only?: boolean; enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
+export type AutoSettings = { include_remote?: boolean; v?: number; sources_v?: number; freshers_only?: boolean; enabled: boolean; keywords: string[]; locations: string[]; sources: string[]; max_per_run: number; valid_days: number; last_run?: LastRun }
 export type LastRun = { at: string; added: number; closed: number; skipped: number; matched?: number; not_set_up?: string[]; by: "admin" | "schedule"; sources: Record<string, { found: number; matched?: number; error?: string }> }
-export type RawJob = { portal?: string; source: string; external_id: string; title: string; company: string; location: string; type_hint: string; description: string; tags: string[]; url: string; posted_at: string }
+export type RawJob = { remote?: boolean; portal?: string; source: string; external_id: string; title: string; company: string; location: string; type_hint: string; description: string; tags: string[]; url: string; posted_at: string }
 
 export const SOURCES = [
   { id: "remotive", label: "Remotive (remote tech jobs, free)", needs_key: false },
@@ -30,6 +30,7 @@ export const PROFILE_VERSION = 3 // bump when the default keywords/locations cha
 
 export const DEFAULT_SETTINGS: AutoSettings = {
   v: PROFILE_VERSION,
+  include_remote: true, // also post remote jobs that are open to India / anywhere
   freshers_only: false, // false = both freshers and experienced roles, posted in equal numbers
   enabled: true,
   // One group per course we teach; a job must have one of these phrases in its title or skill tags.
@@ -53,7 +54,7 @@ export async function getAutoSettings(): Promise<AutoSettings> {
   const savedSources = s.sources ?? DEFAULT_SETTINGS.sources
   const sources = (s.sources_v ?? 1) < SOURCES_V ? [...new Set([...savedSources, "jobicy", "jsearch", "jooble"])] : savedSources
   const old = (s.v ?? 1) < PROFILE_VERSION // settings saved before the course-based, India-only profile
-  return { ...DEFAULT_SETTINGS, ...s, v: PROFILE_VERSION, sources_v: SOURCES_V, freshers_only: old ? DEFAULT_SETTINGS.freshers_only : s.freshers_only === true, keywords: !old && s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources, locations: !old && s.locations ? s.locations : DEFAULT_SETTINGS.locations }
+  return { ...DEFAULT_SETTINGS, ...s, v: PROFILE_VERSION, sources_v: SOURCES_V, include_remote: s.include_remote !== false, freshers_only: old ? DEFAULT_SETTINGS.freshers_only : s.freshers_only === true, keywords: !old && s.keywords?.length ? s.keywords : DEFAULT_SETTINGS.keywords, sources, locations: !old && s.locations ? s.locations : DEFAULT_SETTINGS.locations }
 }
 
 export async function saveAutoSettings(input: any): Promise<AutoSettings> {
@@ -61,6 +62,7 @@ export async function saveAutoSettings(input: any): Promise<AutoSettings> {
   const sources = input?.sources === undefined ? cur.sources : list(input.sources, 5).filter((s) => SOURCES.some((x) => x.id === s))
   const next: AutoSettings = {
     v: PROFILE_VERSION, sources_v: 3,
+    include_remote: input?.include_remote === undefined ? cur.include_remote !== false : input.include_remote === true,
     freshers_only: input?.freshers_only === undefined ? cur.freshers_only === true : input.freshers_only === true,
     enabled: input?.enabled === undefined ? cur.enabled : input.enabled === true,
     keywords: input?.keywords === undefined ? cur.keywords : list(input.keywords, 30),
@@ -92,16 +94,16 @@ const inIndia = (loc: string) => (/india/i.test(loc) ? loc : loc ? `${loc}, Indi
 export const PROVIDERS: Record<string, (st: AutoSettings) => Promise<RawJob[]>> = {
   async remotive() {
     const d = await getJson("https://remotive.com/api/remote-jobs?category=software-dev&limit=100")
-    return (d.jobs ?? []).map((j: any): RawJob => ({ source: "remotive", external_id: s(j.id), title: s(j.title), company: s(j.company_name), location: s(j.candidate_required_location) || "Remote", type_hint: s(j.job_type), description: s(j.description), tags: (j.tags ?? []).map(s), url: s(j.url), posted_at: iso(j.publication_date) }))
+    return (d.jobs ?? []).map((j: any): RawJob => ({ source: "remotive", external_id: s(j.id), title: s(j.title), company: s(j.company_name), location: s(j.candidate_required_location) || "Remote", type_hint: s(j.job_type), description: s(j.description), tags: (j.tags ?? []).map(s), url: s(j.url), posted_at: iso(j.publication_date), remote: true }))
   },
   /** Jobicy lists remote jobs and can filter to those open to India. Its job level (Junior/Senior…) is passed on so freshers are recognised. */
   async jobicy() {
     const d = await getJson("https://jobicy.com/api/v2/remote-jobs?count=50&geo=india&industry=dev")
-    return (d.jobs ?? []).map((j: any): RawJob => ({ source: "jobicy", external_id: s(j.id), title: s(j.jobTitle), company: s(j.companyName), location: `${s(j.jobGeo) || "Anywhere"}, India (Remote)`, type_hint: Array.isArray(j.jobType) ? j.jobType.join(" ") : s(j.jobType), description: `${/junior|entry/i.test(s(j.jobLevel)) ? "Fresher / entry level. " : ""}${s(j.jobDescription) || s(j.jobExcerpt)}`, tags: [s(j.jobLevel)].filter(Boolean), url: s(j.url), posted_at: iso(j.pubDate) }))
+    return (d.jobs ?? []).map((j: any): RawJob => ({ source: "jobicy", external_id: s(j.id), title: s(j.jobTitle), company: s(j.companyName), location: `${s(j.jobGeo) || "Anywhere"}, India (Remote)`, type_hint: Array.isArray(j.jobType) ? j.jobType.join(" ") : s(j.jobType), description: `${/junior|entry/i.test(s(j.jobLevel)) ? "Fresher / entry level. " : ""}${s(j.jobDescription) || s(j.jobExcerpt)}`, tags: [s(j.jobLevel)].filter(Boolean), url: s(j.url), posted_at: iso(j.pubDate), remote: true }))
   },
   async arbeitnow() {
     const d = await getJson("https://www.arbeitnow.com/api/job-board-api")
-    return (d.data ?? []).map((j: any): RawJob => ({ source: "arbeitnow", external_id: s(j.slug), title: s(j.title), company: s(j.company_name), location: j.remote ? `${s(j.location)} (Remote)`.trim() : s(j.location), type_hint: (j.job_types ?? []).join(" "), description: s(j.description), tags: (j.tags ?? []).map(s), url: s(j.url), posted_at: iso(j.created_at) }))
+    return (d.data ?? []).map((j: any): RawJob => ({ source: "arbeitnow", remote: j.remote === true, external_id: s(j.slug), title: s(j.title), company: s(j.company_name), location: j.remote ? `${s(j.location)} (Remote)`.trim() : s(j.location), type_hint: (j.job_types ?? []).join(" "), description: s(j.description), tags: (j.tags ?? []).map(s), url: s(j.url), posted_at: iso(j.created_at) }))
   },
   async adzuna(st) {
     const id = process.env.ADZUNA_APP_ID, key = process.env.ADZUNA_APP_KEY
@@ -124,7 +126,7 @@ export const PROVIDERS: Record<string, (st: AutoSettings) => Promise<RawJob[]>> 
       for (const j of d.data ?? []) {
         const months = Number(j.job_required_experience?.required_experience_in_months)
         const exp = j.job_required_experience?.no_experience_required ? "No experience required." : Number.isFinite(months) && months > 0 ? `Experience: ${Math.round((months / 12) * 10) / 10 >= 1 ? Math.round(months / 12) : "<1"} years.` : ""
-        out.push({ source: "jsearch", portal: s(j.job_publisher), external_id: s(j.job_id), title: s(j.job_title), company: s(j.employer_name), location: [j.job_city, j.job_state, s(j.job_country).toUpperCase() === "IN" ? "India" : j.job_country].filter(Boolean).map(s).join(", ") || (j.job_is_remote ? "India (Remote)" : "India"), type_hint: s(j.job_employment_type), description: `${exp}\n${s(j.job_description)}`, tags: (j.job_required_skills ?? []).map(s), url: s(j.job_apply_link), posted_at: iso(j.job_posted_at_datetime_utc) })
+        out.push({ source: "jsearch", remote: j.job_is_remote === true, portal: s(j.job_publisher), external_id: s(j.job_id), title: s(j.job_title), company: s(j.employer_name), location: [j.job_city, j.job_state, s(j.job_country).toUpperCase() === "IN" ? "India" : j.job_country].filter(Boolean).map(s).join(", ") || (j.job_is_remote ? "India (Remote)" : "India"), type_hint: s(j.job_employment_type), description: `${exp}\n${s(j.job_description)}`, tags: (j.job_required_skills ?? []).map(s), url: s(j.job_apply_link), posted_at: iso(j.job_posted_at_datetime_utc) })
       }
     }
     return out
@@ -177,6 +179,19 @@ export function fresherFriendly(j: RawJob): boolean {
   return y === null || y < 3
 }
 
+/**
+ * A remote job a student in India could take: it is remote, and its location is not tied to a specific other place.
+ * "Remote", "Worldwide", "Anywhere", "APAC", "Asia", "India" pass; "USA only", "Berlin (Remote)", "EMEA" do not.
+ */
+export function isOpenRemote(j: Pick<RawJob, "remote" | "location" | "title" | "tags">): boolean {
+  const loc = j.location.toLowerCase()
+  const remote = j.remote === true || /remote|work from home|wfh|anywhere|worldwide|distributed/.test(loc) || /\b(remote|work from home|wfh)\b/i.test(`${j.title} ${j.tags.join(" ")}`)
+  if (!remote) return false
+  if (/india|worldwide|anywhere|global|apac|asia|international|open to all/.test(loc)) return true
+  const rest = loc.replace(/\(?remote\)?|work from home|wfh|fully|hybrid|100%|only|\bjob\b/g, " ").replace(/[^a-z]+/g, " ").trim()
+  return rest === ""
+}
+
 export function matches(j: RawJob, st: AutoSettings): boolean {
   if (!j.title || !j.company || !/^https?:\/\//.test(j.url)) return false
   if (st.freshers_only === true && !fresherFriendly(j)) return false
@@ -184,7 +199,8 @@ export function matches(j: RawJob, st: AutoSettings): boolean {
   if (!st.keywords.some((k) => hay.includes(k.toLowerCase()))) return false
   if (st.locations.length === 0) return true
   const loc = j.location.toLowerCase()
-  return st.locations.some((l) => loc.includes(l.toLowerCase())) || (loc === "" && st.locations.some((l) => /remote|anywhere|worldwide/i.test(l)))
+  if (st.locations.some((l) => loc.includes(l.toLowerCase()))) return true
+  return st.include_remote !== false && isOpenRemote(j)
 }
 
 const docId = (j: RawJob) => `${j.source}_${createHash("sha1").update(`${j.source}:${j.external_id || j.url}`).digest("hex").slice(0, 20)}`
@@ -197,7 +213,7 @@ export function toJobDoc(j: RawJob, validDays: number) {
     title: j.title.trim().slice(0, 150), company: j.company.trim().slice(0, 100), location: j.location.trim().slice(0, 100) || "Remote", jobType: jobType(j),
     description: text.slice(0, 3000), requirements: j.tags.length ? `Skills: ${j.tags.slice(0, 12).join(", ")}` : "",
     applyLink: j.url, deadline: ymd(deadline), status: "Open", createdAt: new Date(),
-    level: fresherFriendly(j) ? "Fresher" : "Experienced", source: j.source, portal: j.portal || j.source, auto: true, external_id: j.external_id, posted_at: j.posted_at,
+    remote: j.remote === true || isOpenRemote(j), level: fresherFriendly(j) ? "Fresher" : "Experienced", source: j.source, portal: j.portal || j.source, auto: true, external_id: j.external_id, posted_at: j.posted_at,
   }
 }
 
@@ -219,7 +235,7 @@ export async function closeMismatchedAutoJobs(st: AutoSettings): Promise<number>
   for (const d of snap.docs) {
     const x = d.data() as any
     if (x.status !== "Open") continue
-    const raw: RawJob = { source: x.source ?? "", external_id: x.external_id ?? "", title: x.title ?? "", company: x.company ?? "x", location: x.location ?? "", type_hint: "", description: x.description ?? "", tags: String(x.requirements ?? "").replace(/^Skills:\s*/, "").split(",").map((t) => t.trim()).filter(Boolean), url: x.applyLink || "https://x", posted_at: "" }
+    const raw: RawJob = { source: x.source ?? "", external_id: x.external_id ?? "", title: x.title ?? "", company: x.company ?? "x", location: x.location ?? "", type_hint: "", remote: x.remote === true, description: x.description ?? "", tags: String(x.requirements ?? "").replace(/^Skills:\s*/, "").split(",").map((t) => t.trim()).filter(Boolean), url: x.applyLink || "https://x", posted_at: "" }
     if (!matches(raw, st)) { await getDb().collection("jobs").doc(d.id).update({ status: "Closed" }); n++ }
   }
   return n

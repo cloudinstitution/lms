@@ -25,7 +25,7 @@ export default function AutoJobsPanel({ onSynced }: { onSynced: () => void }) {
   if (!st) return null
 
   const save = async (patch: any = {}) => {
-    try { const d = await api("/api/admin/jobs/auto", { method: "PUT", body: { keywords: kw, locations: loc, sources: st.sources, freshers_only: st.freshers_only === true, max_per_run: st.max_per_run, valid_days: st.valid_days, enabled: st.enabled, ...patch } }); setSt(d.settings); toast.success("Saved") } catch (e) { toast.error(err(e)) }
+    try { const d = await api("/api/admin/jobs/auto", { method: "PUT", body: { keywords: kw, locations: loc, sources: st.sources, freshers_only: st.freshers_only === true, include_remote: st.include_remote !== false, max_per_run: st.max_per_run, valid_days: st.valid_days, enabled: st.enabled, ...patch } }); setSt(d.settings); toast.success("Saved") } catch (e) { toast.error(err(e)) }
   }
   const sync = async () => {
     setBusy(true)
@@ -71,6 +71,7 @@ export default function AutoJobsPanel({ onSynced }: { onSynced: () => void }) {
           <div className="space-y-3">
             <label className="block text-xs text-muted-foreground">Search keywords (comma separated; a job must match at least one)<Input value={kw} onChange={(e) => setKw(e.target.value)} /></label>
             <label className="block text-xs text-muted-foreground">Locations to include (comma separated; leave empty for everywhere)<Input value={loc} onChange={(e) => setLoc(e.target.value)} /></label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={st.include_remote !== false} onChange={(e) => setSt({ ...st, include_remote: e.target.checked })} />Also post remote jobs that match (open to India / anywhere — jobs limited to another country are skipped)</label>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={st.freshers_only === true} onChange={(e) => setSt({ ...st, freshers_only: e.target.checked })} />Freshers only (leave unticked to post both fresher and experienced jobs in equal numbers)</label>
             <div className="flex flex-wrap gap-4">
               {sources.map((s) => (
