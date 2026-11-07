@@ -13,7 +13,7 @@ import { toast } from "react-toastify"
 const LS = (id: string) => `resume_profile_${id}`
 
 /** Lets a student build an ATS-friendly resume tailored to one job, then attach it to the application. */
-export default function ResumeBuilder({ job, student, sourceFile, onUse, onClose }: { job: JobInfo; student: { id: string; name?: string; email?: string; phone?: string }; sourceFile?: File | null; onUse: (file: File) => void; onClose: () => void }) {
+export default function ResumeBuilder({ job, student, sourceFile, applyUrl, onUse, onClose }: { job: JobInfo; student: { id: string; name?: string; email?: string; phone?: string }; sourceFile?: File | null; applyUrl?: string; onUse: (file: File) => void; onClose: () => void }) {
   const [p, setP] = useState<ResumeProfile>(() => ({ ...emptyProfile(), name: student.name ?? "", email: student.email ?? "", phone: student.phone ?? "" }))
   const [skillsText, setSkillsText] = useState("")
   const [extra, setExtra] = useState<string[]>([])
@@ -66,6 +66,20 @@ export default function ResumeBuilder({ job, student, sourceFile, onUse, onClose
     try { await setDoc(doc(db, "student_resumes", student.id), toSave) } catch { /* saved in this browser only */ }
   }
   const missingBasics = () => (!profile.name.trim() ? "Enter your name" : !/\S+@\S+\.\S+/.test(profile.email) ? "Enter a valid email" : profile.skills.length + extra.length === 0 ? "Add your skills" : "")
+  const site = (() => { try { return applyUrl ? new URL(applyUrl).hostname.replace(/^www\./, "") : "" } catch { return "" } })()
+  /** Job on another website: download the ATS resume and open that site's application page in a new tab. */
+  const applyOnSite = async () => {
+    const problem = missingBasics()
+    if (problem) return toast.error(problem)
+    window.open(applyUrl, "_blank", "noopener,noreferrer") // opened straight from the click so the browser allows it
+    try {
+      const pdf = await import("@/lib/resume-pdf")
+      await save()
+      pdf.downloadResume(t.resume, job.company)
+      toast.success(`Resume downloaded — upload it on ${site || "the company site"}`)
+      onClose()
+    } catch { toast.error("Could not create the resume PDF") }
+  }
   const make = async (mode: "download" | "use") => {
     const problem = missingBasics()
     if (problem) return toast.error(problem)
@@ -89,7 +103,7 @@ export default function ResumeBuilder({ job, student, sourceFile, onUse, onClose
     <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/60 p-4">
       <div className="my-4 w-full max-w-4xl rounded-lg bg-white p-5 shadow-xl dark:bg-slate-900">
         <div className="flex items-start justify-between gap-3">
-          <div><h2 className="text-lg font-bold">ATS resume for {job.title}</h2><p className="text-sm text-slate-500">{job.company} — the resume is reordered to match this job. Only skills you list or confirm are shown.</p></div>
+          <div><h2 className="text-lg font-bold">ATS resume for {job.title}</h2><p className="text-sm text-slate-500">{job.company} — the resume is reordered to match this job. Only skills you list or confirm are shown.{applyUrl ? ` This job is on ${site || "another website"}: your resume downloads, then that site opens so you can apply there.` : ""}</p></div>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
 
@@ -143,7 +157,9 @@ export default function ResumeBuilder({ job, student, sourceFile, onUse, onClose
 
             <div className="flex flex-wrap justify-end gap-3">
               <Button variant="outline" onClick={() => make("download")}><Download className="mr-1 h-4 w-4" />Download PDF</Button>
-              <Button className="bg-purple-600 text-white hover:bg-purple-700" onClick={() => make("use")}><FileCheck2 className="mr-1 h-4 w-4" />Use this resume for my application</Button>
+              {applyUrl
+                ? <Button className="bg-purple-600 text-white hover:bg-purple-700" onClick={applyOnSite}><FileCheck2 className="mr-1 h-4 w-4" />Download &amp; apply on {site || "the website"}</Button>
+                : <Button className="bg-purple-600 text-white hover:bg-purple-700" onClick={() => make("use")}><FileCheck2 className="mr-1 h-4 w-4" />Use this resume for my application</Button>}
             </div>
           </div>
         )}
