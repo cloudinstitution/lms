@@ -13,11 +13,13 @@ import { toast } from "react-toastify"
 const LS = (id: string) => `resume_profile_${id}`
 
 /** Lets a student build an ATS-friendly resume tailored to one job, then attach it to the application. */
-export default function ResumeBuilder({ job, student, onUse, onClose }: { job: JobInfo; student: { id: string; name?: string; email?: string; phone?: string }; onUse: (file: File) => void; onClose: () => void }) {
+export default function ResumeBuilder({ job, student, sourceFile, onUse, onClose }: { job: JobInfo; student: { id: string; name?: string; email?: string; phone?: string }; sourceFile?: File | null; onUse: (file: File) => void; onClose: () => void }) {
   const [p, setP] = useState<ResumeProfile>(() => ({ ...emptyProfile(), name: student.name ?? "", email: student.email ?? "", phone: student.phone ?? "" }))
   const [skillsText, setSkillsText] = useState("")
   const [extra, setExtra] = useState<string[]>([])
   const [ready, setReady] = useState(false)
+  const [reading, setReading] = useState(false)
+  const [readNote, setReadNote] = useState("")
 
   // load the saved profile (Firestore, then this browser)
   useEffect(() => {
@@ -29,9 +31,30 @@ export default function ResumeBuilder({ job, student, onUse, onClose }: { job: J
       if (!alive) return
       if (saved) { const merged = { ...emptyProfile(), ...saved } as ResumeProfile; setP({ ...merged, name: merged.name || student.name || "", email: merged.email || student.email || "", phone: merged.phone || student.phone || "" }); setSkillsText((merged.skills ?? []).join(", ")) }
       setReady(true)
+      if (sourceFile) readResume(sourceFile) // the student already uploaded a resume: start from it
     })()
     return () => { alive = false }
   }, [student.id, student.name, student.email, student.phone])
+
+  /** Reads an existing resume (PDF/DOCX) and fills the form from it; the student then checks and edits. */
+  const readResume = async (file: File) => {
+    setReading(true); setReadNote("")
+    try {
+      const fd = new FormData(); fd.append("resume", file)
+      const res = await fetch("/api/student/resume/parse", { method: "POST", body: fd })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d?.error || "We couldn't read that file")
+      const n: ResumeProfile = d.profile
+      setP((cur) => ({
+        ...cur, name: n.name || cur.name, email: n.email || cur.email, phone: n.phone || cur.phone, location: n.location || cur.location, linkedin: n.linkedin || cur.linkedin, github: n.github || cur.github,
+        summary: n.summary || cur.summary, education: n.education.some((e) => e.degree || e.institution) ? n.education : cur.education,
+        projects: n.projects.length ? n.projects : cur.projects, experience: n.experience.length ? n.experience : cur.experience, certifications: n.certifications.length ? n.certifications : cur.certifications,
+      }))
+      setSkillsText((cur) => { const have = new Set(cur.split(/[,\n]/).map((x) => x.trim().toLowerCase()).filter(Boolean)); const add = n.skills.filter((s) => !have.has(s.toLowerCase())); return [cur.trim(), ...add].filter(Boolean).join(", ") })
+      setReadNote(d.confidence < 0.7 ? "We read most of your resume, but some parts may be missing — please check every section below." : "We filled the form from your resume. Please check each section, then build your ATS resume.")
+      toast.success("Resume read")
+    } catch (e) { const m = e instanceof Error ? e.message : "We couldn't read that file"; setReadNote(m); toast.error(m) } finally { setReading(false) }
+  }
 
   const profile = useMemo(() => ({ ...p, skills: skillsText.split(/[,\n]/).map((x) => x.trim()).filter(Boolean) }), [p, skillsText])
   const t = useMemo(() => tailorResume(profile, job, extra), [profile, job, extra])
@@ -84,6 +107,14 @@ export default function ResumeBuilder({ job, student, onUse, onClose }: { job: J
 
         {!ready ? <p className="mt-4 text-sm text-slate-500">Loading your saved details…</p> : (
           <div className="mt-4 space-y-5">
+            <section className="rounded-md border border-dashed border-purple-300 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-950/30">
+              <label className="flex cursor-pointer flex-wrap items-center gap-3 text-sm">
+                <span className="font-medium text-purple-900 dark:text-purple-200">Already have a resume? Upload it and we'll rebuild it as an ATS resume for this job.</span>
+                <span className="rounded-md bg-purple-600 px-3 py-1.5 text-white">{reading ? "Reading…" : "Upload PDF / DOCX"}</span>
+                <input type="file" accept=".pdf,.docx" className="hidden" disabled={reading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) readResume(f) }} />
+              </label>
+              {readNote && <p className="mt-2 text-xs text-purple-900 dark:text-purple-200">{readNote}</p>}
+            </section>
             <section className="grid gap-3 sm:grid-cols-2">
               <Input placeholder="Full name" value={p.name} onChange={set("name")} /><Input placeholder="Email" value={p.email} onChange={set("email")} />
               <Input placeholder="Phone" value={p.phone} onChange={set("phone")} /><Input placeholder="Location (e.g. Bengaluru, India)" value={p.location} onChange={set("location")} />

@@ -1341,3 +1341,42 @@ test("Resume: tailored to the job, never invents skills, scores keyword coverage
   if (txt) for (const h of ["PROFESSIONAL SUMMARY", "SKILLS", "PROJECTS", "EDUCATION", "Asha K", "asha@x.com", "Inventory", "B.Sc CS"]) assert.ok(txt.includes(h), `PDF text contains ${h}`)
   assert.equal(P.resumeFileName("Asha K", "Acme Pvt. Ltd"), "Asha_K_Resume_Acme_Pvt_Ltd.pdf")
 })
+
+test("Resume: an uploaded PDF/DOCX is read into form fields (nothing stored), bad files are refused", async () => {
+  const PR = await import("../../lib/resume-parse"), RT = await import("../../app/api/student/resume/parse/route"), P = await import("../../lib/resume-pdf"), R = await import("../../lib/resume-ats")
+  const post = (file: File | null, ip = `10.9.${ipCounter++ % 250}.1`) => {
+    const fd = new FormData(); if (file) fd.append("resume", file)
+    return RT.POST(new NextRequest(new URL("/api/student/resume/parse", ORIGIN), { method: "POST", body: fd, headers: { host: new URL(ORIGIN).host, origin: ORIGIN, "x-forwarded-for": ip } }), { params: Promise.resolve({}) }) as Promise<Response>
+  }
+  // the text parser
+  const sample = `ASHA KUMAR\nBengaluru, Karnataka | +91 98765 43210 | asha.kumar@example.com\nlinkedin.com/in/asha-kumar | github.com/ashak\n\nCAREER OBJECTIVE\nAspiring full stack developer.\n\nTECHNICAL SKILLS\nLanguages: Python, JavaScript, SQL\nTools: Git, Docker, Linux\n\nEDUCATION\nB.Sc Computer Science – ABC College, Bengaluru\n2022 – 2025   CGPA: 8.1\n12th (PUC) – XYZ PU College  2022  86%\n\nPROJECTS\nInventory Tracker | Django, MySQL\n• Built a REST API with Django\n• Deployed on a Linux VM\nNotes App\nTechnologies: HTML, CSS\n• Designed pages used by 40 classmates\n  and added search\n\nINTERNSHIP\nPython Intern, Cloud Institution   Jun 2025 – Aug 2025\n- Automated reports with Python\n\nCERTIFICATIONS\n• AWS Cloud Practitioner Essentials\n\nDECLARATION\nI hereby declare`
+  const p = PR.parseResumeText(sample)
+  assert.equal(p.name, "Asha Kumar"); assert.equal(p.email, "asha.kumar@example.com"); assert.equal(p.phone, "+91 98765 43210"); assert.equal(p.location, "Bengaluru, Karnataka"); assert.match(p.github, /github\.com\/ashak/); assert.match(p.linkedin, /linkedin\.com\/in\/asha-kumar/)
+  assert.deepEqual(p.skills, ["Python", "JavaScript", "SQL", "Git", "Docker", "Linux"]); assert.equal(p.summary, "Aspiring full stack developer.")
+  assert.equal(p.education.length, 2); assert.equal(p.education[0].degree, "B.Sc Computer Science"); assert.equal(p.education[0].institution, "ABC College, Bengaluru"); assert.equal(p.education[0].score, "8.1 CGPA"); assert.equal(p.education[1].score, "86%")
+  assert.equal(p.projects.length, 2); assert.equal(p.projects[0].name, "Inventory Tracker"); assert.equal(p.projects[0].tech, "Django, MySQL"); assert.equal(p.projects[0].points.length, 2); assert.equal(p.projects[1].tech, "HTML, CSS"); assert.match(p.projects[1].points[0], /40 classmates and added search/)
+  assert.equal(p.experience[0].role, "Python Intern"); assert.equal(p.experience[0].company, "Cloud Institution"); assert.equal(p.experience[0].period, "Jun 2025 – Aug 2025"); assert.deepEqual(p.certifications, ["AWS Cloud Practitioner Essentials"])
+  assert.ok(PR.parseConfidence(p) > 0.9); assert.ok(PR.parseConfidence(PR.parseResumeText("hello")) < 0.4)
+  assert.deepEqual(PR.parseResumeText("Skills\n").skills, [], "no text, no invented skills")
+
+  // a real PDF made by our own builder is read back through the API
+  const prof = { ...R.emptyProfile(), ...p }; const t = R.tailorResume(prof, { title: "Python Developer", company: "Acme", description: "python django", requirements: "" })
+  const pdf = new File([P.buildResumePdf(t.resume).output("arraybuffer")], "my_resume.pdf", { type: "application/pdf" })
+  const ok = await post(pdf); assert.equal(ok.status, 200)
+  const out = (await ok.json()) as any
+  assert.equal(out.profile.name, "Asha Kumar"); assert.equal(out.profile.email, "asha.kumar@example.com"); assert.ok(out.profile.skills.includes("Python")); assert.ok(out.profile.projects.some((x: any) => x.name === "Inventory Tracker")); assert.ok(out.profile.education.length >= 1)
+  // a DOCX
+  const JSZip = (await import("jszip")).default, z = new JSZip()
+  const para = (s: string) => `<w:p><w:r><w:t xml:space="preserve">${s.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</w:t></w:r></w:p>`
+  z.file("[Content_Types].xml", `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`)
+  z.file("_rels/.rels", `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`)
+  z.file("word/document.xml", `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${sample.split("\n").map(para).join("")}</w:body></w:document>`)
+  const docx = new File([await z.generateAsync({ type: "uint8array" })], "resume.docx")
+  const d = await post(docx); assert.equal(d.status, 200); assert.equal(((await d.json()) as any).profile.name, "Asha Kumar")
+  // refusals
+  assert.equal((await post(null)).status, 400)
+  assert.equal((await post(new File(["hello world ".repeat(20)], "resume.txt"))).status, 400)
+  assert.equal((await post(new File([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 1, 2, 3])], "old.doc"))).status, 400)
+  assert.equal((await post(new File([new Uint8Array(5 * 1024 * 1024 + 1)], "big.pdf"))).status, 400)
+  assert.equal((await post(new File(["%PDF-1.4 not really a pdf"], "bad.pdf"))).status, 400)
+})
