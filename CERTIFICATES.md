@@ -92,7 +92,7 @@ Environment variables:
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Required for payments (without them "Buy now" says payments are not enabled) |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional but recommended: set the Razorpay webhook to `https://<site>/api/payments/webhook` (events `payment.captured`, `order.paid`) so a course is granted even if the buyer closes the tab right after paying |
 
-If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `job_settings`, `job_imports` and `student_resumes` (plus write access to `jobs`, which the automatic job search fills).
+If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
 
 ### Paying through a Razorpay.me page (no API keys)
 
@@ -121,3 +121,10 @@ When applying, a student can press "Build ATS resume for this job". The resume i
 Students apply by being sent to the posting on its own portal (the job's `portal` field records which one).
 
 **Remote jobs:** besides jobs located in India, the search posts remote jobs that match the keywords when they are open to India or anywhere ("Remote", "Worldwide", "Anywhere", "APAC", "Asia"). Remote jobs tied to another country ("USA only", "Berlin (Remote)", "EMEA") are skipped, since students there couldn't take them. Turn this off with "Also post remote jobs" in Admin → Jobs → Settings.
+
+## AI mock interviews (students)
+
+Student portal → **Mock Interview**. The student picks a topic (Python, Python/Java Full Stack, Data Analytics, AI & ML, AWS, Azure, DevOps, Linux, Cloud Support, HR & Behavioural), a level and 3–10 questions. The AI interviewer (Claude, via the Anthropic API) asks one question at a time, scores each answer 0–10 with feedback and the key points of a strong answer, and ends with a report (overall score /100, strengths, improvements, topics to study). Students can type or dictate answers (Chrome) and have questions read aloud. Finished interviews are saved in `mock_interviews` and listed under "Your past interviews".
+- **Set up:** add `ANTHROPIC_API_KEY` (console.anthropic.com) to the server environment. Until then the page tells students the interviewer isn't switched on. Optional: `MOCK_INTERVIEW_MODEL` (default `claude-sonnet-5-5`; a smaller model such as `claude-haiku-4-5-20251001` costs less).
+- **Cost control:** students only, 3–10 questions per interview, answers capped at 3,000 characters, and a cap of 80 AI calls per student per hour. A 5-question interview makes 5 calls.
+- Firestore rules: if the server runs without service-account credentials, allow `mock_interviews`.

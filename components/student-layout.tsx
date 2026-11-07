@@ -24,6 +24,7 @@ import {
   QrCode,
   Sun,
   User,
+  Bot,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import Link from "next/link"
@@ -105,6 +106,7 @@ export default function StudentLayout({ children }: StudentLayoutProps) {
     { name: "Company Questions", href: "/student/company-questions", icon: Briefcase },
     { name: "Attendance", href: "/student/attendance", icon: QrCode },
     { name: "Jobs", href: "/student/jobs", icon: Building2 },
+    { name: "Mock Interview", href: "/student/mock-interview", icon: Bot },
     { name: "My Projects", href: "/student/projects", icon: FolderUp },
     { name: "My Certificates", href: "/student/certificates", icon: Award },
     { name: "Profile", href: "/student/profile", icon: User },
