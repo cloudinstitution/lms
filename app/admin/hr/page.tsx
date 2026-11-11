@@ -84,7 +84,8 @@ export default function HrPage() {
   const compTotal = comps.reduce((n, c) => n + (Number(c.monthly) || 0), 0)
 
   // ----- internship offer letters -----
-  const blankIntern = () => ({ company_id: "genai-labs", candidate_name: "", candidate_email: "", position: "Intern", location: "Bangalore", work_mode: "On-site", paid: false, stipend_amount: "", start_date: "", end_date: "", duration_value: "", duration_unit: "Months", offer_date: todayIst(), send_email: true })
+  const INTERN_POSITIONS = ["Intern", "Python Full Stack Intern", "Java Full Stack Intern", "Web Development Intern", "Data Analytics Intern", "AI & Machine Learning Intern", "Cloud Intern (AWS / Azure)", "Cloud Support Intern", "DevOps Intern", "Linux Administration Intern", "HR Intern", "Digital Marketing Intern"]
+  const blankIntern = () => ({ company_id: "genai-labs", candidate_name: "", candidate_email: "", position: "Intern", position_other: false, location: "Bangalore", work_mode: "On-site", paid: false, stipend_amount: "", start_date: "", end_date: "", duration_value: "", duration_unit: "Months", offer_date: todayIst(), send_email: true })
   const [interns, setInterns] = useState<any[]>([])
   const [iv, setIv] = useState<any>(blankIntern())
   const [internBusy, setInternBusy] = useState(false)
@@ -453,7 +454,12 @@ export default function HrPage() {
                 <label className="text-xs text-muted-foreground">Company<select className={sel + " w-full"} value={iv.company_id} onChange={setI("company_id")}>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
                 <Input placeholder="Candidate name" value={iv.candidate_name} onChange={setI("candidate_name")} />
                 <Input type="email" placeholder="Candidate email (the letter is sent here)" value={iv.candidate_email} onChange={setI("candidate_email")} />
-                <Input placeholder="Position (e.g. Python Intern)" value={iv.position} onChange={setI("position")} />
+                <label className="text-xs text-muted-foreground">Position
+                  <select className={sel + " w-full"} value={iv.position_other ? "__other" : iv.position} onChange={(e) => e.target.value === "__other" ? setIv({ ...iv, position_other: true, position: "" }) : setIv({ ...iv, position_other: false, position: e.target.value })}>
+                    {INTERN_POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}<option value="__other">Other (type it)…</option>
+                  </select>
+                  {iv.position_other && <Input className="mt-2" placeholder="Type the position" value={iv.position} onChange={setI("position")} />}
+                </label>
                 <Input placeholder="Work location" value={iv.location} onChange={setI("location")} />
                 <label className="text-xs text-muted-foreground">Work mode<select className={sel + " w-full"} value={iv.work_mode} onChange={setI("work_mode")}><option>On-site</option><option>Remote</option><option>Hybrid</option></select></label>
                 <label className="text-xs text-muted-foreground">Start date<Input type="date" value={iv.start_date} onChange={setI("start_date")} /></label>
