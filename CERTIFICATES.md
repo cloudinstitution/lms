@@ -92,7 +92,7 @@ Environment variables:
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Required for payments (without them "Buy now" says payments are not enabled) |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional but recommended: set the Razorpay webhook to `https://<site>/api/payments/webhook` (events `payment.captured`, `order.paid`) so a course is granted even if the buyer closes the tab right after paying |
 
-If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
+If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `internships`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
 
 ### Paying through a Razorpay.me page (no API keys)
 
@@ -128,3 +128,9 @@ Student portal → **Mock Interview**. The student picks a topic (Python, Python
 - **Set up:** add `ANTHROPIC_API_KEY` (console.anthropic.com) to the server environment. Until then the page tells students the interviewer isn't switched on. Optional: `MOCK_INTERVIEW_MODEL` (default `claude-sonnet-5-5`; a smaller model such as `claude-haiku-4-5-20251001` costs less).
 - **Cost control:** students only, 3–10 questions per interview, answers capped at 3,000 characters, and a cap of 80 AI calls per student per hour. A 5-question interview makes 5 calls.
 - Firestore rules: if the server runs without service-account credentials, allow `mock_interviews`.
+
+## Internship offer letters
+
+Admin → HR & Employees → **Internships**. Choose the company, enter the candidate's name and email, position, start date, duration (hours/days/weeks/months), location and **Paid** (with the monthly stipend) or **Unpaid**. An Internship ID such as `GL-INT-2026-001` (company prefix + year + running number) is given automatically and printed on the letter. The PDF follows the GenAI Labs internship letter format (logo and contact block, details of the offer, stamp and signatory, acceptance line) and is emailed to the candidate as an attachment, with the company email copied; each row can be downloaded, re-sent or deleted, and shows whether the email was sent.
+- **Email set-up:** uses the same settings as the rest of the site: `GMAIL_USER` + `GMAIL_APP_PASSWORD` (a Gmail app password), or `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` (`SMTP_PORT`, `SMTP_SECURE` optional). Without them the offer is still saved and the page says the email couldn't be sent.
+- The letter uses each company's phone, email, website, address, signatory and stamp from Admin → HR → Edit companies. Firestore rules (if the server has no service-account credentials): allow `internships`.

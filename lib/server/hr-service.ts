@@ -26,11 +26,11 @@ export const ATTENDANCE_STATUSES = ["Present", "Absent", "Half day", "On leave"]
 export const LEAVE_TYPES = ["Casual", "Sick", "Earned", "Other"] as const
 
 // ---------- companies (letterhead on payslips; employees belong to one) ----------
-export interface Company { id: string; name: string; address: string[]; logo: string; seal: string; phone: string; email: string; emp_prefix: string; signatory: string; signatory_title: string }
+export interface Company { id: string; name: string; address: string[]; logo: string; seal: string; phone: string; email: string; website: string; emp_prefix: string; signatory: string; signatory_title: string }
 const DEFAULT_COMPANY_ID = "cloud-insthire"
 const DEFAULT_COMPANIES: Company[] = [
-  { id: DEFAULT_COMPANY_ID, name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"], logo: "/lg_logo.png", seal: "", phone: "+91 76763 70336", email: "info@cloudinstitution.com", emp_prefix: "CI", signatory: "Dilip D", signatory_title: "CEO" },
-  { id: "genai-labs", name: "GenAI Labs", address: ["4th Floor, No 2, HB complex, 100 Feet Ring Rd,", "Dollar Scheme Colony, BTM 1st Stage, Bengaluru, Karnataka 560068"], logo: "/genailabs_logo.png", seal: "/genailabs_seal.jpg", phone: "+91 63619 58074", email: "info@genailabs.in", emp_prefix: "GL", signatory: "Dilip D", signatory_title: "Authorized Signatory" },
+  { id: DEFAULT_COMPANY_ID, name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"], logo: "/lg_logo.png", seal: "", phone: "+91 76763 70336", email: "info@cloudinstitution.com", website: "www.cloudinstitution.com", emp_prefix: "CI", signatory: "Dilip D", signatory_title: "CEO" },
+  { id: "genai-labs", name: "GenAI Labs", address: ["4th Floor, No 2, HB complex, 100 Feet Ring Rd,", "Dollar Scheme Colony, BTM 1st Stage, Bengaluru, Karnataka 560068"], logo: "/genailabs_logo.png", seal: "/genailabs_seal.jpg", phone: "+91 63619 58074", email: "info@genailabs.in", website: "www.genailabs.in", emp_prefix: "GL", signatory: "Dilip D", signatory_title: "CEO & Founder" },
 ]
 
 const initials = (name: string) => (name.match(/[A-Za-z]+/g) ?? []).map((w) => w[0]).join("").toUpperCase().slice(0, 3) || "EM"
@@ -42,7 +42,7 @@ export async function listCompanies(): Promise<Company[]> {
   // Saved edits win, but an empty saved logo/seal/etc. never hides the built-in one.
   const merged = DEFAULT_COMPANIES.map((c) => {
     const o = (stored.get(c.id) ?? {}) as Partial<Company>
-    return { ...c, ...o, id: c.id, logo: o.logo || c.logo, seal: o.seal || c.seal, phone: o.phone || c.phone, email: o.email || c.email, emp_prefix: o.emp_prefix || c.emp_prefix }
+    return { ...c, ...o, id: c.id, logo: o.logo || c.logo, seal: o.seal || c.seal, phone: o.phone || c.phone, email: o.email || c.email, website: o.website || c.website, emp_prefix: o.emp_prefix || c.emp_prefix }
   })
   const extra = [...stored.values()].filter((c) => !DEFAULT_COMPANIES.some((d) => d.id === c.id)).sort((a, b) => a.name.localeCompare(b.name))
   return [...merged, ...extra].map((c) => ({ ...c, address: Array.isArray(c.address) ? c.address : [], signatory: c.signatory ?? "", signatory_title: c.signatory_title ?? "Authorized Signatory", seal: c.seal ?? "", phone: c.phone ?? "", email: c.email ?? "", emp_prefix: c.emp_prefix || initials(c.name) }))
@@ -62,10 +62,10 @@ export async function saveCompany(input: any) {
   }
   const cur = all.find((c) => c.id === id)
   const signatory = str(input?.signatory, 80), signatory_title = str(input?.signatory_title, 80) || "Authorized Signatory"
-  const phone = str(input?.phone, 30), email = str(input?.email, 120).toLowerCase()
+  const phone = str(input?.phone, 30), email = str(input?.email, 120).toLowerCase(), website = str(input?.website, 120)
   if (email && !EMAIL_RE.test(email)) throw new ApiError(400, "Enter a valid company email address")
   const emp_prefix = str(input?.emp_prefix, 6).toUpperCase().replace(/[^A-Z0-9]/g, "") || cur?.emp_prefix || initials(name)
-  const doc = { name, address: lines, logo: cur?.logo ?? "", seal: cur?.seal ?? "", phone, email, emp_prefix, signatory, signatory_title }
+  const doc = { name, address: lines, logo: cur?.logo ?? "", seal: cur?.seal ?? "", phone, email, website, emp_prefix, signatory, signatory_title }
   await getDb().collection("hr_companies").doc(id).set({ ...doc, updated_at: iso() })
   return { id, ...doc }
 }
@@ -497,5 +497,69 @@ export async function listOfferLetters() {
 export async function deleteOfferLetter(id: string) {
   const ref = getDb().collection("offer_letters").doc(id)
   if (!(await ref.get()).exists) throw new ApiError(404, "Offer letter not found")
+  await ref.delete()
+}
+
+
+// ---------- internship offer letters ----------
+export const DURATION_UNITS = ["Hours", "Days", "Weeks", "Months"] as const
+
+/** Next internship ID for a company and year, e.g. GL-INT-2026-001. */
+async function nextInternshipId(prefix: string, year: string): Promise<string> {
+  const snap = await getDb().collection("internships").get()
+  const base = `${prefix}-INT-${year}-`
+  let max = 0
+  for (const d of snap.docs) { const id = String((d.data() as any).internship_id ?? ""); if (id.startsWith(base)) max = Math.max(max, Number(id.slice(base.length)) || 0) }
+  return `${base}${String(max + 1).padStart(3, "0")}`
+}
+
+export async function createInternship(input: any) {
+  const company = (await listCompanies()).find((c) => c.id === input?.company_id)
+  if (!company) throw new ApiError(400, "Choose a company")
+  const name = str(input?.candidate_name, 80)
+  if (name.length < 2) throw new ApiError(400, "Enter the candidate's name")
+  const email = str(input?.candidate_email, 120).toLowerCase()
+  if (!EMAIL_RE.test(email)) throw new ApiError(400, "Enter the candidate's email address so the letter can be sent")
+  const paid = input?.paid === true || input?.paid === "true"
+  const stipend = paid ? money(input?.stipend_amount, "Stipend") : 0
+  if (paid && stipend <= 0) throw new ApiError(400, "Enter the monthly stipend for a paid internship")
+  const unit = (DURATION_UNITS as readonly string[]).includes(input?.duration_unit) ? (input.duration_unit as string) : "Months"
+  const duration_value = int(input?.duration_value, 0, 1, 1000, "Duration")
+  if (!duration_value) throw new ApiError(400, "Enter the internship duration")
+  const offer_date = validDate(input?.offer_date ?? iso().slice(0, 10), "Offer date")
+  const start_date = validDate(input?.start_date, "Start date")
+  const end_date = input?.end_date ? validDate(input.end_date, "End date") : ""
+  if (end_date && end_date < start_date) throw new ApiError(400, "The end date is before the start date")
+  const doc = {
+    company_id: company.id, internship_id: await nextInternshipId(company.emp_prefix, offer_date.slice(0, 4)), candidate_name: name, candidate_email: email,
+    position: str(input?.position, 80) || "Intern", location: str(input?.location, 80) || "Bangalore", work_mode: ["On-site", "Remote", "Hybrid"].includes(input?.work_mode) ? input.work_mode : "On-site",
+    paid, stipend_amount: stipend, duration_value, duration_unit: unit, offer_date, start_date, end_date,
+    email_status: "not_sent", email_sent_at: "", email_error: "", created_at: iso(),
+  }
+  const ref = getDb().collection("internships").doc()
+  await ref.set(doc)
+  return { id: ref.id, ...doc, company }
+}
+
+export async function listInternships() {
+  const [snap, companies] = await Promise.all([getDb().collection("internships").get(), listCompanies()])
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+    .map((o) => ({ ...o, company: companies.find((c) => c.id === o.company_id) ?? DEFAULT_COMPANIES[0] }))
+}
+
+export async function getInternship(id: string) {
+  const snap = await getDb().collection("internships").doc(id).get()
+  if (!snap.exists) throw new ApiError(404, "Internship offer not found")
+  const o = { id, ...(snap.data() as any) }
+  return { ...o, company: (await listCompanies()).find((c) => c.id === o.company_id) ?? DEFAULT_COMPANIES[0] }
+}
+
+export async function markInternshipEmail(id: string, patch: { email_status: "sent" | "failed"; email_sent_at?: string; email_error?: string }) {
+  await getDb().collection("internships").doc(id).update({ email_sent_at: "", email_error: "", ...patch })
+}
+
+export async function deleteInternship(id: string) {
+  const ref = getDb().collection("internships").doc(id)
+  if (!(await ref.get()).exists) throw new ApiError(404, "Internship offer not found")
   await ref.delete()
 }

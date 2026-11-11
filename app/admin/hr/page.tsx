@@ -16,7 +16,7 @@ const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const STATUSES = ["Present", "Absent", "Half day", "On leave"]
 const blankEmp = { company_id: "cloud-insthire", emp_id: "", name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
 
-function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[]; signatory?: string; signatory_title?: string; phone?: string; email?: string; emp_prefix?: string }; onSaved: () => void }) {
+function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[]; signatory?: string; signatory_title?: string; phone?: string; email?: string; website?: string; emp_prefix?: string }; onSaved: () => void }) {
   const [name, setName] = useState(c.name)
   const [addr, setAddr] = useState((c.address ?? []).join("\n"))
   const [sig, setSig] = useState(c.signatory ?? "")
@@ -24,8 +24,9 @@ function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: st
   const [phone, setPhone] = useState(c.phone ?? "")
   const [email, setEmail] = useState(c.email ?? "")
   const [prefix, setPrefix] = useState(c.emp_prefix ?? "")
+  const [website, setWebsite] = useState(c.website ?? "")
   const save = async () => {
-    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr, signatory: sig, signatory_title: sigTitle, phone, email, emp_prefix: prefix } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr(""); setSig(""); setSigTitle(""); setPhone(""); setEmail(""); setPrefix("") } onSaved() } catch (e) { toast.error(err(e)) }
+    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr, signatory: sig, signatory_title: sigTitle, phone, email, website, emp_prefix: prefix } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr(""); setSig(""); setSigTitle(""); setPhone(""); setEmail(""); setWebsite(""); setPrefix("") } onSaved() } catch (e) { toast.error(err(e)) }
   }
   return (
     <div className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_2fr_auto]">
@@ -36,6 +37,7 @@ function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: st
       <Input placeholder="Signatory title (e.g. CEO / HR Manager)" value={sigTitle} onChange={(e) => setSigTitle(e.target.value)} />
       <Input placeholder="Phone (offer letter footer)" value={phone} onChange={(e) => setPhone(e.target.value)} />
       <Input placeholder="Email (offer letter footer)" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <Input placeholder="Website (e.g. www.genailabs.in)" value={website} onChange={(e) => setWebsite(e.target.value)} />
       <Input placeholder="Employee ID prefix (e.g. GL)" value={prefix} onChange={(e) => setPrefix(e.target.value.toUpperCase())} />
     </div>
   )
@@ -80,6 +82,35 @@ export default function HrPage() {
   }
   const removeOffer = async (o: any) => { if (!confirm(`Delete the offer letter for ${o.candidate_name}?`)) return; try { await api(`/api/admin/hr/offer-letters/${o.id}`, { method: "DELETE" }); loadOffers() } catch (e) { toast.error(err(e)) } }
   const compTotal = comps.reduce((n, c) => n + (Number(c.monthly) || 0), 0)
+
+  // ----- internship offer letters -----
+  const blankIntern = () => ({ company_id: "genai-labs", candidate_name: "", candidate_email: "", position: "Intern", location: "Bangalore", work_mode: "On-site", paid: false, stipend_amount: "", start_date: "", end_date: "", duration_value: "", duration_unit: "Months", offer_date: todayIst(), send_email: true })
+  const [interns, setInterns] = useState<any[]>([])
+  const [iv, setIv] = useState<any>(blankIntern())
+  const [internBusy, setInternBusy] = useState(false)
+  const loadInterns = useCallback(() => api("/api/admin/hr/internships").then((d) => setInterns(d.internships)).catch(() => {}), [])
+  useEffect(() => { loadInterns() }, [loadInterns])
+  const setI = (k: string) => (e: { target: { value: string } }) => setIv({ ...iv, [k]: e.target.value })
+  const createIntern = async () => {
+    setInternBusy(true)
+    try {
+      const d = await api("/api/admin/hr/internships", { method: "POST", body: iv })
+      if (d.email?.skipped) toast.success(`Offer ${d.internship.internship_id} saved (not emailed)`)
+      else if (d.email?.sent) toast.success(`Offer ${d.internship.internship_id} emailed to ${d.internship.candidate_email}`)
+      else toast.warning(`Offer ${d.internship.internship_id} saved, but the email failed: ${d.email?.error ?? "unknown error"}`, { duration: 9000 })
+      setIv(blankIntern()); loadInterns()
+    } catch (e) { toast.error(err(e)) } finally { setInternBusy(false) }
+  }
+  const resendIntern = async (o: any) => {
+    try { const d = await api(`/api/admin/hr/internships/${o.id}/send`, { method: "POST" }); d.email.sent ? toast.success(`Emailed to ${o.candidate_email}`) : toast.error(d.email.error ?? "The email could not be sent"); loadInterns() } catch (e) { toast.error(err(e)) }
+  }
+  const downloadIntern = async (o: any) => {
+    try {
+      const res = await fetch(`/api/admin/hr/internships/${o.id}/pdf`); if (!res.ok) throw new Error("Could not create the PDF")
+      const url = URL.createObjectURL(await res.blob()); const a = document.createElement("a"); a.href = url; a.download = `Internship-Offer-${o.internship_id}.pdf`; a.click(); URL.revokeObjectURL(url)
+    } catch (e) { toast.error(err(e)) }
+  }
+  const removeIntern = async (o: any) => { if (!confirm(`Delete internship offer ${o.internship_id} for ${o.candidate_name}?`)) return; try { await api(`/api/admin/hr/internships/${o.id}`, { method: "DELETE" }); loadInterns() } catch (e) { toast.error(err(e)) } }
 
   // ----- employees -----
   const [showCo, setShowCo] = useState(false)
@@ -161,7 +192,7 @@ export default function HrPage() {
       </div>
 
       <Tabs defaultValue="employees">
-        <TabsList className="flex-wrap"><TabsTrigger value="employees">Employees</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="holidays">Holidays</TabsTrigger><TabsTrigger value="payslips">Payslips</TabsTrigger><TabsTrigger value="offers">Offer letters</TabsTrigger></TabsList>
+        <TabsList className="flex-wrap"><TabsTrigger value="employees">Employees</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="holidays">Holidays</TabsTrigger><TabsTrigger value="payslips">Payslips</TabsTrigger><TabsTrigger value="offers">Offer letters</TabsTrigger><TabsTrigger value="internships">Internships</TabsTrigger></TabsList>
 
         <TabsContent value="employees" className="space-y-4">
           <Card>
@@ -407,6 +438,57 @@ export default function HrPage() {
                     <td className="px-3 py-2 whitespace-nowrap">{o.offer_date}</td><td className="px-3 py-2 whitespace-nowrap">{o.joining_date}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{inr(o.monthly_total)}</td>
                     <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" variant="outline" onClick={() => offerPdf(o)}><Download className="mr-1 h-4 w-4" />Download</Button> <Button size="sm" variant="ghost" onClick={() => removeOffer(o)}><Trash2 className="h-4 w-4" /></Button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="internships" className="space-y-4">
+          <Card>
+            <CardHeader><CardTitle className="text-base">New internship offer letter</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="text-xs text-muted-foreground">Company<select className={sel + " w-full"} value={iv.company_id} onChange={setI("company_id")}>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+                <Input placeholder="Candidate name" value={iv.candidate_name} onChange={setI("candidate_name")} />
+                <Input type="email" placeholder="Candidate email (the letter is sent here)" value={iv.candidate_email} onChange={setI("candidate_email")} />
+                <Input placeholder="Position (e.g. Python Intern)" value={iv.position} onChange={setI("position")} />
+                <Input placeholder="Work location" value={iv.location} onChange={setI("location")} />
+                <label className="text-xs text-muted-foreground">Work mode<select className={sel + " w-full"} value={iv.work_mode} onChange={setI("work_mode")}><option>On-site</option><option>Remote</option><option>Hybrid</option></select></label>
+                <label className="text-xs text-muted-foreground">Start date<Input type="date" value={iv.start_date} onChange={setI("start_date")} /></label>
+                <label className="text-xs text-muted-foreground">End date (optional)<Input type="date" value={iv.end_date} onChange={setI("end_date")} /></label>
+                <label className="text-xs text-muted-foreground">Offer date<Input type="date" value={iv.offer_date} onChange={setI("offer_date")} /></label>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="text-xs text-muted-foreground">Duration<div className="mt-1 flex gap-2"><Input type="number" min={1} className="w-24" placeholder="60" value={iv.duration_value} onChange={setI("duration_value")} /><select className={sel} value={iv.duration_unit} onChange={setI("duration_unit")}><option>Hours</option><option>Days</option><option>Weeks</option><option>Months</option></select></div></label>
+                <div className="text-xs text-muted-foreground">Internship type
+                  <div className="mt-1 flex h-10 items-center gap-4 text-sm text-foreground">
+                    <label className="flex items-center gap-1"><input type="radio" checked={!iv.paid} onChange={() => setIv({ ...iv, paid: false })} />Unpaid</label>
+                    <label className="flex items-center gap-1"><input type="radio" checked={iv.paid} onChange={() => setIv({ ...iv, paid: true })} />Paid</label>
+                  </div></div>
+                {iv.paid && <label className="text-xs text-muted-foreground">Stipend per month (₹)<Input type="number" min={1} className="w-40" value={iv.stipend_amount} onChange={setI("stipend_amount")} /></label>}
+              </div>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={iv.send_email} onChange={(e) => setIv({ ...iv, send_email: e.target.checked })} />Email the letter (PDF) to the candidate now</label>
+              <Button onClick={createIntern} disabled={internBusy} className="bg-emerald-600 hover:bg-emerald-700">{internBusy ? "Creating…" : iv.send_email ? "Create & email offer letter" : "Create offer letter"}</Button>
+              <p className="text-xs text-muted-foreground">An Internship ID is given automatically (for example GL-INT-2026-001) and printed on the letter. The company is copied on the email, and replies go to the company email.</p>
+            </CardContent>
+          </Card>
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-left text-sm">
+              <Th cols={["Internship ID", "Candidate", "Position", "Type", "Start", "Duration", "Email", ""]} />
+              <tbody>
+                {interns.length === 0 && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">No internship offers yet.</td></tr>}
+                {interns.map((o) => (
+                  <tr key={o.id} className="border-b last:border-0">
+                    <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{o.internship_id}<div className="font-sans text-muted-foreground">{o.company?.name}</div></td>
+                    <td className="px-3 py-2 font-medium">{o.candidate_name}<div className="text-xs font-normal text-muted-foreground">{o.candidate_email}</div></td>
+                    <td className="px-3 py-2">{o.position}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{o.paid ? `Paid ₹${inr(o.stipend_amount)}/mo` : "Unpaid"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{o.start_date}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{o.duration_value} {o.duration_unit}</td>
+                    <td className="px-3 py-2 text-xs">{o.email_status === "sent" ? <span className="text-emerald-700">Sent {o.email_sent_at ? new Date(o.email_sent_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : ""}</span> : o.email_status === "failed" ? <span className="text-red-600" title={o.email_error}>Failed</span> : <span className="text-muted-foreground">Not sent</span>}</td>
+                    <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" variant="outline" onClick={() => downloadIntern(o)}><Download className="mr-1 h-4 w-4" />PDF</Button> <Button size="sm" variant="outline" onClick={() => resendIntern(o)}>{o.email_status === "sent" ? "Resend" : "Send email"}</Button> <Button size="sm" variant="ghost" onClick={() => removeIntern(o)}><Trash2 className="h-4 w-4" /></Button></td>
                   </tr>
                 ))}
               </tbody>

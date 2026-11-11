@@ -1510,3 +1510,59 @@ test("Mock interview: students only, AI asks/evaluates/reports topic by topic, v
     assert.equal((await call(I, "POST", "/x", { cookie: jn, body: { action: "start", topic: "python" } })).status, 429)
   } finally { globalThis.fetch = realFetch; delete process.env.ANTHROPIC_API_KEY }
 })
+
+test("HR: internship offer letters — paid/unpaid, internship ID, PDF, and emailed to the candidate", async () => {
+  const IN = await import("../../app/api/admin/hr/internships/route"), ID = await import("../../app/api/admin/hr/internships/[id]/route"), PDFR = await import("../../app/api/admin/hr/internships/[id]/pdf/route"), SND = await import("../../app/api/admin/hr/internships/[id]/send/route")
+  const M = await import("../../lib/server/mailer")
+  const ad = await admin(), jn = await john()
+  const sent: any[] = []
+  let fail = false
+  M.setMailSender(async (m) => { if (fail) throw new Error("smtp down"); sent.push(m) })
+  const base = { company_id: "genai-labs", candidate_name: "Varshitha K", candidate_email: "Varshitha@Example.com", position: "Python Intern", location: "Bangalore", work_mode: "Hybrid", start_date: "2026-11-17", duration_value: 60, duration_unit: "Hours", offer_date: "2026-11-11", paid: false }
+  try {
+    assert.equal((await call(IN, "POST", "/x", { cookie: jn, body: base })).status, 403); assert.equal((await call(IN, "POST", "/x", { body: base })).status, 401); assert.equal((await call(IN, "GET", "/x", { cookie: jn })).status, 403)
+    for (const bad of [{ company_id: "nope" }, { candidate_name: "" }, { candidate_email: "" }, { candidate_email: "not-an-email" }, { start_date: "" }, { start_date: "bad" }, { end_date: "2026-01-01" }, { duration_value: 0 }, { duration_value: "x" }, { paid: true, stipend_amount: 0 }, { paid: true }])
+      assert.equal((await call(IN, "POST", "/x", { cookie: ad, body: { ...base, ...bad } })).status, 400, JSON.stringify(bad))
+    assert.equal(sent.length, 0, "invalid requests send nothing")
+
+    // unpaid: created, numbered, emailed with the PDF attached
+    const r = await call(IN, "POST", "/x", { cookie: ad, body: base }); assert.equal(r.status, 201)
+    const a = (await json(r)).body
+    assert.match(a.internship.internship_id, /^GL-INT-2026-\d{3}$/); assert.equal(a.internship.paid, false); assert.equal(a.internship.stipend_amount, 0); assert.equal(a.email.sent, true); assert.equal(a.internship.candidate_email, "varshitha@example.com")
+    assert.equal(sent.length, 1); const m = sent[0]
+    assert.equal(m.to, "varshitha@example.com"); assert.equal(m.cc, "info@genailabs.in"); assert.match(m.subject, new RegExp(a.internship.internship_id)); assert.match(m.text, /unpaid internship/i)
+    assert.equal(m.attachments[0].contentType, "application/pdf"); assert.equal(m.attachments[0].content.subarray(0, 4).toString(), "%PDF"); assert.match(m.attachments[0].filename, new RegExp(a.internship.internship_id))
+    // paid: stipend shown, next number in the sequence
+    const b = (await json(await call(IN, "POST", "/x", { cookie: ad, body: { ...base, candidate_name: "Ravi P", candidate_email: "ravi@x.com", paid: true, stipend_amount: 5000, duration_value: 3, duration_unit: "Months", end_date: "2027-02-17" } }))).body
+    assert.equal(Number(b.internship.internship_id.slice(-3)), Number(a.internship.internship_id.slice(-3)) + 1); assert.equal(b.internship.stipend_amount, 5000); assert.match(sent[1].text, /Stipend: INR 5000 per month/)
+    // another company and year use their own series
+    const c = (await json(await call(IN, "POST", "/x", { cookie: ad, body: { ...base, company_id: "cloud-insthire", offer_date: "2027-01-05", start_date: "2027-01-10", candidate_email: "c@x.com" } }))).body
+    assert.equal(c.internship.internship_id, "CI-INT-2027-001")
+
+    // PDF download
+    const pdf = await call(PDFR, "GET", "/x", { cookie: ad }, { id: a.internship.id }); assert.equal(pdf.status, 200); assert.equal(pdf.headers.get("content-type"), "application/pdf")
+    const bytes = Buffer.from(await pdf.arrayBuffer()); assert.equal(bytes.subarray(0, 4).toString(), "%PDF")
+    assert.equal((await call(PDFR, "GET", "/x", { cookie: jn }, { id: a.internship.id })).status, 403); assert.equal((await call(PDFR, "GET", "/x", { cookie: ad }, { id: "missing" })).status, 404)
+    const { execFileSync } = await import("node:child_process"), fs = await import("node:fs"), os = await import("node:os"), path = await import("node:path")
+    const f = path.join(os.tmpdir(), `intern-${Date.now()}.pdf`); fs.writeFileSync(f, bytes); let txt = ""; try { txt = execFileSync("pdftotext", ["-layout", f, "-"]).toString() } catch {} fs.rmSync(f, { force: true })
+    if (txt) for (const t of ["INTERNSHIP OFFER LETTER", "Varshitha K", a.internship.internship_id, "does not include a stipend", "60 Hours", "17 November 2026", "info@genailabs.in"]) assert.ok(txt.includes(t), `PDF contains ${t}`)
+
+    // a mail failure still keeps the offer, is recorded, and can be re-sent
+    fail = true
+    const d = (await json(await call(IN, "POST", "/x", { cookie: ad, body: { ...base, candidate_email: "d@x.com" } }))).body
+    assert.equal(d.email.sent, false); assert.match(d.email.error, /could not be sent/); assert.equal(d.internship.email_status, "failed")
+    let list = (await json(await call(IN, "GET", "/x", { cookie: ad }))).body.internships; assert.equal(list.find((x: any) => x.id === d.internship.id).email_status, "failed")
+    fail = false
+    assert.equal((await call(SND, "POST", "/x", { cookie: jn }, { id: d.internship.id })).status, 403)
+    assert.equal((await json(await call(SND, "POST", "/x", { cookie: ad }, { id: d.internship.id }))).body.email.sent, true)
+    list = (await json(await call(IN, "GET", "/x", { cookie: ad }))).body.internships; const row = list.find((x: any) => x.id === d.internship.id); assert.equal(row.email_status, "sent"); assert.ok(row.email_sent_at); assert.equal(row.email_error, "")
+    // "save without emailing"
+    const n = sent.length; const e = (await json(await call(IN, "POST", "/x", { cookie: ad, body: { ...base, candidate_email: "e@x.com", send_email: false } }))).body
+    assert.equal(sent.length, n); assert.equal(e.internship.email_status, "not_sent")
+    // no email set up on the server (and no test sender)
+    M.setMailSender(null); for (const k of ["GMAIL_USER", "GMAIL_APP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"]) delete process.env[k]
+    const g = (await json(await call(SND, "POST", "/x", { cookie: ad }, { id: e.internship.id }))).body.email; assert.equal(g.sent, false); assert.match(g.error, /isn't set up/)
+    // delete
+    assert.equal((await call(ID, "DELETE", "/x", { cookie: ad }, { id: e.internship.id })).status, 200); assert.equal((await call(ID, "DELETE", "/x", { cookie: ad }, { id: e.internship.id })).status, 404)
+  } finally { M.setMailSender(null) }
+})
