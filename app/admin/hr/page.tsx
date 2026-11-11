@@ -14,6 +14,14 @@ const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.m
 const inr = (n: number) => "₹" + Number(n || 0).toLocaleString("en-IN")
 const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const STATUSES = ["Present", "Absent", "Half day", "On leave"]
+/** Every word typed must appear somewhere in the row's searchable text (ID, name, email, phone…), case-insensitive. */
+const matchesQuery = (q: string, ...fields: unknown[]) => {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return true
+  const hay = fields.map((f) => String(f ?? "")).join(" ").toLowerCase()
+  return words.every((w) => hay.includes(w))
+}
+
 const blankEmp = { company_id: "cloud-insthire", emp_id: "", name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
 
 function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[]; signatory?: string; signatory_title?: string; phone?: string; email?: string; website?: string; emp_prefix?: string }; onSaved: () => void }) {
@@ -58,7 +66,10 @@ export default function HrPage() {
   const loadLeaves = useCallback(() => api(`/api/admin/hr/leaves?year=${year}`).then((d) => setLeaves(d.leaves)).catch(() => {}), [year])
   useEffect(() => { loadEmps(); loadHolidays(); loadLeaves() }, [loadEmps, loadHolidays, loadLeaves])
   const refresh = () => { loadEmps(); loadLeaves() }
-  const shown = emps.filter((e) => filterCo === "all" || e.company_id === filterCo)
+  const [empQuery, setEmpQuery] = useState("")
+  const [internQuery, setInternQuery] = useState("")
+  const byCompany = emps.filter((e) => filterCo === "all" || e.company_id === filterCo)
+  const shown = byCompany.filter((e) => matchesQuery(empQuery, e.emp_id, e.name, e.email, e.phone, e.designation, e.department, e.location, coName(e.company_id)))
   const active = emps.filter((e) => e.status !== "Inactive" && e.status !== "Exited" && (filterCo === "all" || e.company_id === filterCo))
   const nameOf = (id: string) => emps.find((e) => e.id === id)?.name ?? "—"
 
@@ -91,6 +102,7 @@ export default function HrPage() {
   const [internBusy, setInternBusy] = useState(false)
   const loadInterns = useCallback(() => api("/api/admin/hr/internships").then((d) => setInterns(d.internships)).catch(() => {}), [])
   useEffect(() => { loadInterns() }, [loadInterns])
+  const internsShown = interns.filter((o) => matchesQuery(internQuery, o.internship_id, o.candidate_name, o.candidate_email, o.position, o.company?.name, o.paid ? "paid" : "unpaid", o.start_date, o.location))
   const setI = (k: string) => (e: { target: { value: string } }) => setIv({ ...iv, [k]: e.target.value })
   const createIntern = async () => {
     setInternBusy(true)
@@ -236,6 +248,8 @@ export default function HrPage() {
           </Card>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             Show <select className={sel} value={filterCo} onChange={(e) => setFilterCo(e.target.value)}><option value="all">All companies</option>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+            <Input className="w-72" placeholder="Search by Emp ID, name, email, phone…" value={empQuery} onChange={(e) => setEmpQuery(e.target.value)} />
+            {empQuery && <span className="text-xs text-muted-foreground">{shown.length} of {byCompany.length}</span>}
             <Button size="sm" variant="outline" onClick={() => setShowCo(!showCo)}>{showCo ? "Hide companies" : "Edit companies"}</Button>
           </div>
           {showCo && (
@@ -261,7 +275,7 @@ export default function HrPage() {
             <table className="w-full text-left text-sm">
               <Th cols={["Emp ID", "Name", "Company", "Designation", "Contact", "Gross / month", `Leave ${year}: taken`, "Remaining", "Login", "Status", ""]} />
               <tbody>
-                {shown.length === 0 && <tr><td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">No employees yet.</td></tr>}
+                {shown.length === 0 && <tr><td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">{empQuery ? `No employees match "${empQuery}".` : "No employees yet."}</td></tr>}
                 {shown.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
                     <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{e.emp_id}</td>
@@ -480,12 +494,16 @@ export default function HrPage() {
               <p className="text-xs text-muted-foreground">An Internship ID is given automatically (for example GL-INT-2026-001) and printed on the letter. The company is copied on the email, and replies go to the company email.</p>
             </CardContent>
           </Card>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <Input className="w-80" placeholder="Search by Internship ID, name, email, position…" value={internQuery} onChange={(e) => setInternQuery(e.target.value)} />
+            {internQuery && <span className="text-xs text-muted-foreground">{internsShown.length} of {interns.length}</span>}
+          </div>
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-left text-sm">
               <Th cols={["Internship ID", "Candidate", "Position", "Type", "Start", "Duration", "Email", ""]} />
               <tbody>
-                {interns.length === 0 && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">No internship offers yet.</td></tr>}
-                {interns.map((o) => (
+                {internsShown.length === 0 && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">{internQuery ? `No internship offers match "${internQuery}".` : "No internship offers yet."}</td></tr>}
+                {internsShown.map((o) => (
                   <tr key={o.id} className="border-b last:border-0">
                     <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{o.internship_id}<div className="font-sans text-muted-foreground">{o.company?.name}</div></td>
                     <td className="px-3 py-2 font-medium">{o.candidate_name}<div className="text-xs font-normal text-muted-foreground">{o.candidate_email}</div></td>
