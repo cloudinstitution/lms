@@ -1530,11 +1530,12 @@ test("HR: internship offer letters — paid/unpaid, internship ID, PDF, and emai
     const a = (await json(r)).body
     assert.match(a.internship.internship_id, /^GL-INT-2026-\d{3}$/); assert.equal(a.internship.paid, false); assert.equal(a.internship.stipend_amount, 0); assert.equal(a.email.sent, true); assert.equal(a.internship.candidate_email, "varshitha@example.com")
     assert.equal(sent.length, 1); const m = sent[0]
-    assert.equal(m.to, "varshitha@example.com"); assert.equal(m.cc, "info@genailabs.in"); assert.match(m.subject, new RegExp(a.internship.internship_id)); assert.match(m.text, /unpaid internship/i)
+    assert.equal(m.to, "varshitha@example.com"); assert.equal(m.cc, "info@genailabs.in"); assert.match(m.subject, new RegExp(a.internship.internship_id)); assert.match(m.subject, /Internship Offer Letter – Python Intern \| GenAI Labs/); assert.match(m.text, /Unpaid \(no stipend\)/); assert.match(m.text, /Dear Varshitha K,/); assert.match(m.text, /NEXT STEPS/)
+    assert.match(m.html, /Offer at a glance/); assert.match(m.html, /cid:company-logo/); assert.ok(m.attachments.some((x: any) => x.cid === "company-logo" && x.contentType === "image/png"), "logo is attached inline"); assert.ok(!/<script/i.test(m.html))
     assert.equal(m.attachments[0].contentType, "application/pdf"); assert.equal(m.attachments[0].content.subarray(0, 4).toString(), "%PDF"); assert.match(m.attachments[0].filename, new RegExp(a.internship.internship_id))
     // paid: stipend shown, next number in the sequence
     const b = (await json(await call(IN, "POST", "/x", { cookie: ad, body: { ...base, candidate_name: "Ravi P", candidate_email: "ravi@x.com", paid: true, stipend_amount: 5000, duration_value: 3, duration_unit: "Months", end_date: "2027-02-17" } }))).body
-    assert.equal(Number(b.internship.internship_id.slice(-3)), Number(a.internship.internship_id.slice(-3)) + 1); assert.equal(b.internship.stipend_amount, 5000); assert.match(sent[1].text, /Stipend: INR 5000 per month/)
+    assert.equal(Number(b.internship.internship_id.slice(-3)), Number(a.internship.internship_id.slice(-3)) + 1); assert.equal(b.internship.stipend_amount, 5000); assert.match(sent[1].text, /Paid — stipend of INR 5,000 per month/); assert.match(sent[1].html, /End date/)
     // another company and year use their own series
     const c = (await json(await call(IN, "POST", "/x", { cookie: ad, body: { ...base, company_id: "cloud-insthire", offer_date: "2027-01-05", start_date: "2027-01-10", candidate_email: "c@x.com" } }))).body
     assert.equal(c.internship.internship_id, "CI-INT-2027-001")
@@ -1565,4 +1566,15 @@ test("HR: internship offer letters — paid/unpaid, internship ID, PDF, and emai
     // delete
     assert.equal((await call(ID, "DELETE", "/x", { cookie: ad }, { id: e.internship.id })).status, 200); assert.equal((await call(ID, "DELETE", "/x", { cookie: ad }, { id: e.internship.id })).status, 404)
   } finally { M.setMailSender(null) }
+})
+
+test("Internship email: professional layout, safe against HTML in names", async () => {
+  const { internshipEmail } = await import("../../lib/server/internship-email")
+  const co = { name: "GenAI Labs", email: "info@genailabs.in", phone: "+91 99999 99999", website: "www.genailabs.in", signatory: "Dilip D", signatory_title: "CEO & Founder" }
+  const o = { internship_id: "GL-INT-2026-001", candidate_name: "<b>Eve</b> & \"Co\"", position: "Cloud <Intern>", location: "Bangalore", work_mode: "Remote", paid: true, stipend_amount: 12500, duration_value: 1, duration_unit: "Months", start_date: "2026-11-17", end_date: "", company: co }
+  const m = internshipEmail(o, "logo1")
+  assert.ok(!m.html.includes("<b>Eve</b>") && m.html.includes("&lt;b&gt;Eve&lt;/b&gt;") && m.html.includes("Cloud &lt;Intern&gt;"), "names are escaped")
+  assert.match(m.html, /17 November 2026/); assert.match(m.html, /1 Month\b/); assert.match(m.html, /INR 12,500 per month/); assert.match(m.html, /Bangalore \(Remote\)/); assert.match(m.html, /mailto:info@genailabs.in/); assert.match(m.html, /Dilip D/)
+  assert.ok(!m.html.includes("End date"), "no end date row when none is set"); assert.match(m.text, /Warm regards,\nDilip D\nCEO & Founder\nGenAI Labs/)
+  assert.ok(!internshipEmail(o).html.includes("cid:"), "no logo reference without a logo")
 })

@@ -1,7 +1,7 @@
 import nodemailer from "nodemailer"
 import { ApiError } from "./http"
 
-export type Mail = { to: string; cc?: string; replyTo?: string; subject: string; html: string; text?: string; attachments?: { filename: string; content: Buffer; contentType: string }[] }
+export type Mail = { to: string; cc?: string; replyTo?: string; subject: string; html: string; text?: string; attachments?: { filename: string; content: Buffer; contentType: string; cid?: string }[] }
 export type Sender = (mail: Mail & { from: string }) => Promise<void>
 
 /** The address mail is sent from, or "" when email isn't configured (GMAIL_USER + GMAIL_APP_PASSWORD, or SMTP_HOST/USER/PASSWORD). */
