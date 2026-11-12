@@ -56,7 +56,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       const role = userClaims.role || 'teacher'
       
       // Check if the user can access this page based on role
-      if (!canAccessPath(role, pathname)) {
+      if (!canAccessPath(role, pathname, data?.sections)) {
         // Redirect to dashboard if trying to access unauthorized page
         router.push("/admin/dashboard")
         return
@@ -76,7 +76,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     } else if (data) {
       // Fall back to session storage data
       // Check if the user can access this page based on role
-      if (data.role && !canAccessPath(data.role, pathname)) {
+      if (data.role && !canAccessPath(data.role, pathname, data.sections)) {
         // Redirect to dashboard if trying to access unauthorized page
         router.push("/admin/dashboard")
         return
@@ -97,7 +97,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const userRole: string = adminData.role === 'admin' || adminData.roleId === 1 ? 'admin' : (adminData.role || 'teacher')
   
   console.log('User role for navigation:', userRole, 'Admin data:', adminData)
-  const navigation = getNavigationForRole(userRole)
+  const navigation = getNavigationForRole(userRole, adminData.sections)
   
   return (
     <div className="flex h-screen bg-background">

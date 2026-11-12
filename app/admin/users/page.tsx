@@ -4,15 +4,27 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ApiFailure, api } from "@/lib/certificate-client"
-import { STAFF_ROLES, roleDef } from "@/lib/staff-roles"
+import { ADMIN_SECTIONS, STAFF_ROLES, roleDef } from "@/lib/staff-roles"
 import { Trash2 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { Fragment, useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
-type StaffRow = { id: string; name: string; email: string; role: string; role_label: string; created_at: string | null }
+type StaffRow = { id: string; name: string; email: string; role: string; role_label: string; sections: string[] | null; created_at: string | null }
 const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.message : "Something went wrong")
 const sel = "h-10 rounded-md border bg-background px-3 text-sm"
-const blank = { name: "", email: "", password: "", role: "hr" }
+const presetFor = (role: string) => roleDef(role)?.sections ?? []
+const blank = { name: "", email: "", password: "", role: "hr", sections: presetFor("hr") }
+
+function PagePicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const toggle = (k: string) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k])
+  return (
+    <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
+      {ADMIN_SECTIONS.map((p) => (
+        <label key={p.key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.includes(p.key)} onChange={() => toggle(p.key)} />{p.label}</label>
+      ))}
+    </div>
+  )
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<StaffRow[]>([])
@@ -20,6 +32,8 @@ export default function UsersPage() {
   const [q, setQ] = useState("")
   const [busy, setBusy] = useState(false)
   const [forbidden, setForbidden] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState<string[]>([])
 
   const load = useCallback(async () => {
     try { setUsers((await api("/api/admin/users")).users) } catch (e) { if (e instanceof ApiFailure && e.message.toLowerCase().includes("administrator")) setForbidden(true); else toast.error(err(e)) }
@@ -29,6 +43,9 @@ export default function UsersPage() {
   const create = async () => {
     setBusy(true)
     try { await api("/api/admin/users", { method: "POST", body: form }); toast.success(`${form.name} can now log in as ${roleDef(form.role)?.label}`); setForm(blank); load() } catch (e) { toast.error(err(e)) } finally { setBusy(false) }
+  }
+  const savePages = async (u: StaffRow) => {
+    try { await api(`/api/admin/users/${u.id}`, { method: "PATCH", body: { sections: draft } }); toast.success(`${u.name}'s pages updated — they need to log in again`); setEditing(null); load() } catch (e) { toast.error(err(e)) }
   }
   const changeRole = async (u: StaffRow, role: string) => {
     try { await api(`/api/admin/users/${u.id}`, { method: "PATCH", body: { role } }); toast.success(`${u.name} is now ${roleDef(role)?.label}`) } catch (e) { toast.error(err(e)) }
@@ -63,11 +80,17 @@ export default function UsersPage() {
             <Input placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <Input type="email" placeholder="Email (used to log in)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             <Input type="text" placeholder="Password (min 6)" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-            <select className={sel} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+            <select className={sel} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value, sections: presetFor(e.target.value) })}>
               {STAFF_ROLES.map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
             </select>
           </div>
           <p className="text-xs text-muted-foreground">{roleDef(form.role)?.description}</p>
+          {form.role !== "admin" ? (
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Pages this user can open <span className="font-normal text-muted-foreground">(the Dashboard is always open)</span></div>
+              <PagePicker value={form.sections} onChange={(sections) => setForm({ ...form, sections })} />
+            </div>
+          ) : <p className="text-xs text-muted-foreground">Administrators can open every page.</p>}
           <Button onClick={create} disabled={busy}>{busy ? "Creating…" : "Create user"}</Button>
         </CardContent>
       </Card>
@@ -86,23 +109,38 @@ export default function UsersPage() {
         </div>
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-left text-sm">
-            <thead className="bg-muted/50"><tr>{["Name", "Email", "Role", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
+            <thead className="bg-muted/50"><tr>{["Name", "Email", "Role", "Pages", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
             <tbody>
-              {shown.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">{q ? `No users match "${q}".` : "No users yet."}</td></tr>}
+              {shown.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">{q ? `No users match "${q}".` : "No users yet."}</td></tr>}
               {shown.map((u) => (
-                <tr key={u.id} className="border-t">
-                  <td className="px-3 py-2">{u.name}</td>
-                  <td className="px-3 py-2">{u.email}</td>
-                  <td className="px-3 py-2">
-                    <select className={sel} value={u.role} onChange={(e) => changeRole(u, e.target.value)}>
-                      {STAFF_ROLES.map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <Button size="sm" variant="outline" onClick={() => resetPassword(u)}>Reset password</Button>{" "}
-                    <Button size="icon" variant="ghost" onClick={() => remove(u)} aria-label={`Delete ${u.name}`}><Trash2 className="h-4 w-4" /></Button>
-                  </td>
-                </tr>
+                <Fragment key={u.id}>
+                  <tr className="border-t">
+                    <td className="px-3 py-2">{u.name}</td>
+                    <td className="px-3 py-2">{u.email}</td>
+                    <td className="px-3 py-2">
+                      <select className={sel} value={u.role} onChange={(e) => changeRole(u, e.target.value)}>
+                        {STAFF_ROLES.map((r) => <option key={r.role} value={r.role}>{r.label}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted-foreground">
+                      {u.sections === null ? "All pages" : u.sections.length === 0 ? "Dashboard only" : u.sections.map((k) => ADMIN_SECTIONS.find((p) => p.key === k)?.label ?? k).join(", ")}
+                    </td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      {u.sections !== null && <><Button size="sm" variant="outline" onClick={() => { setEditing(editing === u.id ? null : u.id); setDraft(u.sections ?? []) }}>Pages</Button>{" "}</>}
+                      <Button size="sm" variant="outline" onClick={() => resetPassword(u)}>Reset password</Button>{" "}
+                      <Button size="icon" variant="ghost" onClick={() => remove(u)} aria-label={`Delete ${u.name}`}><Trash2 className="h-4 w-4" /></Button>
+                    </td>
+                  </tr>
+                  {editing === u.id && (
+                    <tr className="border-t bg-muted/30">
+                      <td colSpan={5} className="space-y-3 px-3 py-3">
+                        <div className="text-sm font-medium">Pages {u.name} can open</div>
+                        <PagePicker value={draft} onChange={setDraft} />
+                        <div className="flex gap-2"><Button size="sm" onClick={() => savePages(u)}>Save pages</Button><Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button></div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

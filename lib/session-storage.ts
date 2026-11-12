@@ -182,6 +182,8 @@ export interface AdminData {
   role: 'admin' | 'teacher' | 'hr' | 'placement' | 'accounts';
   name?: string;
   assignedCourses?: string[];
+  /** Pages this user was given individually; absent = the role's default pages. */
+  sections?: string[];
 }
 
 export function storeAdminSession(adminData: AdminData): void {

@@ -1625,3 +1625,31 @@ test("Users & roles: admin creates staff with a role; each role reaches only its
   assert.equal((await call(JB, "GET", "/x", { cookie: p })).status, 401)
   assert.equal((await call(UI, "PATCH", "/x", { cookie: tc, body: { role: "admin" } }, { id: hr.id })).status, 403)
 })
+
+test("Users & roles: pick the exact pages per user; changing pages/role takes effect after a fresh login", async () => {
+  const U = await import("../../app/api/admin/users/route"), UI = await import("../../app/api/admin/users/[id]/route")
+  const HR = await import("../../app/api/admin/hr/employees/route"), JB = await import("../../app/api/admin/jobs/auto/route"), EN = await import("../../app/api/admin/enrollments/route")
+  const RC = await import("../../lib/role-config")
+  const ad = await admin()
+  const mkU = (body: any) => call(U, "POST", "/x", { cookie: ad, body: { name: "Cora", email: "cora@x.com", password: "secret1", ...body } })
+  assert.equal((await mkU({ role: "hr", sections: "hr" })).status, 400)
+  const u = (await json(await mkU({ role: "hr", sections: ["hr", "job", "bogus", "hr"] }))).body.user
+  assert.deepEqual(u.sections, ["hr", "job"], "unknown pages dropped, duplicates removed")
+  const c = await login("cora@x.com", "secret1")
+  assert.equal((await call(HR, "GET", "/x", { cookie: c })).status, 200); assert.equal((await call(JB, "GET", "/x", { cookie: c })).status, 200); assert.equal((await call(EN, "GET", "/x", { cookie: c })).status, 403)
+  assert.deepEqual(RC.getNavigationForRole("hr", ["hr", "job"]).map((i) => i.name), ["Dashboard", "HR & Employees", "Jobs"])
+  assert.equal(RC.canAccessPath("hr", "/admin/enrollments", ["hr", "job"]), false); assert.ok(RC.canAccessPath("hr", "/admin/job/x", ["hr", "job"]))
+  // edit pages: takes effect on the next request (the page list is read live), admins can't be limited
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { sections: ["enrollments"] } }, { id: u.id })).status, 200)
+  assert.equal((await call(JB, "GET", "/x", { cookie: c })).status, 403); assert.equal((await call(EN, "GET", "/x", { cookie: c })).status, 200); assert.equal((await call(HR, "GET", "/x", { cookie: c })).status, 403)
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { sections: [] } }, { id: u.id })).status, 200)
+  assert.equal((await call(EN, "GET", "/x", { cookie: c })).status, 403, "no pages = dashboard only")
+  // reset to the role's default by sending null; a role change also resets to the new role's default
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { sections: null } }, { id: u.id })).status, 200); assert.equal((await call(HR, "GET", "/x", { cookie: c })).status, 200)
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { sections: ["job"] } }, { id: u.id })).status, 200)
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { role: "accounts" } }, { id: u.id })).status, 200)
+  const c2 = await login("cora@x.com", "secret1"); assert.equal((await call(EN, "GET", "/x", { cookie: c2 })).status, 200); assert.equal((await call(JB, "GET", "/x", { cookie: c2 })).status, 403)
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { sections: ["hr"] } }, { id: "docAdmin" })).status, 400, "admin can't be limited")
+  const listed = (await json(await call(U, "GET", "/x", { cookie: ad }))).body.users
+  assert.equal(listed.find((x: any) => x.email === "asha@x.com" || x.role === "admin").sections, null)
+})

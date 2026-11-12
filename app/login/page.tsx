@@ -92,7 +92,8 @@ export default function LoginPage() {
             roleId: userDoc.roleId,
             role: role,
             name: userDoc.name || undefined,
-            assignedCourses: userDoc.assignedCourses || []
+            assignedCourses: userDoc.assignedCourses || [],
+            sections: Array.isArray(userDoc.sections) ? userDoc.sections : undefined
           }
           
           // Use the proper session storage method

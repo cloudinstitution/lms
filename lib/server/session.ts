@@ -3,7 +3,7 @@ import { SignJWT, jwtVerify } from "jose"
 import type { NextRequest } from "next/server"
 import { getDb } from "./firebase-admin"
 import { ApiError } from "./http"
-import { isStaffRole, roleFromRoleId, roleHasSection, type StaffRole } from "../staff-roles"
+import { effectiveSections, isStaffRole, roleFromRoleId, type StaffRole } from "../staff-roles"
 
 export const SESSION_COOKIE = "lms_session"
 /** Learners (self-signup buyers) use their own cookie so signing in as a student/admin in the same browser never logs them out. */
@@ -30,6 +30,8 @@ export interface StaffUser {
   docId: string // Firestore id of the admin/{docId} document
   name: string
   email: string
+  /** Admin pages this user may open; null = all (administrators). */
+  sections: string[] | null
 }
 
 /** A self-registered outsider who buys courses online (collection `learners`). */
@@ -132,7 +134,7 @@ export async function authenticate(username: string, password: string): Promise<
     if (typeof d.password !== "string" || !safeEqual(d.password, password)) return null
     const role = roleFromRoleId(d.roleId)
     if (!role) return null
-    return { role, docId: doc.id, name: d.name || d.username, email: d.username }
+    return { role, docId: doc.id, name: d.name || d.username, email: d.username, sections: effectiveSections(role, d.sections) }
   }
   return null
 }
@@ -179,7 +181,7 @@ export async function userFromDocId(kind: "student" | "staff", docId: string): P
   const d = snap.data()!
   const role = roleFromRoleId(d.roleId)
   if (!role) return null
-  return { role, docId: snap.id, name: d.name || d.username, email: d.username }
+  return { role, docId: snap.id, name: d.name || d.username, email: d.username, sections: effectiveSections(role, d.sections) }
 }
 
 /**
@@ -227,7 +229,7 @@ export async function readSessionUser(req: NextRequest, cookieName: string = SES
     const d = snap.data()!
     const current = roleFromRoleId(d.roleId)
     if (!current || current !== role) return null
-    return { role: current, docId: snap.id, name: d.name || d.username, email: d.username }
+    return { role: current, docId: snap.id, name: d.name || d.username, email: d.username, sections: effectiveSections(current, d.sections) }
   }
   return null
 }
@@ -274,7 +276,7 @@ export async function requireAdmin(req: NextRequest): Promise<StaffUser> {
 /** Administrator, or a staff role that has been given this admin-portal section (e.g. "hr", "job", "enrollments"). */
 export async function requireSection(req: NextRequest, section: string): Promise<StaffUser> {
   const user = await requireUser(req)
-  if (user.role === "student" || user.role === "learner" || user.role === "employee" || !roleHasSection(user.role, section)) throw new ApiError(403, "You don't have access to this section")
+  if (user.role === "student" || user.role === "learner" || user.role === "employee" || (user.sections !== null && !user.sections.includes(section))) throw new ApiError(403, "You don't have access to this section")
   return user
 }
 

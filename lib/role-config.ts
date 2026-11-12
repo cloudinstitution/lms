@@ -17,7 +17,7 @@ import {
     Users
 } from "lucide-react"
 import type React from "react"
-import { roleDef } from "./staff-roles"
+import { effectiveSections, roleDef } from "./staff-roles"
 
 export interface NavigationItem {
   name: string
@@ -74,19 +74,11 @@ export const roleConfigs: Record<string, RoleConfig> = {
   },
 }
 
-/** Admin menu items a limited role may see: the dashboard plus the sections the role was given. */
-function limitedNavigation(role: string): NavigationItem[] | null {
-  const def = roleDef(role)
-  if (!def?.sections) return null
-  return roleConfigs.admin.navigation.filter((i) => i.href === "/admin/dashboard" || def.sections!.includes(i.href.split("/")[2]))
-}
-
-/**
- * Get the navigation configuration for a specific role
- */
-export function getNavigationForRole(role: string): NavigationItem[] {
-  if (role === "admin" || role === "teacher") return roleConfigs[role].navigation
-  return limitedNavigation(role) ?? roleConfigs.teacher.navigation
+/** Menu for a user: administrators everything; others the dashboard plus the pages they were given (their own list, or the role's default). */
+export function getNavigationForRole(role: string, sections?: unknown): NavigationItem[] {
+  const list = effectiveSections(role === "admin" || roleDef(role) ? role : "teacher", sections)
+  if (list === null) return roleConfigs.admin.navigation
+  return roleConfigs.admin.navigation.filter((i) => i.href === "/admin/dashboard" || list.includes(i.href.split("/")[2]))
 }
 
 /**
@@ -100,8 +92,8 @@ export function getPageTitleForRole(role: string): string {
 /**
  * Check if a user with a given role can access a specific path
  */
-export function canAccessPath(role: string, path: string): boolean {
-  const navigation = getNavigationForRole(role)
+export function canAccessPath(role: string, path: string, sections?: unknown): boolean {
+  const navigation = getNavigationForRole(role, sections)
   if (path === "/admin" || path === "/admin/dashboard") return true
   return navigation.some((item) => path === item.href || path.startsWith(`${item.href}/`))
 }

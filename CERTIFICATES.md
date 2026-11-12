@@ -148,3 +148,5 @@ Admin → **Users & Roles** (administrators only) creates staff logins and assig
 | Accounts / Counsellor | 5 | Enrollments (+ payment requests, course fees, consultations), Students, Notifications |
 
 Access is enforced on the server (`requireSection`) as well as in the menu. Changing a role ends that user's current session, so the new role applies after they log in again. You can't delete or demote yourself, or remove the last administrator. Roles are defined in `lib/staff-roles.ts`.
+
+**Per-page access:** when creating a user (or later via the **Pages** button on the user's row) tick exactly which pages they can open; the role only provides the starting selection. Changing a user's role resets their pages to the new role's default. Administrators always have every page. HR, Jobs, Enrollments (with payment requests, course fees, consultations) and Certificates are enforced on the server too; the other pages are limited in the menu and by the page guard in the admin layout.
