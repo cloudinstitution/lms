@@ -92,7 +92,7 @@ Environment variables:
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Required for payments (without them "Buy now" says payments are not enabled) |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional but recommended: set the Razorpay webhook to `https://<site>/api/payments/webhook` (events `payment.captured`, `order.paid`) so a course is granted even if the buyer closes the tab right after paying |
 
-If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `internships`, `vtu_internships`, `hr_settings`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
+If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `internships`, `vtu_internships`, `hr_settings`, `internships`, `vtu_internships`, `hr_settings`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
 
 ### Paying through a Razorpay.me page (no API keys)
 
