@@ -15,6 +15,7 @@ const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const todayIst = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
 const PROGRAMS = ["Data Analytics", "Python Full Stack Development", "Java Full Stack Development", "AI & Machine Learning", "Cloud Computing (AWS)", "Microsoft Azure", "DevOps", "UI/UX Design", "Web Development", "Cyber Security"]
 const blank = () => ({ candidate_name: "", candidate_email: "", usn: "", college: "", program: PROGRAMS[0], programOther: "", weeks: "15", offer_date: todayIst(), coordinator_name: "Poornima", coordinator_title: "Program Coordinator", send_email: true })
+const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const words = (q: string) => q.toLowerCase().split(/\s+/).filter(Boolean)
 
 export default function VtuTab() {
@@ -37,6 +38,8 @@ export default function VtuTab() {
   const sample = { name: f.candidate_name || "Student name", program: program || "Program", weeks: f.weeks || "15", date: f.offer_date, id: "CI-VTU-2026-001", coordinator: f.coordinator_name || "Coordinator" }
 
   const create = async () => {
+    if (f.candidate_name.trim().length < 2) return toast.error("Enter the student's name")
+    if (!EMAIL_OK.test(f.candidate_email.trim())) { document.getElementById("vtu-email")?.focus(); return toast.error("Enter the student's email ID (for example name@gmail.com) in the email box — the letter is sent there") }
     setBusy(true)
     try {
       const d = await api("/api/admin/hr/vtu", { method: "POST", body: { ...f, program, mail_subject: subject, mail_body: body } })
@@ -72,10 +75,13 @@ export default function VtuTab() {
         <CardHeader><CardTitle className="text-base">New VTU internship offer letter</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
-            <Input placeholder="Student name" value={f.candidate_name} onChange={set("candidate_name")} />
-            <Input type="email" placeholder="Student email (the letter is sent here)" value={f.candidate_email} onChange={set("candidate_email")} />
-            <Input placeholder="USN (optional)" value={f.usn} onChange={set("usn")} />
-            <Input className="sm:col-span-2" placeholder="College (optional)" value={f.college} onChange={set("college")} />
+            <label className="text-xs text-muted-foreground">Student name *<Input name="vtu-student-name" autoComplete="off" placeholder="e.g. Varshitha K" value={f.candidate_name} onChange={set("candidate_name")} /></label>
+            <label className="text-xs text-muted-foreground">Student email ID * <span className="text-muted-foreground/80">(the letter is sent here)</span>
+              <Input id="vtu-email" name="vtu-student-email" type="email" inputMode="email" autoComplete="off" placeholder="e.g. student@gmail.com" value={f.candidate_email} onChange={set("candidate_email")} aria-invalid={f.candidate_email !== "" && !EMAIL_OK.test(f.candidate_email.trim())} />
+              {f.candidate_email !== "" && !EMAIL_OK.test(f.candidate_email.trim()) && <span className="text-red-600">Enter a valid email address, like name@gmail.com</span>}
+            </label>
+            <label className="text-xs text-muted-foreground">USN (optional)<Input name="vtu-usn" autoComplete="off" placeholder="e.g. 1VE22CS101" value={f.usn} onChange={set("usn")} /></label>
+            <label className="text-xs text-muted-foreground sm:col-span-2">College (optional)<Input name="vtu-college" autoComplete="off" placeholder="College name" value={f.college} onChange={set("college")} /></label>
             <label className="text-xs text-muted-foreground">Program
               <select className={sel + " w-full"} value={f.program} onChange={set("program")}>{PROGRAMS.map((p) => <option key={p} value={p}>{p}</option>)}<option value="__other">Other (type it)…</option></select>
             </label>
