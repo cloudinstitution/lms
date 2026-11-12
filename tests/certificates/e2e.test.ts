@@ -1653,3 +1653,33 @@ test("Users & roles: pick the exact pages per user; changing pages/role takes ef
   const listed = (await json(await call(U, "GET", "/x", { cookie: ad }))).body.users
   assert.equal(listed.find((x: any) => x.email === "asha@x.com" || x.role === "admin").sections, null)
 })
+
+test("Users & roles: the new user is emailed their login details (resend, opt-out, and a failed email doesn't undo the account)", async () => {
+  const U = await import("../../app/api/admin/users/route"), SD = await import("../../app/api/admin/users/[id]/send/route")
+  const M = await import("../../lib/server/mailer")
+  const ad = await admin(), tc = await teacher()
+  const sent: any[] = []; let fail = false
+  M.setMailSender(async (m) => { if (fail) throw new Error("smtp down"); sent.push(m) })
+  try {
+    const r = await json(await call(U, "POST", "/x", { cookie: ad, body: { name: "Ravi <b>", email: "ravi@x.com", password: "Pa55&word", role: "hr", sections: ["hr", "job"] } }))
+    assert.equal(r.status, 201); assert.equal(r.body.email_sent, true); assert.equal(sent.length, 1)
+    const m = sent[0]
+    assert.equal(m.to, "ravi@x.com"); assert.match(m.subject, /account has been created/i)
+    assert.ok(m.text.includes("Pa55&word") && m.text.includes("ravi@x.com") && m.text.includes("HR Manager") && m.text.includes("HR & Employees, Jobs") && m.text.includes("/login"))
+    assert.ok(m.html.includes("Pa55&amp;word"), "HTML is escaped"); assert.equal(m.html.includes("Ravi <b>"), false)
+    assert.equal(JSON.stringify(r.body).includes("Pa55"), false, "the API response never contains the password")
+    // opt out
+    const r2 = await json(await call(U, "POST", "/x", { cookie: ad, body: { name: "Quiet", email: "quiet@x.com", password: "secret1", role: "hr", send_email: false } }))
+    assert.equal(r2.status, 201); assert.equal(r2.body.email_sent, false); assert.equal(sent.length, 1)
+    // failure: account still created, admin told why, then resend works
+    fail = true
+    const r3 = await json(await call(U, "POST", "/x", { cookie: ad, body: { name: "Fay", email: "fay@x.com", password: "secret1", role: "accounts" } }))
+    assert.equal(r3.status, 201); assert.equal(r3.body.email_sent, false); assert.match(r3.body.email_error, /smtp down/); await login("fay@x.com", "secret1")
+    fail = false
+    assert.equal((await call(SD, "POST", "/x", { cookie: ad }, { id: r3.body.user.id })).status, 200); assert.equal(sent.length, 2); assert.equal(sent[1].to, "fay@x.com")
+    assert.equal((await call(SD, "POST", "/x", { cookie: ad }, { id: "nope" })).status, 404)
+    assert.equal((await call(SD, "POST", "/x", { cookie: tc }, { id: r3.body.user.id })).status, 403)
+    assert.equal(sent.length, 2)
+  } finally { M.setMailSender(null) }
+})
+

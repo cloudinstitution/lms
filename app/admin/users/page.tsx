@@ -13,7 +13,7 @@ type StaffRow = { id: string; name: string; email: string; role: string; role_la
 const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.message : "Something went wrong")
 const sel = "h-10 rounded-md border bg-background px-3 text-sm"
 const presetFor = (role: string) => roleDef(role)?.sections ?? []
-const blank = { name: "", email: "", password: "", role: "hr", sections: presetFor("hr") }
+const blank = { name: "", email: "", password: "", role: "hr", sections: presetFor("hr"), send_email: true }
 
 function PagePicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   const toggle = (k: string) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k])
@@ -42,7 +42,13 @@ export default function UsersPage() {
 
   const create = async () => {
     setBusy(true)
-    try { await api("/api/admin/users", { method: "POST", body: form }); toast.success(`${form.name} can now log in as ${roleDef(form.role)?.label}`); setForm(blank); load() } catch (e) { toast.error(err(e)) } finally { setBusy(false) }
+    try {
+      const r = await api("/api/admin/users", { method: "POST", body: form })
+      if (r.email_sent) toast.success(`${form.name} can now log in as ${roleDef(form.role)?.label} — login details emailed to ${form.email}`)
+      else if (r.email_error) toast.warning(`${form.name} was created, but the email wasn't sent: ${r.email_error} You can resend it from the list.`)
+      else toast.success(`${form.name} can now log in as ${roleDef(form.role)?.label}`)
+      setForm(blank); load()
+    } catch (e) { toast.error(err(e)) } finally { setBusy(false) }
   }
   const savePages = async (u: StaffRow) => {
     try { await api(`/api/admin/users/${u.id}`, { method: "PATCH", body: { sections: draft } }); toast.success(`${u.name}'s pages updated — they need to log in again`); setEditing(null); load() } catch (e) { toast.error(err(e)) }
@@ -51,10 +57,13 @@ export default function UsersPage() {
     try { await api(`/api/admin/users/${u.id}`, { method: "PATCH", body: { role } }); toast.success(`${u.name} is now ${roleDef(role)?.label}`) } catch (e) { toast.error(err(e)) }
     load()
   }
+  const sendLogin = async (u: StaffRow) => {
+    try { await api(`/api/admin/users/${u.id}/send`, { method: "POST" }); toast.success(`Login details emailed to ${u.email}`) } catch (e) { toast.error(err(e)) }
+  }
   const resetPassword = async (u: StaffRow) => {
     const password = window.prompt(`New password for ${u.name} (min 6 characters)`)
     if (!password) return
-    try { await api(`/api/admin/users/${u.id}`, { method: "PATCH", body: { password } }); toast.success("Password updated") } catch (e) { toast.error(err(e)) }
+    try { await api(`/api/admin/users/${u.id}`, { method: "PATCH", body: { password } }); toast.success("Password updated"); if (window.confirm(`Email the new login details to ${u.email}?`)) await sendLogin(u) } catch (e) { toast.error(err(e)) }
   }
   const remove = async (u: StaffRow) => {
     if (!window.confirm(`Delete ${u.name} (${u.email})? They will no longer be able to log in.`)) return
@@ -91,6 +100,7 @@ export default function UsersPage() {
               <PagePicker value={form.sections} onChange={(sections) => setForm({ ...form, sections })} />
             </div>
           ) : <p className="text-xs text-muted-foreground">Administrators can open every page.</p>}
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.send_email} onChange={(e) => setForm({ ...form, send_email: e.target.checked })} />Email the login details (address and password) to this user</label>
           <Button onClick={create} disabled={busy}>{busy ? "Creating…" : "Create user"}</Button>
         </CardContent>
       </Card>
@@ -127,6 +137,7 @@ export default function UsersPage() {
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       {u.sections !== null && <><Button size="sm" variant="outline" onClick={() => { setEditing(editing === u.id ? null : u.id); setDraft(u.sections ?? []) }}>Pages</Button>{" "}</>}
+                      <Button size="sm" variant="outline" onClick={() => sendLogin(u)}>Email login</Button>{" "}
                       <Button size="sm" variant="outline" onClick={() => resetPassword(u)}>Reset password</Button>{" "}
                       <Button size="icon" variant="ghost" onClick={() => remove(u)} aria-label={`Delete ${u.name}`}><Trash2 className="h-4 w-4" /></Button>
                     </td>

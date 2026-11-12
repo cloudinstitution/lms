@@ -1,6 +1,9 @@
 import { cleanSections, effectiveSections, roleDef, roleFromRoleId, STAFF_ROLES, type StaffRole } from "../staff-roles"
 import { getDb } from "./firebase-admin"
 import { ApiError } from "./http"
+import { sendMail } from "./mailer"
+import { staffLoginEmail } from "./staff-email"
+import { ADMIN_SECTIONS } from "../staff-roles"
 
 export interface StaffView { id: string; name: string; email: string; role: StaffRole; role_label: string; sections: string[] | null; created_at: string | null }
 
@@ -87,4 +90,19 @@ export async function deleteStaff(id: string, actorId: string): Promise<void> {
   if (!snap.exists) throw new ApiError(404, "User not found")
   if (snap.data()!.roleId === 1 && (await adminCount()) <= 1) throw new ApiError(400, "There must be at least one administrator")
   await ref.delete()
+}
+
+/** Email the person their login details (address + password) and the pages they can open. */
+export async function emailStaffLogin(id: string, loginUrl: string): Promise<void> {
+  const snap = await getDb().collection("admin").doc(id).get()
+  if (!snap.exists) throw new ApiError(404, "User not found")
+  const d = snap.data()!
+  const role = roleFromRoleId(d.roleId)
+  if (!role || !d.username || typeof d.password !== "string") throw new ApiError(400, "This user has no login details to send")
+  const sections = effectiveSections(role, d.sections)
+  const mail = staffLoginEmail({
+    name: String(d.name || d.username), email: String(d.username), password: d.password, role_label: roleDef(role)!.label, login_url: loginUrl,
+    pages: sections === null ? null : sections.map((k) => ADMIN_SECTIONS.find((p) => p.key === k)?.label ?? k),
+  })
+  await sendMail({ to: String(d.username), ...mail })
 }
