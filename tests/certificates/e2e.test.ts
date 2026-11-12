@@ -1578,3 +1578,50 @@ test("Internship email: professional layout, safe against HTML in names", async 
   assert.ok(!m.html.includes("End date"), "no end date row when none is set"); assert.match(m.text, /Warm regards,\nDilip D\nCEO & Founder\nGenAI Labs/)
   assert.ok(!internshipEmail(o).html.includes("cid:"), "no logo reference without a logo")
 })
+
+test("Users & roles: admin creates staff with a role; each role reaches only its own sections", async () => {
+  const U = await import("../../app/api/admin/users/route"), UI = await import("../../app/api/admin/users/[id]/route")
+  const HR = await import("../../app/api/admin/hr/employees/route"), JB = await import("../../app/api/admin/jobs/auto/route"), EN = await import("../../app/api/admin/enrollments/route")
+  const RC = await import("../../lib/role-config")
+  const ad = await admin(), tc = await teacher(), jn = await john()
+  // only administrators manage users
+  for (const c of [tc, jn, undefined]) assert.ok([401, 403].includes((await call(U, "GET", "/x", { cookie: c })).status))
+  assert.equal((await call(U, "POST", "/x", { cookie: tc, body: { name: "X", email: "x@x.com", password: "secret1", role: "hr" } })).status, 403)
+  // validation
+  for (const bad of [{ name: "" }, { email: "nope" }, { password: "123" }, { role: "boss" }, { email: "john@x.com" }, { email: "admin@x.com" }])
+    assert.equal((await call(U, "POST", "/x", { cookie: ad, body: { name: "Hema HR", email: "hema@x.com", password: "secret1", role: "hr", ...bad } })).status, bad.email === "john@x.com" || bad.email === "admin@x.com" ? 409 : 400, JSON.stringify(bad))
+  // create an HR user and a placement user
+  const mk = async (name: string, email: string, role: string) => (await json(await call(U, "POST", "/x", { cookie: ad, body: { name, email, password: "secret1", role } }))).body.user
+  const hr = await mk("Hema HR", "Hema@X.com", "hr"), pl = await mk("Pia Placement", "pia@x.com", "placement")
+  assert.equal(hr.email, "hema@x.com"); assert.equal(hr.role, "hr"); assert.equal(JSON.stringify(hr).includes("secret1"), false)
+  assert.equal((await call(U, "POST", "/x", { cookie: ad, body: { name: "Dup", email: "hema@x.com", password: "secret1", role: "hr" } })).status, 409)
+  const listed = (await json(await call(U, "GET", "/x", { cookie: ad }))).body.users
+  assert.ok(listed.some((u: any) => u.email === "hema@x.com" && u.role_label === "HR Manager")); assert.equal(JSON.stringify(listed).includes("secret1"), false)
+  // they can log in, and only reach their own sections
+  const h = await login("hema@x.com", "secret1"), p = await login("pia@x.com", "secret1")
+  assert.equal((await call(HR, "GET", "/x", { cookie: h })).status, 200)
+  assert.equal((await call(JB, "GET", "/x", { cookie: h })).status, 403)
+  assert.equal((await call(EN, "GET", "/x", { cookie: h })).status, 403)
+  assert.equal((await call(JB, "GET", "/x", { cookie: p })).status, 200)
+  assert.equal((await call(HR, "GET", "/x", { cookie: p })).status, 403)
+  assert.equal((await call(U, "GET", "/x", { cookie: h })).status, 403)
+  // menus match
+  assert.deepEqual(RC.getNavigationForRole("hr").map((i) => i.name), ["Dashboard", "HR & Employees", "Notifications"])
+  assert.ok(RC.canAccessPath("placement", "/admin/job")); assert.equal(RC.canAccessPath("placement", "/admin/hr"), false); assert.equal(RC.canAccessPath("hr", "/admin/users"), false)
+  assert.ok(RC.getNavigationForRole("admin").some((i) => i.href === "/admin/users")); assert.equal(RC.getNavigationForRole("teacher").some((i) => i.href === "/admin/users"), false)
+  // change role: takes effect on the very next request; password reset; guards
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { role: "accounts" } }, { id: hr.id })).status, 200)
+  assert.equal((await call(HR, "GET", "/x", { cookie: h })).status, 401, "old session ends so the new role applies after a fresh login")
+  const h2 = await login("hema@x.com", "secret1")
+  assert.equal((await call(HR, "GET", "/x", { cookie: h2 })).status, 403); assert.equal((await call(EN, "GET", "/x", { cookie: h2 })).status, 200)
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { role: "boss" } }, { id: hr.id })).status, 400)
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { password: "123" } }, { id: hr.id })).status, 400)
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { password: "newpass1" } }, { id: hr.id })).status, 200); await login("hema@x.com", "newpass1")
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { role: "hr" } }, { id: "docAdmin" })).status, 400, "can't demote yourself")
+  assert.equal((await call(UI, "DELETE", "/x", { cookie: ad }, { id: "docAdmin" })).status, 400, "can't delete yourself")
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: ad, body: { name: "Z" } }, { id: "nope" })).status, 404)
+  // delete: access ends immediately
+  assert.equal((await call(UI, "DELETE", "/x", { cookie: ad }, { id: pl.id })).status, 200)
+  assert.equal((await call(JB, "GET", "/x", { cookie: p })).status, 401)
+  assert.equal((await call(UI, "PATCH", "/x", { cookie: tc, body: { role: "admin" } }, { id: hr.id })).status, 403)
+})

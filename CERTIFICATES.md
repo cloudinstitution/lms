@@ -134,3 +134,17 @@ Student portal → **Mock Interview**. The student picks a topic (Python, Python
 Admin → HR & Employees → **Internships**. Choose the company, enter the candidate's name and email, position, start date, duration (hours/days/weeks/months), location and **Paid** (with the monthly stipend) or **Unpaid**. An Internship ID such as `GL-INT-2026-001` (company prefix + year + running number) is given automatically and printed on the letter. The PDF follows the GenAI Labs internship letter format (logo and contact block, details of the offer, stamp and signatory, acceptance line) and is emailed to the candidate as an attachment, with the company email copied; each row can be downloaded, re-sent or deleted, and shows whether the email was sent.
 - **Email set-up:** uses the same settings as the rest of the site: `GMAIL_USER` + `GMAIL_APP_PASSWORD` (a Gmail app password), or `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` (`SMTP_PORT`, `SMTP_SECURE` optional). Without them the offer is still saved and the page says the email couldn't be sent.
 - The letter uses each company's phone, email, website, address, signatory and stamp from Admin → HR → Edit companies. Firestore rules (if the server has no service-account credentials): allow `internships`.
+
+## Users & Roles (admin)
+
+Admin → **Users & Roles** (administrators only) creates staff logins and assigns a role. Accounts live in the `admin` collection (`roleId`) and use the normal login page.
+
+| Role | roleId | Can open |
+|---|---|---|
+| Administrator | 1 | everything, incl. Users & Roles |
+| Teacher | 2 | students, courses, schedule, assessments, programming, attendance, projects… |
+| HR Manager | 3 | HR & Employees, Notifications |
+| Placement Officer | 4 | Jobs, Company Questions, Students, Certificates, Notifications |
+| Accounts / Counsellor | 5 | Enrollments (+ payment requests, course fees, consultations), Students, Notifications |
+
+Access is enforced on the server (`requireSection`) as well as in the menu. Changing a role ends that user's current session, so the new role applies after they log in again. You can't delete or demote yourself, or remove the last administrator. Roles are defined in `lib/staff-roles.ts`.

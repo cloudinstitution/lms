@@ -179,7 +179,7 @@ export interface AdminData {
   id: string;
   username: string;
   roleId: number;
-  role: 'admin' | 'teacher';
+  role: 'admin' | 'teacher' | 'hr' | 'placement' | 'accounts';
   name?: string;
   assignedCourses?: string[];
 }

@@ -94,13 +94,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   if (!isMounted || !adminData) {
     return null
   }  // Get navigation based on user role - explicitly cast to allowed role types
-  let userRole: 'admin' | 'teacher' = 'teacher'
-  
-  if (adminData.role === 'admin') {
-    userRole = 'admin'
-  } else if (adminData.roleId === 1) {
-    userRole = 'admin'
-  }
+  const userRole: string = adminData.role === 'admin' || adminData.roleId === 1 ? 'admin' : (adminData.role || 'teacher')
   
   console.log('User role for navigation:', userRole, 'Admin data:', adminData)
   const navigation = getNavigationForRole(userRole)
@@ -190,12 +184,7 @@ function AdminSidebar({ pathname, navigation }: { pathname: string, navigation: 
   // Get admin data to determine portal name based on role
   const adminData = getAdminSession();
     // Determine role from both role field and roleId
-  let role: 'admin' | 'teacher' = 'teacher';
-  if (adminData?.role === 'admin') {
-    role = 'admin';
-  } else if (adminData?.roleId === 1) {
-    role = 'admin';
-  }
+  const role: string = adminData?.role === 'admin' || adminData?.roleId === 1 ? 'admin' : (adminData?.role || 'teacher');
   
   console.log('Sidebar role:', role, 'Admin data:', adminData);
   const portalTitle = getPageTitleForRole(role);

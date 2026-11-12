@@ -13,9 +13,11 @@ import {
     LayoutDashboard,
     QrCode,
     Settings,
+    ShieldCheck,
     Users
 } from "lucide-react"
 import type React from "react"
+import { roleDef } from "./staff-roles"
 
 export interface NavigationItem {
   name: string
@@ -50,6 +52,7 @@ export const roleConfigs: Record<string, RoleConfig> = {
       { name: "Projects", href: "/admin/projects", icon: FolderCheck },
       { name: "Certificates", href: "/admin/certificates", icon: Award },
       { name: "Notifications", href: "/admin/notifications", icon: Bell },
+      { name: "Users & Roles", href: "/admin/users", icon: ShieldCheck },
       { name: "Settings", href: "/admin/settings", icon: Settings },
     ],
   },  teacher: {
@@ -71,39 +74,34 @@ export const roleConfigs: Record<string, RoleConfig> = {
   },
 }
 
+/** Admin menu items a limited role may see: the dashboard plus the sections the role was given. */
+function limitedNavigation(role: string): NavigationItem[] | null {
+  const def = roleDef(role)
+  if (!def?.sections) return null
+  return roleConfigs.admin.navigation.filter((i) => i.href === "/admin/dashboard" || def.sections!.includes(i.href.split("/")[2]))
+}
+
 /**
  * Get the navigation configuration for a specific role
  */
-export function getNavigationForRole(role: 'admin' | 'teacher' | string): NavigationItem[] {
-  // Enforce type safety by only allowing valid roles
-  const safeRole = (role === 'admin' || role === 'teacher') ? role : 'teacher';
-  return roleConfigs[safeRole].navigation;
+export function getNavigationForRole(role: string): NavigationItem[] {
+  if (role === "admin" || role === "teacher") return roleConfigs[role].navigation
+  return limitedNavigation(role) ?? roleConfigs.teacher.navigation
 }
 
 /**
  * Get the page title for a specific role
  */
-export function getPageTitleForRole(role: 'admin' | 'teacher' | string): string {
-  // Enforce type safety by only allowing valid roles
-  const safeRole = (role === 'admin' || role === 'teacher') ? role : 'teacher';
-  return roleConfigs[safeRole].pageTitle;
+export function getPageTitleForRole(role: string): string {
+  if (role === "admin" || role === "teacher") return roleConfigs[role].pageTitle
+  return roleDef(role) ? `${roleDef(role)!.label} Portal` : roleConfigs.teacher.pageTitle
 }
 
 /**
  * Check if a user with a given role can access a specific path
  */
-export function canAccessPath(role: 'admin' | 'teacher' | string, path: string): boolean {
+export function canAccessPath(role: string, path: string): boolean {
   const navigation = getNavigationForRole(role)
-  
-  // Allow access to base admin dashboard path
-  if (path === "/admin" || path === "/admin/dashboard") {
-    return true
-  }
-  
-  // Check if the path is in the role's navigation
-  return navigation.some(item => {
-    // Check exact path match or path starts with navigation href
-    // This allows for paths like /admin/students/[id] to be accessible
-    return path === item.href || path.startsWith(`${item.href}/`)
-  })
+  if (path === "/admin" || path === "/admin/dashboard") return true
+  return navigation.some((item) => path === item.href || path.startsWith(`${item.href}/`))
 }

@@ -3,6 +3,7 @@ import { SignJWT, jwtVerify } from "jose"
 import type { NextRequest } from "next/server"
 import { getDb } from "./firebase-admin"
 import { ApiError } from "./http"
+import { isStaffRole, roleFromRoleId, roleHasSection, type StaffRole } from "../staff-roles"
 
 export const SESSION_COOKIE = "lms_session"
 /** Learners (self-signup buyers) use their own cookie so signing in as a student/admin in the same browser never logs them out. */
@@ -11,7 +12,7 @@ export const LEARNER_COOKIE = "lms_learner"
 export const EMPLOYEE_COOKIE = "lms_employee"
 export const SESSION_TTL_SECONDS = 4 * 60 * 60 // matches the 4h client session in lib/session-storage.ts
 
-export type SessionRole = "student" | "admin" | "teacher" | "learner" | "employee"
+export type SessionRole = StaffRole | "student" | "learner" | "employee"
 
 export interface StudentUser {
   role: "student"
@@ -25,7 +26,7 @@ export interface StudentUser {
 }
 
 export interface StaffUser {
-  role: "admin" | "teacher"
+  role: StaffRole
   docId: string // Firestore id of the admin/{docId} document
   name: string
   email: string
@@ -136,12 +137,6 @@ export async function authenticate(username: string, password: string): Promise<
   return null
 }
 
-function roleFromRoleId(roleId: unknown): "admin" | "teacher" | null {
-  if (roleId === 1) return "admin"
-  if (roleId === 2) return "teacher"
-  return null
-}
-
 function toList(v: unknown): unknown[] {
   if (Array.isArray(v)) return v
   return v === undefined || v === null || v === "" ? [] : [v]
@@ -226,7 +221,7 @@ export async function readSessionUser(req: NextRequest, cookieName: string = SES
     const d = snap.data()!
     return { role: "employee", docId: snap.id, name: String(d.name ?? ""), email: String(d.email ?? "") }
   }
-  if (role === "admin" || role === "teacher") {
+  if (isStaffRole(role)) {
     const snap = await db.collection("admin").doc(sub).get()
     if (!snap.exists) return null
     const d = snap.data()!
@@ -266,13 +261,20 @@ export async function requireEmployee(req: NextRequest): Promise<EmployeeUser> {
 /** Admin or teacher (the people who may review projects). */
 export async function requireReviewer(req: NextRequest): Promise<StaffUser> {
   const user = await requireUser(req)
-  if (user.role === "student" || user.role === "learner" || user.role === "employee") throw new ApiError(403, "Not allowed for your role")
+  if (user.role !== "admin" && user.role !== "teacher") throw new ApiError(403, "Not allowed for your role")
   return user
 }
 
 export async function requireAdmin(req: NextRequest): Promise<StaffUser> {
   const user = await requireUser(req)
   if (user.role !== "admin") throw new ApiError(403, "Administrator access required")
+  return user
+}
+
+/** Administrator, or a staff role that has been given this admin-portal section (e.g. "hr", "job", "enrollments"). */
+export async function requireSection(req: NextRequest, section: string): Promise<StaffUser> {
+  const user = await requireUser(req)
+  if (user.role === "student" || user.role === "learner" || user.role === "employee" || !roleHasSection(user.role, section)) throw new ApiError(403, "You don't have access to this section")
   return user
 }
 

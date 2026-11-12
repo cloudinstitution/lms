@@ -1,5 +1,6 @@
 "use client"
 
+import { roleFromRoleId } from "@/lib/staff-roles"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -81,8 +82,8 @@ export default function LoginPage() {
       const adminSnapshot = await getDocs(adminQuery)      
       if (!adminSnapshot.empty) {
         const userDoc = adminSnapshot.docs[0].data()        // Check password and valid roleId (1 for admin, 2 for teacher)
-        if (userDoc.password === formData.password && (userDoc.roleId === 1 || userDoc.roleId === 2)) {          // Determine role based on roleId
-          const role: 'admin' | 'teacher' = userDoc.roleId === 1 ? 'admin' : 'teacher';
+        if (userDoc.password === formData.password && roleFromRoleId(userDoc.roleId)) {          // Determine role based on roleId
+          const role = roleFromRoleId(userDoc.roleId)!;
           
           // Store admin data
           const adminData = {
