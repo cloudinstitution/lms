@@ -92,7 +92,7 @@ Environment variables:
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Required for payments (without them "Buy now" says payments are not enabled) |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional but recommended: set the Razorpay webhook to `https://<site>/api/payments/webhook` (events `payment.captured`, `order.paid`) so a course is granted even if the buyer closes the tab right after paying |
 
-If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `internships`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
+If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `internships`, `vtu_internships`, `hr_settings`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
 
 ### Paying through a Razorpay.me page (no API keys)
 
@@ -152,3 +152,9 @@ Access is enforced on the server (`requireSection`) as well as in the menu. Chan
 **Per-page access:** when creating a user (or later via the **Pages** button on the user's row) tick exactly which pages they can open; the role only provides the starting selection. Changing a user's role resets their pages to the new role's default. Administrators always have every page. HR, Jobs, Enrollments (with payment requests, course fees, consultations) and Certificates are enforced on the server too; the other pages are limited in the menu and by the page guard in the admin layout.
 
 **Login email:** creating a user emails them their login page, email, password, role and pages (untick "Email the login details" to skip). If the email can't be sent the account is still created and you're told why; use **Email login** on the user's row to resend. It uses the same `GMAIL_USER` + `GMAIL_APP_PASSWORD` (or SMTP) setup as the internship letters, and the link uses `NEXT_PUBLIC_SITE_URL` when set.
+
+## VTU internship offer letters (admin → HR → "VTU Internship" tab)
+
+For students who join through the VTU Internship Portal. Enter the student (name, email, optional USN/college), program, weeks (default 15), offer date and coordinator; a one-page **Internship Offer Letter** in the Cloud Institution format is generated (with the HOD / Faculty authorization block to sign and seal) and emailed as a PDF. Each offer gets an ID like `CI-VTU-2026-001`.
+
+**Custom email draft:** the tab has an editable subject + message. `{name}`, `{program}`, `{weeks}`, `{date}`, `{id}`, `{coordinator}` fill in per student. Edit it for one send, **Save as default** to keep it for future students, or **Reset to built-in**. The draft used is stored on each offer, so **Resend** repeats the same email; **Email** shows exactly what a student received. Stored in Firestore collections `vtu_internships` and `hr_settings` (allow both if you don't use service-account credentials). Uses the same email setup as the other letters.

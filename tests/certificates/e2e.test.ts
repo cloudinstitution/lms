@@ -1683,3 +1683,57 @@ test("Users & roles: the new user is emailed their login details (resend, opt-ou
   } finally { M.setMailSender(null) }
 })
 
+
+test("VTU internships: letter PDF, custom email draft (saved default / per-student edits), emailed with the PDF, resend, validation, access", async () => {
+  const V = await import("../../app/api/admin/hr/vtu/route"), VI = await import("../../app/api/admin/hr/vtu/[id]/route"), VP = await import("../../app/api/admin/hr/vtu/[id]/pdf/route")
+  const VS = await import("../../app/api/admin/hr/vtu/[id]/send/route"), VV = await import("../../app/api/admin/hr/vtu/[id]/preview/route"), VT = await import("../../app/api/admin/hr/vtu/template/route")
+  const M = await import("../../lib/server/mailer")
+  const ad = await admin(), jn = await john()
+  const sent: any[] = []; let fail = false
+  M.setMailSender(async (m) => { if (fail) throw new Error("smtp down"); sent.push(m) })
+  const base = { candidate_name: "Varshitha K", candidate_email: "Varshitha@Example.com", usn: "1ve22cs101", college: "VTU Bengaluru", program: "Data Analytics", weeks: 15, offer_date: "2026-11-12" }
+  try {
+    assert.equal((await call(V, "GET", "/x", { cookie: jn })).status, 403); assert.equal((await call(V, "POST", "/x", { body: base })).status, 401)
+    for (const bad of [{ candidate_name: "" }, { candidate_email: "nope" }, { program: "" }, { weeks: 0 }, { weeks: 99 }, { weeks: 1.5 }, { offer_date: "bad" }, { mail_subject: "", mail_body: "x" }, { mail_subject: "s", mail_body: "  " }])
+      assert.equal((await call(V, "POST", "/x", { cookie: ad, body: { ...base, ...bad } })).status, 400, JSON.stringify(bad))
+    assert.equal(sent.length, 0)
+
+    // built-in draft by default
+    const t0 = (await json(await call(VT, "GET", "/x", { cookie: ad }))).body.template
+    assert.equal(t0.saved, false); assert.match(t0.body, /\{name\}/)
+    const r = await json(await call(V, "POST", "/x", { cookie: ad, body: base })); assert.equal(r.status, 201)
+    const a = r.body.offer
+    assert.equal(a.vtu_id, "CI-VTU-2026-001"); assert.equal(a.usn, "1VE22CS101"); assert.equal(a.candidate_email, "varshitha@example.com"); assert.equal(a.coordinator_name, "Poornima")
+    assert.equal(sent.length, 1); const m = sent[0]
+    assert.equal(m.to, "varshitha@example.com"); assert.match(m.subject, /Data Analytics/)
+    assert.ok(m.text.includes("Dear Varshitha K") && m.text.includes("15-week") && m.text.includes("Poornima"), m.text)
+    const pdf = m.attachments.find((x: any) => x.contentType === "application/pdf"); assert.ok(pdf && pdf.content.length > 3000 && pdf.filename.includes("CI-VTU-2026-001") && pdf.content.slice(0, 4).toString() === "%PDF")
+
+    // save a custom default draft → used for the next student; per-student edits don't change the default
+    assert.equal((await call(VT, "PUT", "/x", { cookie: ad, body: { subject: "", body: "x" } })).status, 400)
+    assert.equal((await call(VT, "PUT", "/x", { cookie: jn, body: { subject: "s", body: "b" } })).status, 403)
+    assert.equal((await call(VT, "PUT", "/x", { cookie: ad, body: { subject: "Hello {name} – {program}", body: "Hi {name},\\n\\nYour {weeks} weeks of {program} start soon. <b>Ref {id}</b> {unknown}\\n\\n{coordinator}" } })).status, 200)
+    const r2 = await json(await call(V, "POST", "/x", { cookie: ad, body: { ...base, candidate_name: "Asha <i>", candidate_email: "asha@example.com", program: "DevOps", weeks: 12 } }))
+    assert.equal(r2.body.offer.vtu_id, "CI-VTU-2026-002"); const m2 = sent[1]
+    assert.equal(m2.subject, "Hello Asha <i> – DevOps"); assert.ok(m2.text.includes("Your 12 weeks of DevOps") && m2.text.includes("{unknown}") && m2.text.includes("Ref CI-VTU-2026-002"))
+    assert.ok(m2.html.includes("Asha &lt;i&gt;") && m2.html.includes("&lt;b&gt;Ref") && !m2.html.includes("<b>Ref"), "HTML-escaped")
+    const r3 = await json(await call(V, "POST", "/x", { cookie: ad, body: { ...base, candidate_email: "x@example.com", mail_subject: "One-off for {name}", mail_body: "Only for {name}." } }))
+    assert.equal(sent[2].subject, "One-off for Varshitha K"); assert.equal(sent[2].text, "Only for Varshitha K.")
+    assert.equal((await json(await call(VT, "GET", "/x", { cookie: ad }))).body.template.subject, "Hello {name} – {program}", "default unchanged by a one-off edit")
+    assert.equal((await call(VT, "PUT", "/x", { cookie: ad, body: { reset: true } })).status, 200); assert.equal((await json(await call(VT, "GET", "/x", { cookie: ad }))).body.template.saved, false)
+
+    // opt out, failure, resend, preview, pdf, list, delete
+    const q = await json(await call(V, "POST", "/x", { cookie: ad, body: { ...base, candidate_email: "q@example.com", send_email: false } })); assert.equal(q.body.email.skipped, true); assert.equal(sent.length, 3)
+    fail = true
+    const f = await json(await call(V, "POST", "/x", { cookie: ad, body: { ...base, candidate_email: "f@example.com" } })); assert.equal(f.status, 201); assert.equal(f.body.email.sent, false); assert.equal(f.body.offer.email_status, "failed")
+    fail = false
+    const id = f.body.offer.id
+    assert.equal((await call(VS, "POST", "/x", { cookie: ad, body: { mail_subject: "Edited {name}", mail_body: "Edited body" } }, { id })).status, 200); assert.equal(sent[3].subject, "Edited Varshitha K")
+    assert.equal((await call(VS, "POST", "/x", { cookie: ad }, { id })).status, 200); assert.equal(sent[4].subject, "Edited Varshitha K", "resend repeats the stored draft")
+    assert.equal((await call(VS, "POST", "/x", { cookie: ad }, { id: "nope" })).status, 404); assert.equal((await call(VS, "POST", "/x", { cookie: jn }, { id })).status, 403)
+    const pv = (await json(await call(VV, "GET", "/x", { cookie: ad }, { id }))).body; assert.equal(pv.text, "Edited body")
+    const pr = await call(VP, "GET", "/x", { cookie: ad }, { id }); assert.equal(pr.status, 200); assert.equal(pr.headers.get("content-type"), "application/pdf"); assert.equal((await call(VP, "GET", "/x", { cookie: jn }, { id })).status, 403)
+    const list = (await json(await call(V, "GET", "/x", { cookie: ad }))).body.offers; assert.equal(list.length, 5); assert.equal(list.find((o: any) => o.id === id).email_status, "sent")
+    assert.equal((await call(VI, "DELETE", "/x", { cookie: jn }, { id })).status, 403); assert.equal((await call(VI, "DELETE", "/x", { cookie: ad }, { id })).status, 200); assert.equal((await call(VI, "DELETE", "/x", { cookie: ad }, { id })).status, 404)
+  } finally { M.setMailSender(null) }
+})

@@ -8,6 +8,7 @@ import { ApiFailure, api } from "@/lib/certificate-client"
 import { Download, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
+import VtuTab from "./vtu-tab"
 
 const todayIst = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
 const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.message : "Something went wrong")
@@ -205,7 +206,7 @@ export default function HrPage() {
       </div>
 
       <Tabs defaultValue="employees">
-        <TabsList className="flex-wrap"><TabsTrigger value="employees">Employees</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="holidays">Holidays</TabsTrigger><TabsTrigger value="payslips">Payslips</TabsTrigger><TabsTrigger value="offers">Offer letters</TabsTrigger><TabsTrigger value="internships">Internships</TabsTrigger></TabsList>
+        <TabsList className="flex-wrap"><TabsTrigger value="employees">Employees</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="holidays">Holidays</TabsTrigger><TabsTrigger value="payslips">Payslips</TabsTrigger><TabsTrigger value="offers">Offer letters</TabsTrigger><TabsTrigger value="internships">Internships</TabsTrigger><TabsTrigger value="vtu">VTU Internship</TabsTrigger></TabsList>
 
         <TabsContent value="employees" className="space-y-4">
           <Card>
@@ -519,6 +520,8 @@ export default function HrPage() {
             </table>
           </div>
         </TabsContent>
+
+        <TabsContent value="vtu"><VtuTab /></TabsContent>
       </Tabs>
     </div>
   )
