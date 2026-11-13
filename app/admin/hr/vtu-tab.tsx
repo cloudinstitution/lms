@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiFailure, api } from "@/lib/certificate-client"
 import { VTU_PLACEHOLDERS, fillVtuTemplate } from "@/lib/server/vtu-email"
-import { Download, Eye, Mail, Trash2 } from "lucide-react"
+import { parseStudentSheet, type SheetProblem, type SheetStudent } from "@/lib/vtu-sheet"
+import { Download, Eye, FileSpreadsheet, Mail, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -26,6 +27,8 @@ export default function VtuTab() {
   const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
   const [q, setQ] = useState("")
+  const [sheet, setSheet] = useState<{ file: string; students: SheetStudent[]; problems: SheetProblem[]; picked: Set<string>; headerFound: boolean } | null>(null)
+  const [progress, setProgress] = useState<{ done: number; total: number; failed: { name: string; error: string }[]; emailFailed: number } | null>(null)
   const [viewing, setViewing] = useState<{ id: string; subject: string; text: string } | null>(null)
 
   const load = useCallback(async () => {
@@ -67,6 +70,48 @@ export default function VtuTab() {
   }
   const remove = async (o: any) => { if (!confirm(`Delete VTU offer ${o.vtu_id} for ${o.candidate_name}?`)) return; try { await api(`/api/admin/hr/vtu/${o.id}`, { method: "DELETE" }); load() } catch (e) { toast.error(err(e)) } }
 
+  const existing = new Set(offers.filter((o) => o.program === program).map((o) => String(o.candidate_email).toLowerCase()))
+  const readSheet = async (file: File) => {
+    try {
+      const XLSX = await import("xlsx")
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const grid = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" }) as unknown[][]
+      const r = parseStudentSheet(grid)
+      if (r.students.length === 0 && r.problems.length === 0) return toast.error("That file looks empty")
+      setSheet({ file: file.name, ...r, picked: new Set(r.students.filter((x) => !existing.has(x.email)).map((x) => x.email)) })
+      setProgress(null)
+    } catch { toast.error("Couldn't read that file. Use an .xlsx, .xls or .csv with Name and Email columns.") }
+  }
+  const downloadSample = async () => {
+    const XLSX = await import("xlsx")
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Name", "Email", "USN", "College"], ["Student One", "student.one@gmail.com", "1VE22CS001", "ABC Engineering College"], ["Student Two", "student.two@gmail.com", "1VE22CS002", "ABC Engineering College"]]), "Students")
+    XLSX.writeFile(wb, "VTU-students-sample.xlsx")
+  }
+  const bulkCreate = async () => {
+    if (!sheet) return
+    if (!program) return toast.error("Choose the program above first")
+    const list = sheet.students.filter((x) => sheet.picked.has(x.email))
+    if (list.length === 0) return toast.error("Tick at least one student")
+    if (f.send_email && !confirm(`Create ${list.length} offer letters and email each student now?`)) return
+    setBusy(true); setProgress({ done: 0, total: list.length, failed: [], emailFailed: 0 })
+    const failed: { name: string; error: string }[] = []; let emailFailed = 0
+    for (let i = 0; i < list.length; i++) {
+      const st = list[i]
+      try {
+        const d = await api("/api/admin/hr/vtu", { method: "POST", body: { ...f, program, candidate_name: st.name, candidate_email: st.email, usn: st.usn || f.usn, college: st.college || f.college, mail_subject: subject, mail_body: body } })
+        if (f.send_email && !d.email?.sent) emailFailed++
+      } catch (e) { failed.push({ name: st.name, error: err(e) }) }
+      setProgress({ done: i + 1, total: list.length, failed: [...failed], emailFailed })
+    }
+    setBusy(false); load()
+    const ok = list.length - failed.length
+    if (failed.length === 0 && emailFailed === 0) toast.success(`${ok} offer letter${ok === 1 ? "" : "s"} created${f.send_email ? " and emailed" : ""}`)
+    else toast.warning(`${ok} created. ${failed.length ? `${failed.length} could not be created. ` : ""}${emailFailed ? `${emailFailed} emails failed — use Send in the list below to retry.` : ""}`, { duration: 12000 })
+    setSheet(null)
+  }
+
   const shown = offers.filter((o) => { const hay = [o.vtu_id, o.candidate_name, o.candidate_email, o.usn, o.college, o.program].join(" ").toLowerCase(); return words(q).every((w) => hay.includes(w)) })
 
   return (
@@ -107,6 +152,52 @@ export default function VtuTab() {
 
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.send_email} onChange={(e) => setF({ ...f, send_email: e.target.checked })} />Email the letter to the student now</label>
           <Button onClick={create} disabled={busy}>{busy ? "Creating…" : f.send_email ? "Create & email offer letter" : "Create offer letter"}</Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Upload a sheet of students</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">Upload an Excel (.xlsx, .xls) or CSV file with a <b>Name</b> and an <b>Email</b> column (USN and College are optional). Every student gets a letter using the program, weeks, date, coordinator and email draft set above.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
+              <FileSpreadsheet className="h-4 w-4" />Choose Excel / CSV file
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={busy} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) readSheet(file) }} />
+            </label>
+            <Button size="sm" variant="ghost" onClick={downloadSample}><Download className="mr-1 h-4 w-4" />Sample sheet</Button>
+          </div>
+          {sheet && (
+            <div className="space-y-3">
+              <div className="text-sm"><b>{sheet.file}</b>: {sheet.students.length} student{sheet.students.length === 1 ? "" : "s"} found{sheet.problems.length ? `, ${sheet.problems.length} row${sheet.problems.length === 1 ? "" : "s"} skipped` : ""}.{!sheet.headerFound && " (No Name/Email headings found — guessed the columns, please check.)"}</div>
+              {sheet.students.length > 0 && (
+                <div className="max-h-72 overflow-auto rounded-md border">
+                  <table className="w-full text-left text-sm">
+                    <thead className="sticky top-0 bg-muted"><tr><th className="px-3 py-2"><input type="checkbox" aria-label="Select all" checked={sheet.students.every((x) => sheet.picked.has(x.email))} onChange={(e) => setSheet({ ...sheet, picked: new Set(e.target.checked ? sheet.students.map((x) => x.email) : []) })} /></th>{["Name", "Email", "USN", "College", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
+                    <tbody>{sheet.students.map((x) => (
+                      <tr key={x.email} className="border-t">
+                        <td className="px-3 py-1.5"><input type="checkbox" aria-label={`Select ${x.name}`} checked={sheet.picked.has(x.email)} onChange={() => { const n = new Set(sheet.picked); n.has(x.email) ? n.delete(x.email) : n.add(x.email); setSheet({ ...sheet, picked: n }) }} /></td>
+                        <td className="px-3 py-1.5">{x.name}</td><td className="px-3 py-1.5">{x.email}</td><td className="px-3 py-1.5">{x.usn}</td><td className="px-3 py-1.5">{x.college}</td>
+                        <td className="px-3 py-1.5 text-xs text-amber-600">{existing.has(x.email) ? `Already has a ${program} offer` : ""}</td>
+                      </tr>))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {sheet.problems.length > 0 && <details className="text-sm"><summary className="cursor-pointer text-amber-600">{sheet.problems.length} skipped row{sheet.problems.length === 1 ? "" : "s"}</summary><ul className="mt-1 list-disc pl-5 text-muted-foreground">{sheet.problems.map((p) => <li key={p.row}>Row {p.row}: {p.reason}{p.text ? ` (${p.text})` : ""}</li>)}</ul></details>}
+              <div className="flex flex-wrap items-center gap-3">
+                <Button onClick={bulkCreate} disabled={busy || sheet.picked.size === 0}>{busy ? "Working…" : `${f.send_email ? "Create & email" : "Create"} ${sheet.picked.size} offer letter${sheet.picked.size === 1 ? "" : "s"}`}</Button>
+                <Button variant="ghost" onClick={() => setSheet(null)} disabled={busy}>Cancel</Button>
+                <span className="text-xs text-muted-foreground">Program: {program || "— choose above"} · {f.weeks} weeks · {f.send_email ? "emails are sent now" : "not emailed"}</span>
+              </div>
+            </div>
+          )}
+          {progress && (
+            <div className="space-y-1 text-sm">
+              <div className="h-2 w-full overflow-hidden rounded bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
+              <div>{progress.done} of {progress.total} done{progress.failed.length ? ` · ${progress.failed.length} failed` : ""}{progress.emailFailed ? ` · ${progress.emailFailed} emails not sent` : ""}</div>
+              {progress.failed.map((x, i) => <div key={i} className="text-xs text-red-600">{x.name}: {x.error}</div>)}
+            </div>
+          )}
         </CardContent>
       </Card>
 

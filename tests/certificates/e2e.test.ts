@@ -1737,3 +1737,24 @@ test("VTU internships: letter PDF, custom email draft (saved default / per-stude
     assert.equal((await call(VI, "DELETE", "/x", { cookie: jn }, { id })).status, 403); assert.equal((await call(VI, "DELETE", "/x", { cookie: ad }, { id })).status, 200); assert.equal((await call(VI, "DELETE", "/x", { cookie: ad }, { id })).status, 404)
   } finally { M.setMailSender(null) }
 })
+
+test("VTU sheet upload: finds Name/Email columns by heading (any order/wording), guesses without headings, reports bad and repeated rows", async () => {
+  const { parseStudentSheet } = await import("../../lib/vtu-sheet")
+  const XLSX = await import("xlsx")
+  // a real .xlsx round-trip, columns in an unusual order with different wording and blank lines
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["S.No", "Student Email ID", "Name of the Student", "USN", "College Name"], [1, " Asha.K@Gmail.com ", "Asha  K", "1ve22cs001", "ABC College"], [], [2, "bob@x.com", "Bob", "", ""], [3, "not-an-email", "Cara", "", ""], [4, "bob@X.com", "Bob again", "", ""], [5, "", "NoMail", "", ""], [6, "dan@x.com", "", "", ""]]), "Sheet1")
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" })
+  const grid = XLSX.utils.sheet_to_json(XLSX.read(buf, { type: "buffer" }).Sheets["Sheet1"], { header: 1, raw: false, defval: "" }) as unknown[][]
+  const r = parseStudentSheet(grid)
+  assert.equal(r.headerFound, true)
+  assert.deepEqual(r.students.map((s) => [s.name, s.email, s.usn, s.college]), [["Asha K", "asha.k@gmail.com", "1ve22cs001", "ABC College"], ["Bob", "bob@x.com", "", ""]])
+  assert.deepEqual(r.problems.map((p) => p.reason).sort(), ["No email", "No name", "Not a valid email", "Repeated email in the file"])
+  // no headings at all: the column of addresses is the email, the other text column the name
+  const g = parseStudentSheet([["Priya S", "priya@x.com"], ["Ravi", "ravi@x.com"]])
+  assert.equal(g.headerFound, false); assert.deepEqual(g.students.map((s) => [s.name, s.email]), [["Priya S", "priya@x.com"], ["Ravi", "ravi@x.com"]])
+  // headings with only an email column → every row is reported as missing a name; nothing at all → empty; no email column → explained
+  assert.equal(parseStudentSheet([["Email"], ["a@x.com"]]).problems[0].reason, "No name")
+  assert.deepEqual(parseStudentSheet([[], [""]]), { students: [], problems: [], headerFound: false })
+  assert.match(parseStudentSheet([["Name"], ["Zed"]]).problems[0].reason, /email column/i)
+})
