@@ -22,11 +22,31 @@ export default function EmployeeDashboard() {
   const [data, setData] = useState<any>(null)
   const [lv, setLv] = useState({ from: todayIst(), to: "", type: "Casual", reason: "", half_day: false })
   const [slip, setSlip] = useState<any>(null)
+  const [marking, setMarking] = useState(false)
+  const [markMsg, setMarkMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [slipMonth, setSlipMonth] = useState(todayIst().slice(0, 7))
 
   const load = useCallback(() => api(`/api/employee/me?month=${month}`).then(setData).catch(() => router.replace("/login")), [month, router])
   useEffect(() => { load() }, [load])
 
+  const markAttendance = () => {
+    if (!navigator.geolocation) return setMarkMsg({ ok: false, text: "This browser can't share its location. Please use your phone or another browser." })
+    setMarking(true); setMarkMsg(null)
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const r = await api("/api/employee/attendance", { body: { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy } })
+        const away = r.distance_m >= 1000 ? `${(r.distance_m / 1000).toFixed(1)} km` : `${r.distance_m} m`
+        if (r.kept === "admin") setMarkMsg({ ok: r.status === "Present", text: `Today's attendance was already recorded by your admin as ${r.status}.` })
+        else if (r.kept === "already") setMarkMsg({ ok: true, text: "You're already marked Present today." })
+        else if (r.status === "Present") { setMarkMsg({ ok: true, text: `Marked Present — you are ${away} from the office.` }); toast.success("Attendance marked: Present") }
+        else { setMarkMsg({ ok: false, text: `You are ${away} from the office (allowed: ${r.radius_m} m), so today is marked Absent. If you reach the office, tap the button again.` }); toast.warning("Marked Absent — you're away from the office") }
+        load()
+      } catch (e: any) { setMarkMsg({ ok: false, text: e?.message || "Could not mark attendance" }) } finally { setMarking(false) }
+    }, (e) => {
+      setMarking(false)
+      setMarkMsg({ ok: false, text: e.code === 1 ? "Location access is blocked. Allow location for this site in your browser settings, then try again. (Nothing was recorded.)" : "Couldn't get your location. Turn on GPS / location, then try again. (Nothing was recorded.)" })
+    }, { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 })
+  }
   const logout = async () => { await fetch("/api/employee/logout", { method: "POST", credentials: "same-origin" }).catch(() => {}); router.push("/") }
   const apply = async () => {
     try { await api("/api/employee/leaves", { body: { ...lv, to: lv.to || lv.from } }); toast.success("Leave request sent for approval"); setLv({ ...lv, reason: "", to: "" }); load() } catch (e: any) { toast.error(e?.message || "Could not send the request") }
@@ -90,13 +110,25 @@ export default function EmployeeDashboard() {
           </TabsContent>
 
           <TabsContent value="attendance" className="space-y-3">
+            <Card>
+              <CardHeader><CardTitle className="text-base">Today's attendance</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button onClick={markAttendance} disabled={marking || !data.office.configured || data.today.status === "Present"} className="bg-emerald-600 hover:bg-emerald-700">{marking ? "Checking your location…" : data.today.status === "Present" ? "Marked Present today" : "Mark my attendance"}</Button>
+                  {data.today.status && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${pill(data.today.status)}`}>Today: {data.today.status}{data.today.distance_m != null ? ` · ${data.today.distance_m} m from office` : ""}</span>}
+                </div>
+                {!data.office.configured && <p className="text-sm text-amber-700">Your office location hasn't been set up yet, so you can't mark attendance yet. Please ask your admin.</p>}
+                {markMsg && <p className={`text-sm ${markMsg.ok ? "text-emerald-700" : "text-red-600"}`}>{markMsg.text}</p>}
+                <p className="text-xs text-muted-foreground">Tap the button while you are at the office and allow location access. Within {data.office.radius_m} m of the office you are marked Present; from further away you are marked Absent. Your location is used only to check this distance.</p>
+              </CardContent>
+            </Card>
             <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="w-44" />
             <div className="overflow-x-auto rounded-md border bg-white">
               <table className="w-full text-left text-sm">
-                <thead className="border-b bg-muted/50"><tr><th className="px-3 py-2 font-medium">Date</th><th className="px-3 py-2 font-medium">Day</th><th className="px-3 py-2 font-medium">Status</th></tr></thead>
+                <thead className="border-b bg-muted/50"><tr><th className="px-3 py-2 font-medium">Date</th><th className="px-3 py-2 font-medium">Day</th><th className="px-3 py-2 font-medium">Status</th><th className="px-3 py-2 font-medium">How</th></tr></thead>
                 <tbody>
-                  {data.attendance.length === 0 && <tr><td colSpan={3} className="px-3 py-6 text-center text-muted-foreground">No attendance marked for this month yet.</td></tr>}
-                  {data.attendance.map((a: any) => <tr key={a.date} className="border-b last:border-0"><td className="px-3 py-2">{a.date}</td><td className="px-3 py-2">{new Date(a.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long" })}</td><td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${pill(a.status)}`}>{a.status}</span></td></tr>)}
+                  {data.attendance.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">No attendance marked for this month yet.</td></tr>}
+                  {data.attendance.map((a: any) => <tr key={a.date} className="border-b last:border-0"><td className="px-3 py-2">{a.date}</td><td className="px-3 py-2">{new Date(a.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long" })}</td><td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${pill(a.status)}`}>{a.status}</span></td><td className="px-3 py-2 text-xs text-muted-foreground">{a.self ? `Self check-in${a.distance_m != null ? ` · ${a.distance_m} m from office` : ""}` : "Recorded by admin"}</td></tr>)}
                 </tbody>
               </table>
             </div>

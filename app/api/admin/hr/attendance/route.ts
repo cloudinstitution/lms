@@ -3,12 +3,12 @@ import { readJson, withApi } from "@/lib/server/http"
 import { attendanceForDate, attendanceSummary, saveAttendance } from "@/lib/server/hr-service"
 import { assertSameOrigin, requireSection } from "@/lib/server/session"
 
-/** GET ?date=2026-11-05 → { records: {employee_id: status} }; GET ?month=2026-11 → monthly totals. */
+/** GET ?date=2026-11-05 → { records: {employee_id: status}, details: { employee_id: {source:"self", distance_m, away} } }; GET ?month=2026-11 → monthly totals. */
 export const GET = withApi(async (req) => {
   await requireSection(req, "hr")
   const q = new URL(req.url).searchParams
   if (q.get("month")) return NextResponse.json({ summary: await attendanceSummary(q.get("month")!) })
-  return NextResponse.json({ records: await attendanceForDate(q.get("date") ?? "") })
+  return NextResponse.json(await attendanceForDate(q.get("date") ?? ""))
 })
 
 /** POST { date, records: [{ employee_id, status }] } */

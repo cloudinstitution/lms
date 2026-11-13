@@ -1758,3 +1758,72 @@ test("VTU sheet upload: finds Name/Email columns by heading (any order/wording),
   assert.deepEqual(parseStudentSheet([[], [""]]), { students: [], problems: [], headerFound: false })
   assert.match(parseStudentSheet([["Name"], ["Zed"]]).problems[0].reason, /email column/i)
 })
+
+test("Employee attendance: self check-in by location — Present at the office, Absent away, no record on a bad fix; Sunday/holiday/leave/admin days are left alone", async () => {
+  const H = {
+    emps: await import("../../app/api/admin/hr/employees/route"), cos: await import("../../app/api/admin/hr/companies/route"), hol: await import("../../app/api/admin/hr/holidays/route"),
+    leaves: await import("../../app/api/admin/hr/leaves/route"), att: await import("../../app/api/admin/hr/attendance/route"),
+    login: await import("../../app/api/employee/login/route"), me: await import("../../app/api/employee/me/route"), mark: await import("../../app/api/employee/attendance/route"),
+  }
+  const { distanceMeters } = await import("../../lib/geo")
+  const ad = await admin(), jn = await john()
+  const mkEmp = async (name: string, email: string) => (await json(await call(H.emps, "POST", "/x", { cookie: ad, body: { name, email, password: "longenough1" } }))).body.employee
+  const kiran = await mkEmp("Kiran", "kiran@x.com"), meera = await mkEmp("Meera", "meera@x.com")
+  const empLogin = async (email: string) => (await call(H.login, "POST", "/x", { body: { email, password: "longenough1" } })).headers.get("set-cookie")!.split(";")[0]
+  const k = await empLogin("kiran@x.com"), m = await empLogin("meera@x.com")
+  const OFFICE = { lat: 12.9175, lng: 77.6238 }
+  const metresNorth = (n: number) => ({ lat: OFFICE.lat + n / 111195, lng: OFFICE.lng })
+  assert.ok(Math.abs(distanceMeters(OFFICE, metresNorth(1000)) - 1000) < 5)
+  const realNow = Date.now
+  const at = (iso: string) => { Date.now = () => Date.parse(iso) }
+  try {
+    at("2026-11-11T04:30:00Z") // Wednesday 10:00 IST
+    const pos = (n: number, accuracy = 20) => ({ ...metresNorth(n), accuracy })
+    assert.equal((await call(H.mark, "POST", "/x", { body: pos(0) })).status, 401); assert.equal((await call(H.mark, "POST", "/x", { cookie: jn, body: pos(0) })).status, 401, "students can't use it")
+    // office not set up yet → nothing recorded
+    assert.equal((await call(H.mark, "POST", "/x", { cookie: k, body: pos(0) })).status, 409)
+    assert.equal((await json(await call(H.me, "GET", "/x", { cookie: k }))).body.office.configured, false)
+    // admin sets the office (validated)
+    const co = { id: "cloud-insthire", name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["Bengaluru"] }
+    for (const bad of [{ office_lat: 12.9 }, { office_lat: 95, office_lng: 77 }, { office_lat: 12, office_lng: 200 }, { office_lat: "x", office_lng: 77 }, { office_lat: 12.9, office_lng: 77.6, office_radius_m: 5 }, { office_lat: 12.9, office_lng: 77.6, office_radius_m: 9000 }])
+      assert.equal((await call(H.cos, "POST", "/x", { cookie: ad, body: { ...co, ...bad } })).status, 400, JSON.stringify(bad))
+    assert.equal((await call(H.cos, "POST", "/x", { cookie: ad, body: { ...co, office_lat: OFFICE.lat, office_lng: OFFICE.lng, office_radius_m: 150 } })).status, 200)
+    const cfg = (await json(await call(H.cos, "GET", "/x", { cookie: ad }))).body.companies.find((c: any) => c.id === "cloud-insthire")
+    assert.deepEqual([cfg.office_lat, cfg.office_lng, cfg.office_radius_m], [OFFICE.lat, OFFICE.lng, 150])
+    // saving the company again without the office fields keeps them
+    await call(H.cos, "POST", "/x", { cookie: ad, body: co }); assert.equal((await json(await call(H.cos, "GET", "/x", { cookie: ad }))).body.companies.find((c: any) => c.id === "cloud-insthire").office_lat, OFFICE.lat)
+    const today = async (c: string) => (await json(await call(H.me, "GET", "/x", { cookie: c }))).body.today
+
+    // unusable positions
+    for (const bad of [{}, { lat: "x", lng: 1 }, { lat: 120, lng: 1 }, { lat: 1, lng: 400 }]) assert.equal((await call(H.mark, "POST", "/x", { cookie: k, body: bad })).status, 400, JSON.stringify(bad))
+    // a vague fix that could still be inside the office → asked to retry, nothing recorded
+    assert.equal((await call(H.mark, "POST", "/x", { cookie: k, body: pos(300, 600) })).status, 422); assert.equal((await today(k)).status, null)
+    // away from the office → Absent, with the distance
+    const away = await json(await call(H.mark, "POST", "/x", { cookie: k, body: pos(2000) })); assert.equal(away.status, 200)
+    assert.equal(away.body.status, "Absent"); assert.equal(away.body.within, false); assert.ok(Math.abs(away.body.distance_m - 2000) < 10)
+    assert.deepEqual([(await today(k)).status, (await today(k)).self], ["Absent", true])
+    // reaches the office later the same day → upgraded to Present; just outside the radius is still away; inside is present
+    assert.equal((await json(await call(H.mark, "POST", "/x", { cookie: k, body: pos(160) }))).body.status, "Absent")
+    const ok = await json(await call(H.mark, "POST", "/x", { cookie: k, body: pos(120) })); assert.equal(ok.body.status, "Present"); assert.equal(ok.body.within, true)
+    // a Present is never downgraded by a later check from elsewhere
+    const again = await json(await call(H.mark, "POST", "/x", { cookie: k, body: pos(5000) })); assert.equal(again.body.status, "Present"); assert.equal(again.body.kept, "already")
+    assert.equal((await today(k)).status, "Present")
+    const day = (await json(await call(H.att, "GET", "/x?date=2026-11-11", { cookie: ad }))).body
+    assert.equal(day.records[kiran.id], "Present"); assert.equal(day.details[kiran.id].source, "self"); assert.equal(day.details[kiran.id].away, false)
+    const mine = (await json(await call(H.me, "GET", "/x", { cookie: k }))).body.attendance.find((a: any) => a.date === "2026-11-11"); assert.equal(mine.self, true)
+
+    // a day the admin already recorded is not overwritten
+    assert.equal((await call(H.att, "POST", "/x", { cookie: ad, body: { date: "2026-11-11", records: [{ employee_id: meera.id, status: "Half day" }] } })).status, 200)
+    const kept = await json(await call(H.mark, "POST", "/x", { cookie: m, body: pos(0) })); assert.equal(kept.body.status, "Half day"); assert.equal(kept.body.kept, "admin")
+    assert.equal((await json(await call(H.att, "GET", "/x?date=2026-11-11", { cookie: ad }))).body.records[meera.id], "Half day")
+
+    // Sunday, holiday and approved leave: refused, nothing recorded
+    at("2026-11-15T04:30:00Z"); assert.equal((await call(H.mark, "POST", "/x", { cookie: m, body: pos(0) })).status, 400)
+    assert.equal((await call(H.hol, "POST", "/x", { cookie: ad, body: { date: "2026-11-12", name: "Founders Day" } })).status, 201)
+    at("2026-11-12T04:30:00Z"); const hd = await json(await call(H.mark, "POST", "/x", { cookie: m, body: pos(0) })); assert.equal(hd.status, 400); assert.match(hd.body.error, /Founders Day/)
+    assert.equal((await call(H.leaves, "POST", "/x", { cookie: ad, body: { employee_id: meera.id, from: "2026-11-13", to: "2026-11-13", type: "Casual", status: "Approved" } })).status, 201)
+    at("2026-11-13T04:30:00Z"); const ls = await json(await call(H.mark, "POST", "/x", { cookie: m, body: pos(0) })); assert.equal(ls.status, 400); assert.match(ls.body.error, /approved leave/i)
+    assert.equal((await json(await call(H.att, "GET", "/x?date=2026-11-13", { cookie: ad }))).body.records[meera.id], undefined)
+    assert.equal((await json(await call(H.att, "GET", "/x?date=2026-11-15", { cookie: ad }))).body.records[meera.id], undefined)
+  } finally { Date.now = realNow }
+})

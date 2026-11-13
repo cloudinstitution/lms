@@ -25,7 +25,7 @@ const matchesQuery = (q: string, ...fields: unknown[]) => {
 
 const blankEmp = { company_id: "cloud-insthire", emp_id: "", name: "", email: "", phone: "", designation: "", department: "", location: "", joined_on: "", basic: "", hra: "", special_allowance: "", medical_allowance: "", conveyance: "", cca: "", professional_tax: "", other_deductions: "", password: "" }
 
-function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[]; signatory?: string; signatory_title?: string; phone?: string; email?: string; website?: string; emp_prefix?: string }; onSaved: () => void }) {
+function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: string[]; office_lat?: number | null; office_lng?: number | null; office_radius_m?: number; signatory?: string; signatory_title?: string; phone?: string; email?: string; website?: string; emp_prefix?: string }; onSaved: () => void }) {
   const [name, setName] = useState(c.name)
   const [addr, setAddr] = useState((c.address ?? []).join("\n"))
   const [sig, setSig] = useState(c.signatory ?? "")
@@ -34,8 +34,15 @@ function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: st
   const [email, setEmail] = useState(c.email ?? "")
   const [prefix, setPrefix] = useState(c.emp_prefix ?? "")
   const [website, setWebsite] = useState(c.website ?? "")
+  const [lat, setLat] = useState(c.office_lat != null ? String(c.office_lat) : "")
+  const [lng, setLng] = useState(c.office_lng != null ? String(c.office_lng) : "")
+  const [radius, setRadius] = useState(String(c.office_radius_m ?? 150))
+  const useMyLocation = () => {
+    if (!navigator.geolocation) return toast.error("This browser can't share its location")
+    navigator.geolocation.getCurrentPosition((p) => { setLat(p.coords.latitude.toFixed(6)); setLng(p.coords.longitude.toFixed(6)); toast.success(`Location taken (±${Math.round(p.coords.accuracy)} m). Click Save to keep it.`) }, () => toast.error("Couldn't get your location. Allow location access for this site, or type the latitude and longitude."), { enableHighAccuracy: true, timeout: 20000 })
+  }
   const save = async () => {
-    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr, signatory: sig, signatory_title: sigTitle, phone, email, website, emp_prefix: prefix } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr(""); setSig(""); setSigTitle(""); setPhone(""); setEmail(""); setWebsite(""); setPrefix("") } onSaved() } catch (e) { toast.error(err(e)) }
+    try { await api("/api/admin/hr/companies", { method: "POST", body: { id: c.id || undefined, name, address: addr, signatory: sig, signatory_title: sigTitle, phone, email, website, emp_prefix: prefix, ...(c.id ? { office_lat: lat, office_lng: lng, office_radius_m: radius } : {}) } }); toast.success(c.id ? "Company saved" : "Company added"); if (!c.id) { setName(""); setAddr(""); setSig(""); setSigTitle(""); setPhone(""); setEmail(""); setWebsite(""); setPrefix("") } onSaved() } catch (e) { toast.error(err(e)) }
   }
   return (
     <div className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_2fr_auto]">
@@ -48,6 +55,18 @@ function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: st
       <Input placeholder="Email (offer letter footer)" value={email} onChange={(e) => setEmail(e.target.value)} />
       <Input placeholder="Website (e.g. www.genailabs.in)" value={website} onChange={(e) => setWebsite(e.target.value)} />
       <Input placeholder="Employee ID prefix (e.g. GL)" value={prefix} onChange={(e) => setPrefix(e.target.value.toUpperCase())} />
+      {c.id && (
+        <div className="space-y-2 rounded-md bg-muted/40 p-3 sm:col-span-3">
+          <div className="text-sm font-medium">Office location for employee attendance</div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+            <label className="text-xs text-muted-foreground">Latitude<Input placeholder="e.g. 12.917500" value={lat} onChange={(e) => setLat(e.target.value)} /></label>
+            <label className="text-xs text-muted-foreground">Longitude<Input placeholder="e.g. 77.623800" value={lng} onChange={(e) => setLng(e.target.value)} /></label>
+            <label className="text-xs text-muted-foreground">Allowed distance (metres)<Input type="number" min={20} max={5000} value={radius} onChange={(e) => setRadius(e.target.value)} /></label>
+            <Button type="button" variant="outline" className="self-end" onClick={useMyLocation}>Use my current location</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">{lat && lng ? "Employees of this company are marked Present only within the allowed distance of this point, and Absent when they check in from further away." : "Not set yet — employees can't mark their own attendance until you set it. Stand in the office and click “Use my current location”, then Save."}</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -154,9 +173,10 @@ export default function HrPage() {
   // ----- attendance -----
   const [date, setDate] = useState(todayIst())
   const [marks, setMarks] = useState<Record<string, string>>({})
+  const [details, setDetails] = useState<Record<string, { source: string; distance_m?: number; marked_at?: string; away?: boolean }>>({})
   const [month, setMonth] = useState(todayIst().slice(0, 7))
   const [summary, setSummary] = useState<any[]>([])
-  useEffect(() => { api(`/api/admin/hr/attendance?date=${date}`).then((d) => setMarks(d.records)).catch(() => setMarks({})) }, [date])
+  useEffect(() => { api(`/api/admin/hr/attendance?date=${date}`).then((d) => { setMarks(d.records); setDetails(d.details ?? {}) }).catch(() => { setMarks({}); setDetails({}) }) }, [date])
   useEffect(() => { api(`/api/admin/hr/attendance?month=${month}`).then((d) => setSummary(d.summary)).catch(() => setSummary([])) }, [month])
   const saveAtt = async () => {
     const records = active.filter((e) => marks[e.id]).map((e) => ({ employee_id: e.id, status: marks[e.id] }))
@@ -310,7 +330,7 @@ export default function HrPage() {
               {active.length === 0 && <p className="text-sm text-muted-foreground">Add employees first.</p>}
               {active.map((e) => (
                 <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
-                  <span className="font-medium">{e.name}</span>
+                  <span className="font-medium">{e.name}{details[e.id] && <span className={`ml-2 text-xs font-normal ${details[e.id].away ? "text-red-600" : "text-emerald-700"}`}>self check-in{details[e.id].marked_at ? ` ${new Date(details[e.id].marked_at!).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : ""} · {details[e.id].away ? "away from office" : "at office"}{details[e.id].distance_m != null ? ` (${details[e.id].distance_m} m)` : ""}</span>}</span>
                   <div className="flex gap-1">{STATUSES.map((s) => <Button key={s} size="sm" variant={marks[e.id] === s ? "default" : "outline"} className={marks[e.id] === s ? "bg-emerald-600 hover:bg-emerald-700" : ""} onClick={() => setMarks({ ...marks, [e.id]: s })}>{s}</Button>)}</div>
                 </div>
               ))}

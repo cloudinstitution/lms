@@ -1,4 +1,5 @@
 import { getDb } from "./firebase-admin"
+import { DEFAULT_OFFICE_RADIUS_M, distanceMeters } from "../geo"
 import { ApiError } from "./http"
 import { hashPassword, verifyPassword } from "./learners-service"
 import type { EmployeeUser } from "./session"
@@ -26,7 +27,9 @@ export const ATTENDANCE_STATUSES = ["Present", "Absent", "Half day", "On leave"]
 export const LEAVE_TYPES = ["Casual", "Sick", "Earned", "Other"] as const
 
 // ---------- companies (letterhead on payslips; employees belong to one) ----------
-export interface Company { id: string; name: string; address: string[]; logo: string; seal: string; phone: string; email: string; website: string; emp_prefix: string; signatory: string; signatory_title: string }
+export interface Company { id: string; name: string; address: string[]; logo: string; seal: string; phone: string; email: string; website: string; emp_prefix: string; signatory: string; signatory_title: string
+  /** Office location for self check-in: employees must be within `office_radius_m` metres of it to be marked present. */
+  office_lat?: number | null; office_lng?: number | null; office_radius_m?: number }
 const DEFAULT_COMPANY_ID = "cloud-insthire"
 const DEFAULT_COMPANIES: Company[] = [
   { id: DEFAULT_COMPANY_ID, name: "CLOUD INSTHIRE PRIVATE LIMITED", address: ["2nd, 15, 100 Feet Ring Rd, BTM 2nd Stage, Kuvempu Nagar,", "Stage, BTM Layout, Bengaluru, Karnataka 560076"], logo: "/lg_logo.png", seal: "", phone: "+91 76763 70336", email: "info@cloudinstitution.com", website: "www.cloudinstitution.com", emp_prefix: "CI", signatory: "Dilip D", signatory_title: "CEO" },
@@ -65,7 +68,23 @@ export async function saveCompany(input: any) {
   const phone = str(input?.phone, 30), email = str(input?.email, 120).toLowerCase(), website = str(input?.website, 120)
   if (email && !EMAIL_RE.test(email)) throw new ApiError(400, "Enter a valid company email address")
   const emp_prefix = str(input?.emp_prefix, 6).toUpperCase().replace(/[^A-Z0-9]/g, "") || cur?.emp_prefix || initials(name)
-  const doc = { name, address: lines, logo: cur?.logo ?? "", seal: cur?.seal ?? "", phone, email, website, emp_prefix, signatory, signatory_title }
+  const hasLat = input?.office_lat !== undefined && input?.office_lat !== null && input?.office_lat !== "", hasLng = input?.office_lng !== undefined && input?.office_lng !== null && input?.office_lng !== ""
+  let office_lat: number | null = cur?.office_lat ?? null, office_lng: number | null = cur?.office_lng ?? null, office_radius_m = cur?.office_radius_m ?? DEFAULT_OFFICE_RADIUS_M
+  if (input && ("office_lat" in input || "office_lng" in input)) {
+    if (hasLat !== hasLng) throw new ApiError(400, "Enter both the latitude and the longitude of the office (or leave both empty)")
+    if (hasLat) {
+      const la = Number(input.office_lat), ln = Number(input.office_lng)
+      if (!Number.isFinite(la) || la < -90 || la > 90) throw new ApiError(400, "Office latitude must be between -90 and 90")
+      if (!Number.isFinite(ln) || ln < -180 || ln > 180) throw new ApiError(400, "Office longitude must be between -180 and 180")
+      office_lat = Math.round(la * 1e6) / 1e6; office_lng = Math.round(ln * 1e6) / 1e6
+    } else { office_lat = null; office_lng = null }
+  }
+  if (input?.office_radius_m !== undefined && input?.office_radius_m !== "") {
+    const r = Number(input.office_radius_m)
+    if (!Number.isFinite(r) || r < 20 || r > 5000) throw new ApiError(400, "Allowed distance from the office must be between 20 and 5000 metres")
+    office_radius_m = Math.round(r)
+  }
+  const doc = { name, address: lines, logo: cur?.logo ?? "", seal: cur?.seal ?? "", phone, email, website, emp_prefix, signatory, signatory_title, office_lat, office_lng, office_radius_m }
   await getDb().collection("hr_companies").doc(id).set({ ...doc, updated_at: iso() })
   return { id, ...doc }
 }
@@ -220,8 +239,12 @@ export async function employeeOverview(user: EmployeeUser, month: string | undef
   const emp = await getEmployee(user.docId)
   const [leaves, holidays, snap, balance] = await Promise.all([listLeaves({ year, employee_id: user.docId }), listHolidays(year), getDb().collection("employee_attendance").get(), leaveBalance(user.docId, year)])
   const attendance = snap.docs.map((d) => d.data() as any).filter((a) => a.employee_id === user.docId && String(a.date).startsWith(m))
-    .map((a) => ({ date: a.date as string, status: a.status as string })).sort((a, b) => a.date.localeCompare(b.date))
+    .map((a) => ({ date: a.date as string, status: a.status as string, self: a.source === "self", distance_m: typeof a.distance_m === "number" ? a.distance_m : undefined })).sort((a, b) => a.date.localeCompare(b.date))
+  const company = (await listCompanies()).find((c) => c.id === emp.company_id) ?? DEFAULT_COMPANIES[0]
+  const todayRec = snap.docs.map((d) => d.data() as any).find((a) => a.employee_id === user.docId && a.date === istToday())
   return {
+    office: { configured: typeof company.office_lat === "number" && typeof company.office_lng === "number", radius_m: company.office_radius_m ?? DEFAULT_OFFICE_RADIUS_M, name: company.name },
+    today: { date: istToday(), status: todayRec?.status ?? null, self: todayRec?.source === "self", distance_m: typeof todayRec?.distance_m === "number" ? todayRec.distance_m : undefined },
     employee: { emp_id: emp.emp_id ?? "", name: emp.name, email: emp.email, designation: emp.designation, department: emp.department, joined_on: emp.joined_on },
     year, month: m, leave: balance, leaves, holidays, attendance,
   }
@@ -355,12 +378,55 @@ export async function employeesWithBalance(year: string) {
 }
 
 // ---------- attendance ----------
+/**
+ * An employee marks their own attendance for today from their phone/laptop. Their position must be within the company's
+ * allowed distance of the office: inside → Present; outside → Absent. Tapping again later the same day from the office upgrades an
+ * "away" Absent to Present, but a Present is never downgraded and a day an admin already recorded is left alone.
+ * Nothing is recorded when the position can't be trusted (no/poor GPS fix), so a bad signal never costs anyone a day.
+ */
+export async function employeeMarkAttendance(user: EmployeeUser, input: any) {
+  const emp = await getEmployee(user.docId)
+  const company = (await listCompanies()).find((c) => c.id === emp.company_id) ?? DEFAULT_COMPANIES[0]
+  if (typeof company.office_lat !== "number" || typeof company.office_lng !== "number") throw new ApiError(409, "Your office location hasn't been set up yet. Please ask your admin to set it (HR → Edit companies).")
+  const lat = Number(input?.lat), lng = Number(input?.lng), accuracy = Number(input?.accuracy)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) throw new ApiError(400, "We couldn't read your location. Allow location access and try again.")
+  const date = istToday()
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  if (day === 0) throw new ApiError(400, "Today is a Sunday — no attendance is needed.")
+  const holiday = (await listHolidays(date.slice(0, 4))).find((h) => h.date === date)
+  if (holiday) throw new ApiError(400, `Today is a holiday (${holiday.name}) — no attendance is needed.`)
+  const onLeave = (await listLeaves({ employee_id: emp.id })).find((l) => l.status === "Approved" && l.from <= date && l.to >= date)
+  if (onLeave) throw new ApiError(400, "You are on approved leave today.")
+
+  const radius = company.office_radius_m ?? DEFAULT_OFFICE_RADIUS_M
+  const distance = Math.round(distanceMeters({ lat, lng }, { lat: company.office_lat, lng: company.office_lng }))
+  const acc = Number.isFinite(accuracy) && accuracy >= 0 ? Math.round(accuracy) : 0
+  const within = distance <= radius
+  // A vague fix (Wi-Fi/IP guess) that could still be inside the office is not good enough to call either way.
+  if (!within && acc > Math.max(100, radius) && distance - acc <= radius) throw new ApiError(422, `Your location isn't accurate enough (±${acc} m). Turn on GPS / precise location, move near a window and try again.`)
+
+  const ref = getDb().collection("employee_attendance").doc(`${emp.id}__${date}`)
+  const cur = await ref.get()
+  const prev = cur.exists ? (cur.data() as any) : null
+  if (prev && prev.source !== "self") return { status: prev.status as string, distance_m: distance, radius_m: radius, within, kept: "admin" as const }
+  if (prev?.status === "Present") return { status: "Present", distance_m: prev.distance_m ?? distance, radius_m: radius, within: true, kept: "already" as const }
+  const status = within ? "Present" : "Absent"
+  await ref.set({ employee_id: emp.id, date, status, source: "self", location_ok: within, distance_m: distance, accuracy_m: acc, lat, lng, marked_at: iso(), updated_at: iso() })
+  return { status, distance_m: distance, radius_m: radius, within, kept: null }
+}
+
 export async function attendanceForDate(date: string) {
   validDate(date, "Date")
   const snap = await getDb().collection("employee_attendance").get()
   const out: Record<string, string> = {}
-  for (const d of snap.docs) { const a = d.data() as any; if (a.date === date) out[a.employee_id] = a.status }
-  return out
+  const details: Record<string, { source: string; distance_m?: number; marked_at?: string; away?: boolean }> = {}
+  for (const d of snap.docs) {
+    const a = d.data() as any
+    if (a.date !== date) continue
+    out[a.employee_id] = a.status
+    if (a.source === "self") details[a.employee_id] = { source: "self", distance_m: a.distance_m, marked_at: a.marked_at, away: a.location_ok === false }
+  }
+  return { records: out, details }
 }
 
 export async function saveAttendance(dateRaw: unknown, records: unknown) {

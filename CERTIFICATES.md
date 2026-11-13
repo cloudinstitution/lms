@@ -160,3 +160,16 @@ For students who join through the VTU Internship Portal. Enter the student (name
 **Custom email draft:** the tab has an editable subject + message. `{name}`, `{program}`, `{weeks}`, `{date}`, `{id}`, `{coordinator}` fill in per student. Edit it for one send, **Save as default** to keep it for future students, or **Reset to built-in**. The draft used is stored on each offer, so **Resend** repeats the same email; **Email** shows exactly what a student received. Stored in Firestore collections `vtu_internships` and `hr_settings` (allow both if you don't use service-account credentials). Uses the same email setup as the other letters.
 
 **Upload a sheet (VTU tab):** choose an Excel (.xlsx/.xls) or CSV with **Name** and **Email** columns (USN and College optional; headings can be in any order — "Student Email ID", "Name of the Student" etc. are recognised). Review the list, untick anyone, then create and email all at once using the program, weeks, date, coordinator and email draft set in the form. Rows with a bad or repeated email, or no name, are skipped and listed; students who already have an offer for that program are unticked. A "Sample sheet" button downloads a template.
+
+## Employee self check-in (attendance by location)
+
+Employees mark their own attendance on their dashboard (Attendance tab → **Mark my attendance**). The browser shares their position; the server compares it with the company's office location:
+
+- within the allowed distance → **Present**; further away → **Absent** (with the distance recorded).
+- Tapping again later the same day from the office upgrades an "away" Absent to Present. A Present is never downgraded, and a day an admin has already recorded is not overwritten.
+- If there's no location (permission blocked / no GPS) or the fix is too vague to tell, **nothing is recorded** and the employee is asked to retry.
+- Sundays, listed holidays and approved-leave days are refused (no attendance needed), so they never turn into loss of pay.
+
+Set the office once per company: **Admin → HR → Employees → Edit companies → "Office location for employee attendance"** (stand in the office and click "Use my current location", then Save; default allowed distance 150 m). Until it's set, employees can't check in. The admin Attendance tab shows who checked in themselves, when, and how far from the office. Days nobody marks are left blank (not Absent) — mark those from the admin Attendance tab.
+
+Note: a browser location can be faked by a determined person; this is a practical check, not a guarantee.
