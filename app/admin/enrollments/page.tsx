@@ -43,6 +43,15 @@ export default function AdminEnrollmentsPage() {
       loadFees()
     } catch (e: any) { toast.error(e?.message || "Could not update the fee") }
   }
+  const changed = fees.filter((c) => draft[c.id] !== undefined && draft[c.id] !== "" && Number(draft[c.id]) !== c.price)
+  const saveAllFees = async () => {
+    let ok = 0
+    for (const c of changed) {
+      try { await api("/api/admin/course-fees", { method: "PUT", body: { course_id: c.id, price: Number(draft[c.id]) } }); ok++ } catch (e: any) { toast.error(`${c.title}: ${e?.message || "could not update the fee"}`) }
+    }
+    if (ok) toast.success(`${ok} fee${ok === 1 ? "" : "s"} updated. New purchases use them right away.`)
+    loadFees()
+  }
   const [add, setAdd] = useState({ email: "", course_id: "", reference: "" })
   const addEnrollment = async () => {
     try {
@@ -94,14 +103,15 @@ export default function AdminEnrollmentsPage() {
       <Card>
         <CardContent className="space-y-3 pt-6">
           <div className="font-semibold">Course fees</div>
-          <p className="text-sm text-muted-foreground">The amount shown to buyers and charged for each course. Change it here whenever the fee changes.</p>
+          <p className="text-sm text-muted-foreground">The amount shown to buyers and charged for each course. To change a fee, type the new amount (whole rupees) in its box, then click <b>Save</b>. The new fee applies to new purchases straight away; existing enrollments are not affected.</p>
+          {changed.length > 1 && <Button size="sm" onClick={saveAllFees}>Save all {changed.length} changes</Button>}
           <div className="grid gap-2 md:grid-cols-2">
             {fees.map((c) => (
-              <div key={c.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+              <div key={c.id} className={`flex items-center gap-2 rounded-md border p-2 text-sm ${changed.some((x) => x.id === c.id) ? "border-primary bg-primary/5" : ""}`}>
                 <span className="flex-1">{c.title}</span>
                 <span className="text-muted-foreground">₹</span>
-                <Input type="number" min={1} className="h-8 w-28" value={draft[c.id] ?? String(c.price)} onChange={(e) => setDraft({ ...draft, [c.id]: e.target.value })} />
-                <Button size="sm" disabled={draft[c.id] === undefined || Number(draft[c.id]) === c.price} onClick={() => saveFee(c.id)}>Save</Button>
+                <Input type="number" min={1} step={1} inputMode="numeric" aria-label={`Fee for ${c.title}`} className="h-8 w-28" value={draft[c.id] ?? String(c.price)} onChange={(e) => setDraft({ ...draft, [c.id]: e.target.value })} />
+                <Button size="sm" disabled={draft[c.id] === undefined || draft[c.id] === "" || Number(draft[c.id]) === c.price} onClick={() => saveFee(c.id)}>Save</Button>
               </div>
             ))}
           </div>
