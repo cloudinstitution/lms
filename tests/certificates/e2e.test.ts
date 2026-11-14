@@ -1748,13 +1748,20 @@ test("VTU sheet upload: finds Name/Email columns by heading (any order/wording),
   const grid = XLSX.utils.sheet_to_json(XLSX.read(buf, { type: "buffer" }).Sheets["Sheet1"], { header: 1, raw: false, defval: "" }) as unknown[][]
   const r = parseStudentSheet(grid)
   assert.equal(r.headerFound, true)
-  assert.deepEqual(r.students.map((s) => [s.name, s.email, s.usn, s.college]), [["Asha K", "asha.k@gmail.com", "1ve22cs001", "ABC College"], ["Bob", "bob@x.com", "", ""]])
-  assert.deepEqual(r.problems.map((p) => p.reason).sort(), ["No email", "No name", "Not a valid email", "Repeated email in the file"])
+  assert.deepEqual(r.students.map((s) => [s.name, s.email, s.usn, s.college]), [["Asha K", "asha.k@gmail.com", "1ve22cs001", "ABC College"], ["Bob", "bob@x.com", "", ""], ["Dan", "dan@x.com", "", ""]])
+  assert.equal(r.students[2].nameGuessed, true)
+  assert.deepEqual(r.problems.map((p) => p.reason).sort(), ["No email", "Not a valid email", "Repeated email in the file"])
   // no headings at all: the column of addresses is the email, the other text column the name
   const g = parseStudentSheet([["Priya S", "priya@x.com"], ["Ravi", "ravi@x.com"]])
   assert.equal(g.headerFound, false); assert.deepEqual(g.students.map((s) => [s.name, s.email]), [["Priya S", "priya@x.com"], ["Ravi", "ravi@x.com"]])
   // headings with only an email column → every row is reported as missing a name; nothing at all → empty; no email column → explained
-  assert.equal(parseStudentSheet([["Email"], ["a@x.com"]]).problems[0].reason, "No name")
+  const noName = parseStudentSheet([["Email"], ["shweta.kankai21@gmail.com"], ["a@x.com"]])
+  assert.deepEqual(noName.students.map((x) => [x.name, x.nameGuessed]), [["Shweta Kankai", true]]); assert.equal(noName.problems[0].reason, "No name")
+  // a title above the headings, and cells like "Name <mail>" or with stray text
+  const titled = parseStudentSheet([["VTU batch 2026"], [], ["Sl", "Name", "E-mail ID"], [1, "Asha", "Asha@X.com"], [2, "Bob", "Bob Smith <bob@x.com>"]])
+  assert.equal(titled.headerFound, true); assert.deepEqual(titled.students.map((x) => [x.name, x.email]), [["Asha", "asha@x.com"], ["Bob", "bob@x.com"]])
+  // emails only, no headings at all
+  assert.deepEqual(parseStudentSheet([["kiran.r@x.com"], ["meera_k@x.com"]]).students.map((x) => x.name), ["Kiran R", "Meera K"])
   assert.deepEqual(parseStudentSheet([[], [""]]), { students: [], problems: [], headerFound: false })
   assert.match(parseStudentSheet([["Name"], ["Zed"]]).problems[0].reason, /email column/i)
 })

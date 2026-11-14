@@ -1,7 +1,13 @@
-export type SheetStudent = { name: string; email: string; usn: string; college: string; row: number }
+export type SheetStudent = { name: string; email: string; usn: string; college: string; row: number; nameGuessed?: boolean }
 export type SheetProblem = { row: number; reason: string; text: string }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const EMAIL_IN_TEXT = /[^\s@<>,;:()"']+@[^\s@<>,;:()"']+\.[^\s@<>,;:()"']{2,}/
+/** "shweta.kankai21@gmail.com" → "Shweta Kankai" (a starting point the admin can correct). */
+export function nameFromEmail(email: string): string {
+  const w = email.split("@")[0].replace(/\d+/g, " ").split(/[._\-+\s]+/).filter((x) => /^[a-z]{2,}$/i.test(x))
+  return w.slice(0, 3).map((x) => x[0].toUpperCase() + x.slice(1).toLowerCase()).join(" ")
+}
 const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
 const NAME_H = new Set(["name", "student name", "full name", "candidate name", "student", "candidate", "name of the student", "name of student"])
 const EMAIL_H = new Set(["email", "email id", "emailid", "e mail", "e mail id", "email address", "mail", "mail id", "student email", "student email id", "email id of the student", "gmail"])
@@ -18,7 +24,10 @@ export function parseStudentSheet(grid: unknown[][]): { students: SheetStudent[]
   if (rows.length === 0) return { students: [], problems: [], headerFound: false }
 
   let nameCol = -1, emailCol = -1, usnCol = -1, collegeCol = -1, start = 0, headerFound = false
-  const head = rows[0].map(norm)
+  // the heading row may sit under a title or blank lines: use the first of the top rows that has an Email/Name heading
+  const looksLikeHeading = (r: unknown[]) => r.some((c) => { const h = norm(c); return EMAIL_H.has(h) || NAME_H.has(h) || /\be?\s?mail\b|gmail/.test(h) && !h.includes("@") })
+  const headRow = Math.max(0, rows.slice(0, 10).findIndex(looksLikeHeading))
+  const head = rows[headRow].map(norm)
   head.forEach((h, i) => {
     if (nameCol < 0 && NAME_H.has(h)) nameCol = i
     else if (emailCol < 0 && EMAIL_H.has(h)) emailCol = i
@@ -28,13 +37,13 @@ export function parseStudentSheet(grid: unknown[][]): { students: SheetStudent[]
   // a looser match on the heading if the exact ones missed (e.g. "Student Email ID (Gmail)")
   if (emailCol < 0) emailCol = head.findIndex((h) => /\be?\s?mail\b|gmail/.test(h) && h !== "")
   if (nameCol < 0) nameCol = head.findIndex((h, i) => i !== emailCol && /\bname\b/.test(h))
-  if (emailCol >= 0 || nameCol >= 0) { headerFound = true; start = 1 }
+  if (emailCol >= 0 || nameCol >= 0) { headerFound = true; start = headRow + 1 }
 
   if (emailCol < 0) {
     // no heading: the email column is the one where most cells look like addresses
     const width = Math.max(...rows.map((r) => r.length))
     let best = -1, bestN = 0
-    for (let c = 0; c < width; c++) { const n = rows.filter((r) => EMAIL_RE.test(String(r[c] ?? "").trim())).length; if (n > bestN) { best = c; bestN = n } }
+    for (let c = 0; c < width; c++) { const n = rows.filter((r) => EMAIL_IN_TEXT.test(String(r[c] ?? ""))).length; if (n > bestN) { best = c; bestN = n } }
     emailCol = best
     start = 0
   }
@@ -44,15 +53,18 @@ export function parseStudentSheet(grid: unknown[][]): { students: SheetStudent[]
   const students: SheetStudent[] = [], problems: SheetProblem[] = [], seen = new Set<string>()
   rows.slice(start).forEach((r, idx) => {
     const rowNo = idx + start + 1
-    const email = String(r[emailCol] ?? "").trim().toLowerCase()
-    const name = nameCol >= 0 ? String(r[nameCol] ?? "").replace(/\s+/g, " ").trim() : ""
+    const cell = String(r[emailCol] ?? "").trim()
+    const email = (EMAIL_IN_TEXT.exec(cell)?.[0] ?? cell).toLowerCase()
+    let name = nameCol >= 0 ? String(r[nameCol] ?? "").replace(/\s+/g, " ").trim() : ""
+    let nameGuessed = false
     const text = [name, email].filter(Boolean).join(" · ")
     if (!email) return problems.push({ row: rowNo, reason: "No email", text })
     if (!EMAIL_RE.test(email)) return problems.push({ row: rowNo, reason: "Not a valid email", text })
+    if (name.length < 2) { name = nameFromEmail(email); nameGuessed = true }
     if (name.length < 2) return problems.push({ row: rowNo, reason: "No name", text })
     if (seen.has(email)) return problems.push({ row: rowNo, reason: "Repeated email in the file", text })
     seen.add(email)
-    students.push({ name, email, usn: usnCol >= 0 ? String(r[usnCol] ?? "").trim() : "", college: collegeCol >= 0 ? String(r[collegeCol] ?? "").trim() : "", row: rowNo })
+    students.push({ name, email, usn: usnCol >= 0 ? String(r[usnCol] ?? "").trim() : "", college: collegeCol >= 0 ? String(r[collegeCol] ?? "").trim() : "", row: rowNo, ...(nameGuessed ? { nameGuessed } : {}) })
   })
   return { students, problems, headerFound }
 }

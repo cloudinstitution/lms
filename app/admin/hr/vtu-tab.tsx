@@ -176,14 +176,24 @@ export default function VtuTab() {
                     <tbody>{sheet.students.map((x) => (
                       <tr key={x.email} className="border-t">
                         <td className="px-3 py-1.5"><input type="checkbox" aria-label={`Select ${x.name}`} checked={sheet.picked.has(x.email)} onChange={() => { const n = new Set(sheet.picked); n.has(x.email) ? n.delete(x.email) : n.add(x.email); setSheet({ ...sheet, picked: n }) }} /></td>
-                        <td className="px-3 py-1.5">{x.name}</td><td className="px-3 py-1.5">{x.email}</td><td className="px-3 py-1.5">{x.usn}</td><td className="px-3 py-1.5">{x.college}</td>
-                        <td className="px-3 py-1.5 text-xs text-amber-600">{existing.has(x.email) ? `Already has a ${program} offer` : ""}</td>
+                        <td className="px-3 py-1.5">{x.nameGuessed ? <Input className="h-8 w-48" aria-label={`Name for ${x.email}`} value={x.name} onChange={(e) => setSheet({ ...sheet, students: sheet.students.map((y) => y.email === x.email ? { ...y, name: e.target.value } : y) })} /> : x.name}</td><td className="px-3 py-1.5">{x.email}</td><td className="px-3 py-1.5">{x.usn}</td><td className="px-3 py-1.5">{x.college}</td>
+                        <td className="px-3 py-1.5 text-xs text-amber-600">{[x.nameGuessed ? "No name in the file — guessed from the email, please check" : "", existing.has(x.email) ? `Already has a ${program} offer` : ""].filter(Boolean).join(" · ")}</td>
                       </tr>))}
                     </tbody>
                   </table>
                 </div>
               )}
-              {sheet.problems.length > 0 && <details className="text-sm"><summary className="cursor-pointer text-amber-600">{sheet.problems.length} skipped row{sheet.problems.length === 1 ? "" : "s"}</summary><ul className="mt-1 list-disc pl-5 text-muted-foreground">{sheet.problems.map((p) => <li key={p.row}>Row {p.row}: {p.reason}{p.text ? ` (${p.text})` : ""}</li>)}</ul></details>}
+              {sheet.problems.length > 0 && (
+                <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-950/20">
+                  <div className="font-medium text-amber-700">Why {sheet.problems.length} row{sheet.problems.length === 1 ? " was" : "s were"} skipped</div>
+                  <ul className="list-disc pl-5 text-muted-foreground">
+                    {Object.entries(sheet.problems.reduce<Record<string, SheetProblem[]>>((g, p) => { (g[p.reason] ??= []).push(p); return g }, {})).map(([reason, list]) => (
+                      <li key={reason}><b>{list.length} × {reason}</b> — e.g. {list.slice(0, 3).map((p) => `row ${p.row}${p.text ? ` (${p.text})` : ""}`).join(", ")}{list.length > 3 ? "…" : ""}</li>
+                    ))}
+                  </ul>
+                  {sheet.students.length === 0 && <div className="text-xs text-muted-foreground">Tip: the first row should have headings like <b>Name</b> and <b>Email</b>. Use "Sample sheet" for a template.</div>}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-3">
                 <Button onClick={bulkCreate} disabled={busy || sheet.picked.size === 0}>{busy ? "Working…" : `${f.send_email ? "Create & email" : "Create"} ${sheet.picked.size} offer letter${sheet.picked.size === 1 ? "" : "s"}`}</Button>
                 <Button variant="ghost" onClick={() => setSheet(null)} disabled={busy}>Cancel</Button>
