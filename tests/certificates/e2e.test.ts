@@ -1761,7 +1761,7 @@ test("VTU sheet upload: finds Name/Email columns by heading (any order/wording),
   const titled = parseStudentSheet([["VTU batch 2026"], [], ["Sl", "Name", "E-mail ID"], [1, "Asha", "Asha@X.com"], [2, "Bob", "Bob Smith <bob@x.com>"]])
   assert.equal(titled.headerFound, true); assert.deepEqual(titled.students.map((x) => [x.name, x.email]), [["Asha", "asha@x.com"], ["Bob", "bob@x.com"]])
   // emails only, no headings at all
-  assert.deepEqual(parseStudentSheet([["kiran.r@x.com"], ["meera_k@x.com"]]).students.map((x) => x.name), ["Kiran R", "Meera K"])
+  assert.deepEqual(parseStudentSheet([["kiran.r@x.com"], ["meera_k@x.com"]]).students.map((x) => x.name), ["Kiran", "Meera"])
   assert.deepEqual(parseStudentSheet([[], [""]]), { students: [], problems: [], headerFound: false })
   assert.match(parseStudentSheet([["Name"], ["Zed"]]).problems[0].reason, /email column/i)
 })
