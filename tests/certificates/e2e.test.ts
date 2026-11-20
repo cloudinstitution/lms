@@ -1834,3 +1834,76 @@ test("Employee attendance: self check-in by location — Present at the office, 
     assert.equal((await json(await call(H.att, "GET", "/x?date=2026-11-15", { cookie: ad }))).body.records[meera.id], undefined)
   } finally { Date.now = realNow }
 })
+
+test("MOU: company sheet is read by headings; MOU Word files are filled from the template; custom email draft; send/resend; template upload", async () => {
+  const { parseCompanySheet } = await import("../../lib/mou-sheet")
+  const JSZip = (await import("jszip")).default
+  const XLSX = await import("xlsx")
+  const X = { list: await import("../../app/api/admin/hr/mou/route"), one: await import("../../app/api/admin/hr/mou/[id]/route"), docx: await import("../../app/api/admin/hr/mou/[id]/docx/route"), send: await import("../../app/api/admin/hr/mou/[id]/send/route"), prev: await import("../../app/api/admin/hr/mou/[id]/preview/route"), draft: await import("../../app/api/admin/hr/mou/draft/route"), tpl: await import("../../app/api/admin/hr/mou/template/route") }
+  const M = await import("../../lib/server/mailer")
+  const ad = await admin(), jn = await john()
+
+  // ---- the sheet: a real .xlsx with a title row, odd heading wording, a company with no email, bad/repeat/empty rows
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Hiring partners 2026"], [], ["Sl", "Name of the Company", "Office Address", "Designation", "Contact Person", "E-mail ID", "Mobile"], [1, "Acme & Co", "12 MG Road, Bengaluru", "HR Manager", "Rahul S", "HR@Acme.com", "98765"], [2, "Beta Labs", "Mysuru", "CTO", "Meena", "", ""], [3, "Gamma Soft", "Hubli", "HR", "Gopal", "not-an-email", ""], [4, "acme & co", "dup", "x", "y", "hr@acme.com", ""], [5, "", "", "", "", "z@x.com", ""]]), "S")
+  const grid = XLSX.utils.sheet_to_json(XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer" }).Sheets["S"], { header: 1, raw: false, defval: "" }) as unknown[][]
+  const r = parseCompanySheet(grid)
+  assert.equal(r.headerFound, true)
+  assert.deepEqual(r.companies.map((c) => [c.company, c.address, c.designation, c.name, c.email, c.phone]), [["Acme & Co", "12 MG Road, Bengaluru", "HR Manager", "Rahul S", "hr@acme.com", "98765"], ["Beta Labs", "Mysuru", "CTO", "Meena", "", ""]])
+  assert.deepEqual(r.problems.map((p) => p.reason).sort(), ["No company name", "Not a valid email", "Repeated company/email in the file"])
+  assert.match(parseCompanySheet([["Name"], ["x"]]).problems[0].reason, /Company column/)
+
+  const sent: any[] = []; let fail = false
+  M.setMailSender(async (m) => { if (fail) throw new Error("smtp down"); sent.push(m) })
+  try {
+    assert.equal((await call(X.list, "GET", "/x", { cookie: jn })).status, 403); assert.equal((await call(X.list, "POST", "/x", { body: {} })).status, 401)
+    for (const bad of [{ company: "" }, { company: "A" }, { email: "nope" }, { mou_date: "bad" }, { mail_subject: "", mail_body: "x" }]) assert.equal((await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Acme & Co", ...bad } })).status, 400, JSON.stringify(bad))
+    const g0 = (await json(await call(X.list, "GET", "/x", { cookie: ad }))).body; assert.equal(g0.draft.saved, false); assert.equal(g0.template.custom, false)
+
+    // create + email with the built-in draft: the Word file is attached and filled
+    const c1 = await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Acme & Co", address: "12 MG Road, Bengaluru", name: "Rahul S", designation: "HR Manager", email: "HR@Acme.com", phone: "98765", business: "software development", mou_date: "2026-11-20" } }))
+    assert.equal(c1.status, 201); assert.equal(c1.body.mou.mou_id, "CI-MOU-2026-001"); assert.equal(c1.body.email.sent, true); assert.equal(sent.length, 1)
+    const m1 = sent[0]; assert.equal(m1.to, "hr@acme.com"); assert.match(m1.subject, /Acme & Co/); assert.ok(m1.text.includes("Dear Rahul S") && m1.text.includes("as HR Manager"), m1.text)
+    const att = m1.attachments.find((a: any) => /wordprocessingml/.test(a.contentType)); assert.ok(att && att.filename.endsWith(".docx"))
+    const z = await JSZip.loadAsync(att.content); const xml = await z.file("word/document.xml")!.async("string")
+    assert.ok(xml.includes("Acme &amp; Co") && xml.includes("12 MG Road, Bengaluru") && xml.includes("Rahul S") && xml.includes("HR Manager") && xml.includes("hr@acme.com") && xml.includes("98765") && xml.includes("20 November 2026") && xml.includes("engaged in software development"))
+    for (const t of ["[Company Name]", "[Company Address]", "[Name]", "[Designation]", "[Email]", "[Phone]", "29 January 2026"]) assert.equal(xml.includes(t), false, t + " should be replaced")
+    assert.ok(xml.includes("[once every six months]"), "the template's other [terms] are left alone"); assert.ok(z.file("word/media/lh_header.png"), "letterhead image kept")
+    // the file download is the same filled document
+    const dl = await call(X.docx, "GET", "/x", { cookie: ad }, { id: c1.body.mou.id }); assert.equal(dl.status, 200); assert.match(dl.headers.get("content-disposition")!, /MOU-Acme-Co-CI-MOU-2026-001\.docx/); assert.equal((await call(X.docx, "GET", "/x", { cookie: jn }, { id: c1.body.mou.id })).status, 403)
+
+    // a company with no contact details: blank lines to write in, not [brackets]; no email → saved, not sent
+    const c2 = await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Beta Labs", mou_date: "2026-11-20" } })); assert.equal(c2.status, 201); assert.equal(c2.body.email.skipped, true); assert.equal(sent.length, 1)
+    const bx = await JSZip.loadAsync(Buffer.from(await (await call(X.docx, "GET", "/x", { cookie: ad }, { id: c2.body.mou.id })).arrayBuffer())); const bxml = await bx.file("word/document.xml")!.async("string")
+    assert.ok(bxml.includes("Beta Labs") && bxml.includes("________________") && !bxml.includes("[Name]"))
+    assert.equal((await call(X.send, "POST", "/x", { cookie: ad }, { id: c2.body.mou.id })).status, 400, "can't email a company with no address")
+
+    // custom draft: saved default is used for the next company; {unknown} untouched; HTML-escaped; per-company one-off edit doesn't change the default
+    assert.equal((await call(X.draft, "PUT", "/x", { cookie: ad, body: { subject: "", body: "x" } })).status, 400); assert.equal((await call(X.draft, "PUT", "/x", { cookie: jn, body: { subject: "s", body: "b" } })).status, 403)
+    assert.equal((await call(X.draft, "PUT", "/x", { cookie: ad, body: { subject: "MOU for {company}", body: "Hi {name} ({designation}),\n\nMOU {id} dated {date} for {company}, {address}. <b>x</b> {unknown}\n\nRegards" } })).status, 200)
+    await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Gamma <Soft>", name: "Gopal", email: "g@x.com", mou_date: "2026-11-20", designation: "", address: "Hubli" } }); const m3 = sent[1]
+    assert.equal(m3.subject, "MOU for Gamma <Soft>"); assert.ok(m3.text.includes("Hi Gopal (Authorised Signatory)") && m3.text.includes("MOU CI-MOU-2026-003 dated 20 November 2026 for Gamma <Soft>, Hubli") && m3.text.includes("{unknown}"))
+    assert.ok(m3.html.includes("Gamma &lt;Soft&gt;") && m3.html.includes("&lt;b&gt;x&lt;/b&gt;") && !m3.html.includes("<b>x</b>"))
+    await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Delta", email: "d@x.com", mou_date: "2026-11-20", mail_subject: "One-off {company}", mail_body: "Only {name}" } }); assert.equal(sent[2].subject, "One-off Delta"); assert.equal(sent[2].text, "Only Sir/Madam")
+    assert.equal((await json(await call(X.list, "GET", "/x", { cookie: ad }))).body.draft.subject, "MOU for {company}")
+
+    // failure, resend with an edited draft, preview, delete
+    fail = true; const c5 = await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Epsilon", email: "e@x.com", mou_date: "2026-11-20" } })); assert.equal(c5.status, 201); assert.equal(c5.body.email.sent, false); assert.equal(c5.body.mou.email_status, "failed"); fail = false
+    assert.equal((await call(X.send, "POST", "/x", { cookie: ad, body: { mail_subject: "Edited {company}", mail_body: "Edited for {name}" } }, { id: c5.body.mou.id })).status, 200); assert.equal(sent[3].subject, "Edited Epsilon")
+    assert.equal((await json(await call(X.prev, "GET", "/x", { cookie: ad }, { id: c5.body.mou.id }))).body.text, "Edited for Sir/Madam")
+    assert.equal((await call(X.send, "POST", "/x", { cookie: ad }, { id: "nope" })).status, 404); assert.equal((await call(X.send, "POST", "/x", { cookie: jn }, { id: c5.body.mou.id })).status, 403)
+    assert.equal((await call(X.one, "DELETE", "/x", { cookie: jn }, { id: c5.body.mou.id })).status, 403); assert.equal((await call(X.one, "DELETE", "/x", { cookie: ad }, { id: c5.body.mou.id })).status, 200); assert.equal((await call(X.one, "DELETE", "/x", { cookie: ad }, { id: c5.body.mou.id })).status, 404)
+
+    // own template: must be a .docx with [Company Name]; used for later MOUs; reset goes back
+    const up = (data: string) => call(X.tpl, "PUT", "/x", { cookie: ad, body: { filename: "mine.docx", data } })
+    assert.equal((await up("")).status, 400); assert.equal((await up(Buffer.from("not a zip").toString("base64"))).status, 400)
+    const plain = new JSZip(); plain.file("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>No placeholders</w:t></w:r></w:p></w:body></w:document>"); assert.equal((await up((await plain.generateAsync({ type: "nodebuffer" })).toString("base64"))).status, 400)
+    const mine = new JSZip(); mine.file("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>MOU with [Company Name] at [Company Address] by [Name], [Designation]</w:t></w:r></w:p></w:body></w:document>")
+    assert.equal((await up((await mine.generateAsync({ type: "nodebuffer" })).toString("base64"))).status, 200); assert.equal((await call(X.tpl, "PUT", "/x", { cookie: jn, body: { filename: "x.docx", data: "eA==" } })).status, 403)
+    assert.equal((await json(await call(X.list, "GET", "/x", { cookie: ad }))).body.template.custom, true)
+    const c6 = await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Zeta", name: "Zed", designation: "CEO", address: "Pune", send_email: false, mou_date: "2026-11-20" } }))
+    const zx = await (await JSZip.loadAsync(Buffer.from(await (await call(X.docx, "GET", "/x", { cookie: ad }, { id: c6.body.mou.id })).arrayBuffer()))).file("word/document.xml")!.async("string"); assert.ok(zx.includes("MOU with Zeta at Pune by Zed, CEO"))
+    assert.equal((await call(X.tpl, "DELETE", "/x", { cookie: ad })).status, 200); assert.equal((await json(await call(X.list, "GET", "/x", { cookie: ad }))).body.template.custom, false)
+    const big = Buffer.alloc(800_000, 1).toString("base64"); assert.equal((await up(big)).status, 400)
+  } finally { M.setMailSender(null) }
+})

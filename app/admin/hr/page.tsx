@@ -9,6 +9,7 @@ import { Download, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import VtuTab from "./vtu-tab"
+import MouTab from "./mou-tab"
 
 const todayIst = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
 const err = (e: unknown) => (e instanceof ApiFailure || e instanceof Error ? e.message : "Something went wrong")
@@ -226,7 +227,7 @@ export default function HrPage() {
       </div>
 
       <Tabs defaultValue="employees">
-        <TabsList className="flex-wrap"><TabsTrigger value="employees">Employees</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="holidays">Holidays</TabsTrigger><TabsTrigger value="payslips">Payslips</TabsTrigger><TabsTrigger value="offers">Offer letters</TabsTrigger><TabsTrigger value="internships">Internships</TabsTrigger><TabsTrigger value="vtu">VTU Internship</TabsTrigger></TabsList>
+        <TabsList className="flex-wrap"><TabsTrigger value="employees">Employees</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="holidays">Holidays</TabsTrigger><TabsTrigger value="payslips">Payslips</TabsTrigger><TabsTrigger value="offers">Offer letters</TabsTrigger><TabsTrigger value="internships">Internships</TabsTrigger><TabsTrigger value="vtu">VTU Internship</TabsTrigger><TabsTrigger value="mou">MOU</TabsTrigger></TabsList>
 
         <TabsContent value="employees" className="space-y-4">
           <Card>
@@ -542,6 +543,7 @@ export default function HrPage() {
         </TabsContent>
 
         <TabsContent value="vtu"><VtuTab /></TabsContent>
+        <TabsContent value="mou"><MouTab /></TabsContent>
       </Tabs>
     </div>
   )

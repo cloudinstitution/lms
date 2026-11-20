@@ -92,7 +92,7 @@ Environment variables:
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Required for payments (without them "Buy now" says payments are not enabled) |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional but recommended: set the Razorpay webhook to `https://<site>/api/payments/webhook` (events `payment.captured`, `order.paid`) so a course is granted even if the buyer closes the tab right after paying |
 
-If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `internships`, `vtu_internships`, `hr_settings`, `internships`, `vtu_internships`, `hr_settings`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
+If the server runs without service-account credentials, the Firestore rules must also allow `learners`, `orders`, `enrollments`, `payment_requests`, `course_prices`, `course_content_map`, `course_quizzes`, `learner_progress`, `consultations`, `employees`, `employee_attendance`, `employee_leaves`, `holidays`, `hr_companies`, `offer_letters`, `internships`, `vtu_internships`, `mou_agreements`, `hr_settings`, `internships`, `vtu_internships`, `hr_settings`, `job_settings`, `job_imports`, `student_resumes` and `mock_interviews` (plus write access to `jobs`, which the automatic job search fills).
 
 ### Paying through a Razorpay.me page (no API keys)
 
@@ -173,3 +173,12 @@ Employees mark their own attendance on their dashboard (Attendance tab → **Mar
 Set the office once per company: **Admin → HR → Employees → Edit companies → "Office location for employee attendance"** (stand in the office and click "Use my current location", then Save; default allowed distance 150 m). Until it's set, employees can't check in. The admin Attendance tab shows who checked in themselves, when, and how far from the office. Days nobody marks are left blank (not Absent) — mark those from the admin Attendance tab.
 
 Note: a browser location can be faked by a determined person; this is a practical check, not a guarantee.
+
+## MOU for companies (admin → HR → "MOU" tab)
+
+Makes a Memorandum of Understanding for each company from your Word template (letterhead and layout unchanged) and emails it with a custom draft.
+
+- **Template:** the built-in one is your *Memorandum_of_Understanding_MOU.docx*. The placeholders `[Company Name]`, `[Company Address]`, `[Name]`, `[Designation]`, `[Email]`, `[Phone]` and the date ("entered into on …", or `[Date]`) are replaced per company; a missing value becomes a blank line to write in. The "engaged in [software development / IT services / …]" bracket is filled from the optional Business column. Other `[terms]` (years, notice days…) are left for you to edit. To use a revised template, **Upload a different template (.docx)** — it must contain `[Company Name]` and be under 700 KB; **Use the built-in one** goes back.
+- **Email draft:** editable subject + message; `{company}`, `{name}`, `{designation}`, `{address}`, `{date}`, `{id}` fill in per company. Edit it for one send, **Save as default**, or reset. The filled MOU (.docx) is attached. Each MOU keeps the draft it was sent with, so **Resend** repeats it.
+- **Excel / CSV upload:** columns **Company, Address, Designation, Name, Email** (Phone and Business optional; any order, several spellings; the heading row may sit under a title). Review, untick, then create and email all. Companies with no email still get their Word file (download it and send yourself).
+- Stored in Firestore `mou_agreements` and `hr_settings`. Each MOU gets an ID like `CI-MOU-2026-001`. The attachment is a Word file (a PDF can't be made on the server without extra software).

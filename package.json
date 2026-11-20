@@ -60,6 +60,7 @@
     "jose": "^6.2.12",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
+    "jszip": "^3.10.2",
     "keen-slider": "^6.8.6",
     "lucide-react": "^0.503.0",
     "mammoth": "^1.13.0",
