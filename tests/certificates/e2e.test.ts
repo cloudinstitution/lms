@@ -1966,3 +1966,11 @@ test("Mail: MAIL_FROM changes the From address; invalid values are ignored", asy
     process.env.MAIL_FROM = 'x"<evil'; await M.sendMail({ to: "a@b.com", subject: "s", html: "h" }); assert.ok(!got[1].includes("evil"))
   } finally { if (keep === undefined) delete process.env.MAIL_FROM; else process.env.MAIL_FROM = keep; M.setMailSender(null) }
 })
+
+test("Mail: SMTP settings win over Gmail settings when both are present", async () => {
+  const M = await import("../../lib/server/mailer"); const keys = ["GMAIL_USER", "GMAIL_APP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"]; const old = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+  try {
+    Object.assign(process.env, { GMAIL_USER: "x@gmail.com", GMAIL_APP_PASSWORD: "p", SMTP_HOST: "smtp.titan.email", SMTP_USER: "info@cloudinstitution.com", SMTP_PASSWORD: "p" }); assert.equal(M.mailFrom(), "info@cloudinstitution.com")
+    delete process.env.SMTP_HOST; assert.equal(M.mailFrom(), "x@gmail.com")
+  } finally { for (const k of keys) old[k] === undefined ? delete process.env[k] : (process.env[k] = old[k]) }
+})
