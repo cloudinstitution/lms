@@ -94,6 +94,18 @@ export default function MouTab() {
   const view = async (m: any) => { try { setViewing(await api(`/api/admin/hr/mou/${m.id}/preview`)) } catch (e) { toast.error(err(e)) } }
   const remove = async (m: any) => { if (!confirm(`Delete MOU ${m.mou_id} for ${m.company}?`)) return; try { await api(`/api/admin/hr/mou/${m.id}`, { method: "DELETE" }); loadList() } catch (e) { toast.error(err(e)) } }
 
+  const downloadAll = async () => {
+    const ids = shown.map((m) => m.id)
+    if (ids.length === 0) return toast.error("No MOUs to download")
+    setBusy(true)
+    try {
+      const res = await fetch("/api/admin/hr/mou/download", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) })
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Could not create the zip")
+      const u = URL.createObjectURL(await res.blob()); const a = document.createElement("a"); a.href = u; a.download = `MOUs-${todayIst()}.zip`; a.click(); URL.revokeObjectURL(u)
+      toast.success(`Downloaded ${ids.length} MOU${ids.length === 1 ? "" : "s"} as a zip`)
+    } catch (e) { toast.error(err(e)) } finally { setBusy(false) }
+  }
+
   // sheet
   const existing = new Set(mous.map((m) => `${String(m.company).toLowerCase()}|${m.email}`))
   const readSheet = async (file: File) => {
@@ -267,6 +279,7 @@ export default function MouTab() {
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <Input className="w-80" placeholder="Search by ID, company, name, email…" value={q} onChange={(e) => setQ(e.target.value)} />
         {q && <span className="text-xs text-muted-foreground">{shown.length} of {mous.length}</span>}
+        <Button size="sm" variant="outline" disabled={busy || shown.length === 0} onClick={downloadAll}><Download className="mr-1 h-4 w-4" />{q ? `Download these ${shown.length} (zip)` : `Download all ${mous.length} (zip)`}</Button>
       </div>
       <div className="overflow-x-auto rounded-md border">
         <table className="w-full text-left text-sm">

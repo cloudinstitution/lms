@@ -1944,6 +1944,12 @@ test("MOU issuers: digital signature + stamp for Cloud Institution and GenAI Lab
     const g2 = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { issuer_id: "genai-labs", company: "Gamma", send_email: false, mou_date: "2026-11-20" } }))).body
     assert.equal(g2.mou.signer_name, "Meera K"); const c = await text(g2.mou.id); assert.match(c.t, /Meera K, Founder/); assert.ok(c.z.file("word/media/mou-signature.png"))
     assert.equal((await json(await call(X.iss, "PUT", "/x", { cookie: ad, body: { issuer: "genai-labs", signer_name: "Meera K", signer_title: "Founder", remove_signature: true } }))).body.settings.has_signature, false)
+    // download all as one zip
+    const dz = await import("../../app/api/admin/hr/mou/download/route")
+    const zr = await call(dz, "POST", "/x", { cookie: ad, body: {} }); assert.equal(zr.status, 200); assert.equal(zr.headers.get("content-type"), "application/zip")
+    const zz = await JSZip.loadAsync(Buffer.from(await zr.arrayBuffer())); const names = Object.keys(zz.files); assert.ok(names.length === 4 && names.every((n) => n.endsWith(".docx")), names.join())
+    const one = await call(dz, "POST", "/x", { cookie: ad, body: { ids: [c1.mou.id] } }); assert.equal(Object.keys((await JSZip.loadAsync(Buffer.from(await one.arrayBuffer()))).files).length, 1)
+    assert.equal((await call(dz, "POST", "/x", { cookie: ad, body: { ids: ["nope"] } })).status, 404); assert.equal((await call(dz, "POST", "/x", { cookie: jn, body: {} })).status, 403)
     // drafts are separate per issuer
     await call(X.draft, "PUT", "/x", { cookie: ad, body: { issuer: "genai-labs", subject: "GL {company}", body: "From {org}" } })
     assert.equal((await json(await call(X.iss, "GET", "/x?issuer=genai-labs", { cookie: ad }))).body.draft.subject, "GL {company}")
