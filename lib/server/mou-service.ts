@@ -1,7 +1,7 @@
 import { getDb } from "./firebase-admin"
 import { ApiError } from "./http"
 import { LETTER_IMAGES } from "./letter-assets"
-import { sendMail } from "./mailer"
+import { describeMailError, sendMail } from "./mailer"
 import { DEFAULT_ISSUER, isIssuerId, issuerById, type MouIssuer } from "../mou-issuers"
 import { builtinMouTemplate, checkMouTemplate, fillMouDocx, imageInfo, type MouVars, type SigImage } from "./mou-docx"
 import { CLOUD_MOU_MAIL, DEFAULT_MOU_MAIL, mouEmail, type MouMailVars } from "./mou-email"
@@ -186,7 +186,8 @@ export async function emailMou(id: string, draft?: { subject?: unknown; body?: u
     await getDb().collection("mou_agreements").doc(id).update({ email_status: "sent", email_sent_at: nowIso(), email_error: "" })
     return { sent: true }
   } catch (e) {
-    const error = e instanceof ApiError ? e.message : "The email could not be sent. Check the email settings on the server."
+    const error = e instanceof ApiError ? e.message : describeMailError(e)
+    console.error("MOU email failed:", e)
     await getDb().collection("mou_agreements").doc(id).update({ email_status: "failed", email_error: error })
     return { sent: false, error }
   }
