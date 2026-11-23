@@ -184,10 +184,11 @@ This is an automated email. Please do not reply to this email address.
 
   try {
     // Configure nodemailer transporter
+    const smtpOn = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
     let transporter;
     
     // Check for Gmail configuration
-    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    if (!smtpOn && (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)) {
       transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
@@ -212,7 +213,7 @@ This is an automated email. Please do not reply to this email address.
     // If transporter is configured, send email
     if (transporter) {
       const mailOptions = {
-        from: `"Cloud Institution" <${process.env.GMAIL_USER || process.env.SMTP_USER}>`,
+        from: `"Cloud Institution" <${(smtpOn ? process.env.SMTP_USER : process.env.GMAIL_USER) || process.env.SMTP_USER}>`,
         to: studentData.username,
         subject: "Welcome to Cloud Institution - Your Account Details",
         text: textTemplate,

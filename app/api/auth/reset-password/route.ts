@@ -42,9 +42,10 @@ function generateOTP(): string {
 async function sendOTPEmail(email: string, otp: string, userName: string) {
   try {
     // Configure nodemailer transporter
+    const smtpOn = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
     let transporter;
     
-    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    if (!smtpOn && (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)) {
       transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
@@ -177,7 +178,7 @@ This is an automated email. Please do not reply to this email address.
     `;
 
     const mailOptions = {
-      from: `"Cloud Institution" <${process.env.GMAIL_USER || process.env.SMTP_USER}>`,
+      from: `"Cloud Institution" <${(smtpOn ? process.env.SMTP_USER : process.env.GMAIL_USER) || process.env.SMTP_USER}>`,
       to: email,
       subject: "Password Reset OTP - Cloud Institution LMS",
       text: textTemplate,
