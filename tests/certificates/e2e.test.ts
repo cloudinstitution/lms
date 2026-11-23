@@ -1956,3 +1956,13 @@ test("MOU issuers: digital signature + stamp for Cloud Institution and GenAI Lab
     assert.notEqual((await json(await call(X.iss, "GET", "/x?issuer=cloud-institution", { cookie: ad }))).body.draft.subject, "GL {company}")
   } finally { M.setMailSender(null) }
 })
+
+test("Mail: MAIL_FROM changes the From address; invalid values are ignored", async () => {
+  const M = await import("../../lib/server/mailer"); const got: string[] = []
+  M.setMailSender(async (m: any) => { got.push(m.from) })
+  const keep = process.env.MAIL_FROM
+  try {
+    process.env.MAIL_FROM = "info@cloudinstitution.com"; await M.sendMail({ to: "a@b.com", subject: "s", html: "h" }, "Cloud Institution"); assert.equal(got[0], '"Cloud Institution" <info@cloudinstitution.com>')
+    process.env.MAIL_FROM = 'x"<evil'; await M.sendMail({ to: "a@b.com", subject: "s", html: "h" }); assert.ok(!got[1].includes("evil"))
+  } finally { if (keep === undefined) delete process.env.MAIL_FROM; else process.env.MAIL_FROM = keep; M.setMailSender(null) }
+})
