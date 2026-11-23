@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server"
 import { readJson, withApi } from "@/lib/server/http"
 import { assertSameOrigin, requireSection } from "@/lib/server/session"
-import { createMou, emailMou, getMouMailTemplate, getMouTemplateFile, listMous } from "@/lib/server/mou-service"
+import { createMou, emailMou, listMous } from "@/lib/server/mou-service"
 
 export const maxDuration = 60
 
 export const GET = withApi(async (req) => {
   await requireSection(req, "hr")
-  const [mous, draft, file] = await Promise.all([listMous(), getMouMailTemplate(), getMouTemplateFile()])
-  return NextResponse.json({ mous, draft, template: { custom: file.custom, name: file.name, updated_at: file.updated_at ?? null } })
+  return NextResponse.json({ mous: await listMous() })
 })
 
-/** POST { company, address?, name?, designation?, email?, phone?, business?, mou_date?, mail_subject?, mail_body?, send_email? } */
+/** POST { issuer_id?, signer_name?, signer_title?, digital_signature?, company, address?, name?, designation?, email?, phone?, business?, mou_date?, mail_subject?, mail_body?, send_email? } */
 export const POST = withApi(async (req) => {
   assertSameOrigin(req)
   await requireSection(req, "hr")

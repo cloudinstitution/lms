@@ -8,7 +8,7 @@ export const maxDuration = 60
 /** The MOU Word template currently in use (built-in or uploaded), as a download. */
 export const GET = withApi(async (req) => {
   await requireSection(req, "hr")
-  const f = await getMouTemplateFile()
+  const f = await getMouTemplateFile(new URL(req.url).searchParams.get("issuer"))
   return new Response(new Uint8Array(f.buf), { headers: { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "no-store" } })
 })
 
@@ -17,8 +17,8 @@ export const PUT = withApi(async (req) => {
   assertSameOrigin(req)
   await requireSection(req, "hr")
   const b = await readJson<any>(req)
-  await saveMouTemplateFile(b.filename, b.data)
-  const f = await getMouTemplateFile()
+  await saveMouTemplateFile(b.issuer, b.filename, b.data)
+  const f = await getMouTemplateFile(b.issuer)
   return NextResponse.json({ template: { custom: f.custom, name: f.name, updated_at: f.updated_at ?? null } })
 })
 
@@ -26,6 +26,6 @@ export const PUT = withApi(async (req) => {
 export const DELETE = withApi(async (req) => {
   assertSameOrigin(req)
   await requireSection(req, "hr")
-  await resetMouTemplateFile()
+  await resetMouTemplateFile(new URL(req.url).searchParams.get("issuer"))
   return NextResponse.json({ ok: true })
 })

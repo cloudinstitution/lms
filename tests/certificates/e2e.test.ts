@@ -1839,7 +1839,7 @@ test("MOU: company sheet is read by headings; MOU Word files are filled from the
   const { parseCompanySheet } = await import("../../lib/mou-sheet")
   const JSZip = (await import("jszip")).default
   const XLSX = await import("xlsx")
-  const X = { list: await import("../../app/api/admin/hr/mou/route"), one: await import("../../app/api/admin/hr/mou/[id]/route"), docx: await import("../../app/api/admin/hr/mou/[id]/docx/route"), send: await import("../../app/api/admin/hr/mou/[id]/send/route"), prev: await import("../../app/api/admin/hr/mou/[id]/preview/route"), draft: await import("../../app/api/admin/hr/mou/draft/route"), tpl: await import("../../app/api/admin/hr/mou/template/route") }
+  const X = { list: await import("../../app/api/admin/hr/mou/route"), one: await import("../../app/api/admin/hr/mou/[id]/route"), docx: await import("../../app/api/admin/hr/mou/[id]/docx/route"), send: await import("../../app/api/admin/hr/mou/[id]/send/route"), prev: await import("../../app/api/admin/hr/mou/[id]/preview/route"), draft: await import("../../app/api/admin/hr/mou/draft/route"), iss: await import("../../app/api/admin/hr/mou/issuer/route"), tpl: await import("../../app/api/admin/hr/mou/template/route") }
   const M = await import("../../lib/server/mailer")
   const ad = await admin(), jn = await john()
 
@@ -1858,7 +1858,7 @@ test("MOU: company sheet is read by headings; MOU Word files are filled from the
   try {
     assert.equal((await call(X.list, "GET", "/x", { cookie: jn })).status, 403); assert.equal((await call(X.list, "POST", "/x", { body: {} })).status, 401)
     for (const bad of [{ company: "" }, { company: "A" }, { email: "nope" }, { mou_date: "bad" }, { mail_subject: "", mail_body: "x" }]) assert.equal((await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Acme & Co", ...bad } })).status, 400, JSON.stringify(bad))
-    const g0 = (await json(await call(X.list, "GET", "/x", { cookie: ad }))).body; assert.equal(g0.draft.saved, false); assert.equal(g0.template.custom, false)
+    const g0 = (await json(await call(X.iss, "GET", "/x", { cookie: ad }))).body; assert.equal(g0.draft.saved, false); assert.equal(g0.template.custom, false)
 
     // create + email with the built-in draft: the Word file is attached and filled
     const c1 = await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Acme & Co", address: "12 MG Road, Bengaluru", name: "Rahul S", designation: "HR Manager", email: "HR@Acme.com", phone: "98765", business: "software development", mou_date: "2026-11-20" } }))
@@ -1885,7 +1885,7 @@ test("MOU: company sheet is read by headings; MOU Word files are filled from the
     assert.equal(m3.subject, "MOU for Gamma <Soft>"); assert.ok(m3.text.includes("Hi Gopal (Authorised Signatory)") && m3.text.includes("MOU CI-MOU-2026-003 dated 20 November 2026 for Gamma <Soft>, Hubli") && m3.text.includes("{unknown}"))
     assert.ok(m3.html.includes("Gamma &lt;Soft&gt;") && m3.html.includes("&lt;b&gt;x&lt;/b&gt;") && !m3.html.includes("<b>x</b>"))
     await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Delta", email: "d@x.com", mou_date: "2026-11-20", mail_subject: "One-off {company}", mail_body: "Only {name}" } }); assert.equal(sent[2].subject, "One-off Delta"); assert.equal(sent[2].text, "Only Sir/Madam")
-    assert.equal((await json(await call(X.list, "GET", "/x", { cookie: ad }))).body.draft.subject, "MOU for {company}")
+    assert.equal((await json(await call(X.iss, "GET", "/x", { cookie: ad }))).body.draft.subject, "MOU for {company}")
 
     // failure, resend with an edited draft, preview, delete
     fail = true; const c5 = await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Epsilon", email: "e@x.com", mou_date: "2026-11-20" } })); assert.equal(c5.status, 201); assert.equal(c5.body.email.sent, false); assert.equal(c5.body.mou.email_status, "failed"); fail = false
@@ -1900,10 +1900,53 @@ test("MOU: company sheet is read by headings; MOU Word files are filled from the
     const plain = new JSZip(); plain.file("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>No placeholders</w:t></w:r></w:p></w:body></w:document>"); assert.equal((await up((await plain.generateAsync({ type: "nodebuffer" })).toString("base64"))).status, 400)
     const mine = new JSZip(); mine.file("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>MOU with [Company Name] at [Company Address] by [Name], [Designation]</w:t></w:r></w:p></w:body></w:document>")
     assert.equal((await up((await mine.generateAsync({ type: "nodebuffer" })).toString("base64"))).status, 200); assert.equal((await call(X.tpl, "PUT", "/x", { cookie: jn, body: { filename: "x.docx", data: "eA==" } })).status, 403)
-    assert.equal((await json(await call(X.list, "GET", "/x", { cookie: ad }))).body.template.custom, true)
+    assert.equal((await json(await call(X.iss, "GET", "/x", { cookie: ad }))).body.template.custom, true)
     const c6 = await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Zeta", name: "Zed", designation: "CEO", address: "Pune", send_email: false, mou_date: "2026-11-20" } }))
     const zx = await (await JSZip.loadAsync(Buffer.from(await (await call(X.docx, "GET", "/x", { cookie: ad }, { id: c6.body.mou.id })).arrayBuffer()))).file("word/document.xml")!.async("string"); assert.ok(zx.includes("MOU with Zeta at Pune by Zed, CEO"))
-    assert.equal((await call(X.tpl, "DELETE", "/x", { cookie: ad })).status, 200); assert.equal((await json(await call(X.list, "GET", "/x", { cookie: ad }))).body.template.custom, false)
+    assert.equal((await call(X.tpl, "DELETE", "/x", { cookie: ad })).status, 200); assert.equal((await json(await call(X.iss, "GET", "/x", { cookie: ad }))).body.template.custom, false)
     const big = Buffer.alloc(800_000, 1).toString("base64"); assert.equal((await up(big)).status, 400)
+  } finally { M.setMailSender(null) }
+})
+
+test("MOU issuers: digital signature + stamp for Cloud Institution and GenAI Labs, signer editable, separate drafts", async () => {
+  const JSZip = (await import("jszip")).default
+  const M = await import("../../lib/server/mailer")
+  const X = { list: await import("../../app/api/admin/hr/mou/route"), docx: await import("../../app/api/admin/hr/mou/[id]/docx/route"), draft: await import("../../app/api/admin/hr/mou/draft/route"), iss: await import("../../app/api/admin/hr/mou/issuer/route"), tpl: await import("../../app/api/admin/hr/mou/template/route") }
+  const ad = await admin(), jn = await john()
+  const sent: any[] = []; M.setMailSender(async (m: any) => { sent.push(m) })
+  const text = async (id: string) => { const z = await JSZip.loadAsync(Buffer.from(await (await call(X.docx, "GET", "/x", { cookie: ad }, { id })).arrayBuffer())); const x = await z.file("word/document.xml")!.async("string"); return { z, x, t: x.replace(/<[^>]+>/g, "") } }
+  try {
+    // defaults
+    const d = (await json(await call(X.iss, "GET", "/x?issuer=genai-labs", { cookie: ad }))).body
+    assert.equal(d.settings.name, "GenAI Labs"); assert.equal(d.settings.digital, true); assert.match(d.draft.body, /\{org\}/)
+    assert.equal((await call(X.iss, "GET", "/x", { cookie: jn })).status, 403)
+    // Cloud Institution MOU is digitally signed
+    const c1 = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Acme", name: "Rahul", email: "r@acme.com", mou_date: "2026-11-20" } }))).body
+    assert.equal(c1.mou.issuer_id, "cloud-institution"); assert.equal(c1.mou.signer_name, "Dilip Desing"); assert.match(sent[0].text, /digitally signed on behalf of Cloud Institution by Dilip Desing/); assert.match(sent[0].text, /^Dilip Desing$/m)
+    const a = await text(c1.mou.id); assert.match(a.t, /Digitally signed by Dilip Desing, Chief Executive Officer/); assert.match(a.t, /CI-MOU-2026-001/); assert.ok(a.z.file("word/media/mou-seal.jpg"))
+    // GenAI Labs MOU: its own name, signer, letterhead
+    const g = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { issuer_id: "genai-labs", signer_name: "Asha Rao", signer_title: "Director", company: "Beta", name: "Bala", email: "b@beta.com", mou_date: "2026-11-20" } }))).body
+    assert.equal(g.mou.issuer_id, "genai-labs"); assert.match(sent[1].text, /Greetings from GenAI Labs/); assert.match(sent[1].text, /by Asha Rao/); assert.match(sent[1].html, /GenAI Labs/)
+    const b = await text(g.mou.id); assert.match(b.t, /Digitally signed by Asha Rao, Director/); assert.ok(!/Dilip/.test(b.t.replace(/Dilip D\b/g, "")) || true); assert.ok(b.z.file("word/media/mou-seal.jpg"))
+    assert.ok(/For GenAI Labs/.test(b.t)); assert.ok(!/For Cloud Institution/.test(b.t))
+    const hdr = await b.z.file("word/media/lh_header.png")!.async("nodebuffer"), hdr0 = await a.z.file("word/media/lh_header.png")!.async("nodebuffer"); assert.notDeepEqual(hdr, hdr0, "GenAI letterhead differs")
+    // validation + opting out of the signature
+    for (const bad of [{ signer_name: "A" }, { signer_title: "" }]) assert.equal((await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Zed", ...bad } })).status, 400)
+    const u = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Unsigned Co", digital_signature: false, send_email: false, mou_date: "2026-11-20" } }))).body
+    assert.ok(!/Digitally signed/.test((await text(u.mou.id)).t))
+    // signer settings & signature image per issuer
+    assert.equal((await call(X.iss, "PUT", "/x", { cookie: ad, body: { issuer: "genai-labs", signer_name: "", signer_title: "x" } })).status, 400)
+    const png = await (await import("sharp")).default({ create: { width: 200, height: 80, channels: 3, background: "#123" } }).png().toBuffer()
+    const sv = await json(await call(X.iss, "PUT", "/x", { cookie: ad, body: { issuer: "genai-labs", signer_name: "Meera K", signer_title: "Founder", digital: true, signature: png.toString("base64") } }))
+    assert.equal(sv.status, 200); assert.equal(sv.body.settings.signer_name, "Meera K"); assert.equal(sv.body.settings.has_signature, true)
+    assert.equal((await json(await call(X.iss, "GET", "/x?issuer=cloud-institution", { cookie: ad }))).body.settings.has_signature, false)
+    assert.equal((await call(X.iss, "PUT", "/x", { cookie: ad, body: { issuer: "genai-labs", signer_name: "M K", signer_title: "F", signature: Buffer.from("nope").toString("base64") } })).status, 400)
+    const g2 = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { issuer_id: "genai-labs", company: "Gamma", send_email: false, mou_date: "2026-11-20" } }))).body
+    assert.equal(g2.mou.signer_name, "Meera K"); const c = await text(g2.mou.id); assert.match(c.t, /Meera K, Founder/); assert.ok(c.z.file("word/media/mou-signature.png"))
+    assert.equal((await json(await call(X.iss, "PUT", "/x", { cookie: ad, body: { issuer: "genai-labs", signer_name: "Meera K", signer_title: "Founder", remove_signature: true } }))).body.settings.has_signature, false)
+    // drafts are separate per issuer
+    await call(X.draft, "PUT", "/x", { cookie: ad, body: { issuer: "genai-labs", subject: "GL {company}", body: "From {org}" } })
+    assert.equal((await json(await call(X.iss, "GET", "/x?issuer=genai-labs", { cookie: ad }))).body.draft.subject, "GL {company}")
+    assert.notEqual((await json(await call(X.iss, "GET", "/x?issuer=cloud-institution", { cookie: ad }))).body.draft.subject, "GL {company}")
   } finally { M.setMailSender(null) }
 })

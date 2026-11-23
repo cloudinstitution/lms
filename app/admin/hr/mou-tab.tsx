@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiFailure, api } from "@/lib/certificate-client"
 import { MOU_PLACEHOLDERS, fillMouTemplate } from "@/lib/server/mou-email"
+import { MOU_ISSUERS, issuerById } from "@/lib/mou-issuers"
 import { parseCompanySheet, type MouSheetProblem, type SheetCompany } from "@/lib/mou-sheet"
-import { Download, Eye, FileSpreadsheet, Mail, Trash2, Upload } from "lucide-react"
+import { Download, Eye, FileSpreadsheet, Mail, PenLine, Trash2, Upload } from "lucide-react"
 import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -20,6 +21,9 @@ const key = (c: SheetCompany) => `${c.company.toLowerCase()}|${c.email}`
 
 export default function MouTab() {
   const [mous, setMous] = useState<any[]>([])
+  const [issuer, setIssuer] = useState<string>(MOU_ISSUERS[0].id)
+  const I = issuerById(issuer)
+  const [signer, setSigner] = useState({ name: "", title: "", digital: true, hasSig: false })
   const [f, setF] = useState(blank())
   const [subject, setSubject] = useState("")
   const [body, setBody] = useState("")
@@ -32,28 +36,45 @@ export default function MouTab() {
   const [progress, setProgress] = useState<{ done: number; total: number; failed: { name: string; error: string }[]; emailFailed: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const load = useCallback(async () => {
-    try { const d = await api("/api/admin/hr/mou"); setMous(d.mous); setTpl(d.template); return d.draft as { subject: string; body: string; saved: boolean } } catch (e) { toast.error(err(e)) }
-  }, [])
-  useEffect(() => { load().then((t) => { if (t) { setSubject(t.subject); setBody(t.body); setSaved(t.saved) } }) }, [load])
+  const loadList = useCallback(async () => { try { setMous((await api("/api/admin/hr/mou")).mous) } catch (e) { toast.error(err(e)) } }, [])
+  const apply = (d: any) => {
+    setTpl(d.template); setSubject(d.draft.subject); setBody(d.draft.body); setSaved(d.draft.saved)
+    setSigner({ name: d.settings.signer_name, title: d.settings.signer_title, digital: d.settings.digital, hasSig: d.settings.has_signature })
+  }
+  const loadIssuer = useCallback(async (id: string) => { try { apply(await api(`/api/admin/hr/mou/issuer?issuer=${id}`)) } catch (e) { toast.error(err(e)) } }, [])
+  const load = useCallback(async () => { await Promise.all([loadList(), loadIssuer(issuer)]) }, [loadList, loadIssuer, issuer])
+  useEffect(() => { loadList() }, [loadList])
+  useEffect(() => { loadIssuer(issuer) }, [loadIssuer, issuer])
+
+  const saveSigner = async (extra: Record<string, unknown> = {}) => {
+    try {
+      apply(await api("/api/admin/hr/mou/issuer", { method: "PUT", body: { issuer, signer_name: signer.name, signer_title: signer.title, digital: signer.digital, ...extra } }))
+      toast.success(`Saved — new ${I.name} MOUs are signed by ${signer.name}`)
+    } catch (e) { toast.error(err(e)) }
+  }
+  const sigRef = useRef<HTMLInputElement>(null)
+  const uploadSignature = async (file: File) => {
+    const buf = new Uint8Array(await file.arrayBuffer()); let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
+    await saveSigner({ signature: btoa(bin) })
+  }
 
   const set = (k: keyof ReturnType<typeof blank>) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
-  const sample = { company: f.company || "Company name", name: f.name || "Sir/Madam", designation: f.designation || "Authorised Signatory", address: f.address, date: f.mou_date, id: "CI-MOU-2026-001" }
+  const sample = { company: f.company || "Company name", name: f.name || "Sir/Madam", designation: f.designation || "Authorised Signatory", address: f.address, date: f.mou_date, id: "CI-MOU-2026-001", org: I.name, signer: signer.name, signer_title: signer.title }
 
   const create = async () => {
     if (f.company.trim().length < 2) return toast.error("Enter the company name")
     if (f.email.trim() && !EMAIL_OK.test(f.email.trim())) return toast.error("That email address isn't valid")
     setBusy(true)
     try {
-      const d = await api("/api/admin/hr/mou", { method: "POST", body: { ...f, mail_subject: subject, mail_body: body } })
+      const d = await api("/api/admin/hr/mou", { method: "POST", body: { ...f, issuer_id: issuer, signer_name: signer.name, signer_title: signer.title, digital_signature: signer.digital, mail_subject: subject, mail_body: body } })
       if (d.email?.sent) toast.success(`MOU ${d.mou.mou_id} emailed to ${d.mou.email}`)
       else if (d.email?.skipped) toast.success(`MOU ${d.mou.mou_id} saved (${d.email.reason === "no email address" ? "no email address, so not emailed" : "not emailed"}). Use the Word button to download it.`)
       else toast.warning(`MOU ${d.mou.mou_id} saved, but the email failed: ${d.email?.error ?? "unknown error"}`, { duration: 9000 })
-      setF(blank()); load()
+      setF(blank()); loadList()
     } catch (e) { toast.error(err(e)) } finally { setBusy(false) }
   }
-  const saveDraft = async () => { try { await api("/api/admin/hr/mou/draft", { method: "PUT", body: { subject, body } }); setSaved(true); toast.success("Saved as the default email draft") } catch (e) { toast.error(err(e)) } }
-  const resetDraft = async () => { try { const d = await api("/api/admin/hr/mou/draft", { method: "PUT", body: { reset: true } }); setSubject(d.draft.subject); setBody(d.draft.body); setSaved(false); toast.success("Back to the built-in draft") } catch (e) { toast.error(err(e)) } }
+  const saveDraft = async () => { try { await api("/api/admin/hr/mou/draft", { method: "PUT", body: { issuer, subject, body } }); setSaved(true); toast.success("Saved as the default email draft") } catch (e) { toast.error(err(e)) } }
+  const resetDraft = async () => { try { const d = await api("/api/admin/hr/mou/draft", { method: "PUT", body: { issuer, reset: true } }); setSubject(d.draft.subject); setBody(d.draft.body); setSaved(false); toast.success("Back to the built-in draft") } catch (e) { toast.error(err(e)) } }
 
   // template (Word file)
   const downloadBlob = async (url: string, name: string) => {
@@ -63,15 +84,15 @@ export default function MouTab() {
   const uploadTemplate = async (file: File) => {
     try {
       const buf = new Uint8Array(await file.arrayBuffer()); let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
-      await api("/api/admin/hr/mou/template", { method: "PUT", body: { filename: file.name, data: btoa(bin) } }); toast.success("MOU template replaced — new MOUs use it from now on"); load()
+      await api("/api/admin/hr/mou/template", { method: "PUT", body: { issuer, filename: file.name, data: btoa(bin) } }); toast.success("MOU template replaced — new MOUs use it from now on"); load()
     } catch (e) { toast.error(err(e)) }
   }
-  const resetTemplate = async () => { if (!confirm("Go back to the built-in MOU template?")) return; try { await api("/api/admin/hr/mou/template", { method: "DELETE" }); toast.success("Using the built-in template"); load() } catch (e) { toast.error(err(e)) } }
+  const resetTemplate = async () => { if (!confirm("Go back to the built-in MOU template?")) return; try { await api(`/api/admin/hr/mou/template?issuer=${issuer}`, { method: "DELETE" }); toast.success("Using the built-in template"); load() } catch (e) { toast.error(err(e)) } }
 
   // list actions
-  const resend = async (m: any) => { try { const d = await api(`/api/admin/hr/mou/${m.id}/send`, { method: "POST" }); d.email.sent ? toast.success(`Emailed to ${m.email}`) : toast.error(d.email.error ?? "The email could not be sent"); load() } catch (e) { toast.error(err(e)) } }
+  const resend = async (m: any) => { try { const d = await api(`/api/admin/hr/mou/${m.id}/send`, { method: "POST" }); d.email.sent ? toast.success(`Emailed to ${m.email}`) : toast.error(d.email.error ?? "The email could not be sent"); loadList() } catch (e) { toast.error(err(e)) } }
   const view = async (m: any) => { try { setViewing(await api(`/api/admin/hr/mou/${m.id}/preview`)) } catch (e) { toast.error(err(e)) } }
-  const remove = async (m: any) => { if (!confirm(`Delete MOU ${m.mou_id} for ${m.company}?`)) return; try { await api(`/api/admin/hr/mou/${m.id}`, { method: "DELETE" }); load() } catch (e) { toast.error(err(e)) } }
+  const remove = async (m: any) => { if (!confirm(`Delete MOU ${m.mou_id} for ${m.company}?`)) return; try { await api(`/api/admin/hr/mou/${m.id}`, { method: "DELETE" }); loadList() } catch (e) { toast.error(err(e)) } }
 
   // sheet
   const existing = new Set(mous.map((m) => `${String(m.company).toLowerCase()}|${m.email}`))
@@ -102,12 +123,12 @@ export default function MouTab() {
     for (let i = 0; i < list.length; i++) {
       const c = list[i]
       try {
-        const d = await api("/api/admin/hr/mou", { method: "POST", body: { ...c, mou_date: f.mou_date, send_email: f.send_email, mail_subject: subject, mail_body: body } })
+        const d = await api("/api/admin/hr/mou", { method: "POST", body: { ...c, issuer_id: issuer, signer_name: signer.name, signer_title: signer.title, digital_signature: signer.digital, mou_date: f.mou_date, send_email: f.send_email, mail_subject: subject, mail_body: body } })
         if (f.send_email && c.email && !d.email?.sent) emailFailed++
       } catch (e) { failed.push({ name: c.company, error: err(e) }) }
       setProgress({ done: i + 1, total: list.length, failed: [...failed], emailFailed })
     }
-    setBusy(false); load(); setSheet(null)
+    setBusy(false); loadList(); setSheet(null)
     const ok = list.length - failed.length
     if (failed.length === 0 && emailFailed === 0) toast.success(`${ok} MOU${ok === 1 ? "" : "s"} created${f.send_email ? " and emailed" : ""}`)
     else toast.warning(`${ok} created. ${failed.length ? `${failed.length} could not be created. ` : ""}${emailFailed ? `${emailFailed} emails failed — use Send in the list below to retry.` : ""}`, { duration: 12000 })
@@ -118,11 +139,33 @@ export default function MouTab() {
   return (
     <div className="space-y-4">
       <Card>
+        <CardHeader><CardTitle className="text-base">Issued by &amp; digital signature</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Issuing company">
+            {MOU_ISSUERS.map((x) => <Button key={x.id} role="tab" aria-selected={issuer === x.id} size="sm" variant={issuer === x.id ? "default" : "outline"} onClick={() => setIssuer(x.id)}>{x.name}</Button>)}
+          </div>
+          <p className="text-sm text-muted-foreground">New MOUs are issued by <b>{I.name}</b> with its letterhead, email sender name and reply address ({I.email}). Each issuer keeps its own signer, email draft and template.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs text-muted-foreground">Who signs (name)<Input autoComplete="off" name="mou-signer" value={signer.name} onChange={(e) => setSigner({ ...signer, name: e.target.value })} /></label>
+            <label className="text-xs text-muted-foreground">Designation<Input autoComplete="off" name="mou-signer-title" value={signer.title} onChange={(e) => setSigner({ ...signer, title: e.target.value })} /></label>
+          </div>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={signer.digital} onChange={(e) => setSigner({ ...signer, digital: e.target.checked })} />Digitally sign and stamp the MOU for {I.name} ({signer.name || "signer"}) before sending</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={() => saveSigner()}><PenLine className="mr-1 h-4 w-4" />Save signer</Button>
+            <Button size="sm" variant="outline" onClick={() => sigRef.current?.click()}><Upload className="mr-1 h-4 w-4" />{signer.hasSig ? "Replace signature image" : "Upload signature image"}</Button>
+            {signer.hasSig && <Button size="sm" variant="ghost" onClick={() => saveSigner({ remove_signature: true })}>Remove image</Button>}
+            <input ref={sigRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) uploadSignature(file).catch((x) => toast.error(err(x))) }} />
+          </div>
+          <p className="text-xs text-muted-foreground">The MOU carries {I.name}'s seal and a line “Digitally signed by {signer.name || "…"}, {signer.title || "…"} — date (MOU ID)”. {signer.hasSig ? "Your uploaded signature image is shown above that line." : "Without an uploaded signature image the name is written in a signature style; upload a PNG/JPG of the real signature (under 300 KB) to use it instead."} This is a visual signature that shows the MOU was issued and approved by {I.name}; it is not a cryptographic e-sign certificate.</p>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle className="text-base">MOU template</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">Currently using: <b>{tpl?.custom ? `your uploaded template (${tpl.name})` : "the built-in Cloud Institution MOU"}</b>. Each company's MOU is made from it as a Word file, with the letterhead and layout unchanged.</p>
+          <p className="text-sm text-muted-foreground">Currently using: <b>{tpl?.custom ? `your uploaded template (${tpl.name})` : `the built-in MOU (${I.name} wording, letterhead and signature)`}</b>. Each company's MOU is made from it as a Word file, with the letterhead and layout unchanged.</p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => downloadBlob("/api/admin/hr/mou/template", tpl?.name || "MOU-template.docx").catch((e) => toast.error(err(e)))}><Download className="mr-1 h-4 w-4" />Download template</Button>
+            <Button size="sm" variant="outline" onClick={() => downloadBlob(`/api/admin/hr/mou/template?issuer=${issuer}`, tpl?.name || "MOU-template.docx").catch((e) => toast.error(err(e)))}><Download className="mr-1 h-4 w-4" />Download template</Button>
             <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}><Upload className="mr-1 h-4 w-4" />Upload a different template (.docx)</Button>
             {tpl?.custom && <Button size="sm" variant="ghost" onClick={resetTemplate}>Use the built-in one</Button>}
             <input ref={fileRef} type="file" accept=".docx" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) uploadTemplate(file) }} />
@@ -227,15 +270,16 @@ export default function MouTab() {
       </div>
       <div className="overflow-x-auto rounded-md border">
         <table className="w-full text-left text-sm">
-          <thead className="bg-muted/50"><tr>{["ID", "Company", "Contact", "Date", "Email", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
+          <thead className="bg-muted/50"><tr>{["ID", "Company", "Contact", "Issued by", "Date", "Email", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
           <tbody>
-            {shown.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">{q ? `No MOUs match "${q}".` : "No MOUs yet."}</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">{q ? `No MOUs match "${q}".` : "No MOUs yet."}</td></tr>}
             {shown.map((m) => (
               <Fragment key={m.id}>
                 <tr className="border-t">
                   <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{m.mou_id}</td>
                   <td className="px-3 py-2"><div className="font-medium">{m.company}</div><div className="text-xs text-muted-foreground">{m.address}</div></td>
                   <td className="px-3 py-2 text-xs">{[m.name, m.designation].filter(Boolean).join(" · ")}<div className="text-muted-foreground">{m.email}</div></td>
+                  <td className="px-3 py-2 text-xs">{issuerById(m.issuer_id).name}<div className="text-muted-foreground">{m.digital_signature === false ? "Unsigned" : `Signed: ${m.signer_name || issuerById(m.issuer_id).signer_name}`}</div></td>
                   <td className="px-3 py-2 whitespace-nowrap">{m.mou_date}</td>
                   <td className="px-3 py-2 text-xs">{m.email_status === "sent" ? <span className="text-green-600">Sent</span> : m.email_status === "failed" ? <span className="text-red-600" title={m.email_error}>Failed</span> : <span className="text-muted-foreground">{m.email ? "Not sent" : "No email"}</span>}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">

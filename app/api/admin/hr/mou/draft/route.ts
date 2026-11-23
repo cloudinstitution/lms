@@ -7,6 +7,7 @@ import { getMouMailTemplate, saveMouMailTemplate } from "@/lib/server/mou-servic
 export const PUT = withApi(async (req) => {
   assertSameOrigin(req)
   await requireSection(req, "hr")
-  await saveMouMailTemplate(await readJson<any>(req))
-  return NextResponse.json({ draft: await getMouMailTemplate() })
+  const b = await readJson<any>(req)
+  await saveMouMailTemplate(b.issuer, b)
+  return NextResponse.json({ draft: await getMouMailTemplate(b.issuer) })
 })
