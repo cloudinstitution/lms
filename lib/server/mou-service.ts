@@ -4,7 +4,7 @@ import { LETTER_IMAGES } from "./letter-assets"
 import { sendMail } from "./mailer"
 import { DEFAULT_ISSUER, isIssuerId, issuerById, type MouIssuer } from "../mou-issuers"
 import { builtinMouTemplate, checkMouTemplate, fillMouDocx, imageInfo, type MouVars, type SigImage } from "./mou-docx"
-import { DEFAULT_MOU_MAIL, mouEmail, type MouMailVars } from "./mou-email"
+import { CLOUD_MOU_MAIL, DEFAULT_MOU_MAIL, mouEmail, type MouMailVars } from "./mou-email"
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "")
@@ -34,7 +34,7 @@ const settings = (name: string, issuer: unknown) => getDb().collection("hr_setti
 // ---------- email draft ----------
 export async function getMouMailTemplate(issuer?: unknown): Promise<MouMailTemplate & { saved: boolean }> {
   const d = (await settings("mou_mail", issuer).get()).data() as any
-  return d?.subject && d?.body ? { subject: d.subject, body: d.body, saved: true } : { ...DEFAULT_MOU_MAIL, saved: false }
+  return d?.subject && d?.body ? { subject: d.subject, body: d.body, saved: true } : { ...(sid(issuer) === DEFAULT_ISSUER ? CLOUD_MOU_MAIL : DEFAULT_MOU_MAIL), saved: false }
 }
 export async function saveMouMailTemplate(issuer: unknown, input: any): Promise<void> {
   if (input?.reset === true) { await settings("mou_mail", issuer).delete(); return }

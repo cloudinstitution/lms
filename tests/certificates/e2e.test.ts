@@ -1918,11 +1918,11 @@ test("MOU issuers: digital signature + stamp for Cloud Institution and GenAI Lab
   try {
     // defaults
     const d = (await json(await call(X.iss, "GET", "/x?issuer=genai-labs", { cookie: ad }))).body
-    assert.equal(d.settings.name, "GenAI Labs"); assert.equal(d.settings.digital, true); assert.match(d.draft.body, /\{org\}/)
+    assert.equal(d.settings.name, "GenAI Labs"); assert.equal(d.settings.digital, true); assert.match(d.draft.body, /\{org\}/); assert.match((await json(await call(X.iss, "GET", "/x?issuer=cloud-institution", { cookie: ad }))).body.draft.body, /attached our Memorandum/)
     assert.equal((await call(X.iss, "GET", "/x", { cookie: jn })).status, 403)
     // Cloud Institution MOU is digitally signed
     const c1 = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Acme", name: "Rahul", email: "r@acme.com", mou_date: "2026-11-20" } }))).body
-    assert.equal(c1.mou.issuer_id, "cloud-institution"); assert.equal(c1.mou.signer_name, "Dilip Desing"); assert.match(sent[0].text, /digitally signed on behalf of Cloud Institution by Dilip Desing/); assert.match(sent[0].text, /^Dilip Desing$/m)
+    assert.equal(c1.mou.issuer_id, "cloud-institution"); assert.equal(c1.mou.signer_name, "Dilip Desing"); assert.match(sent[0].text, /We have attached our Memorandum of Understanding|we have attached our Memorandum of Understanding/); assert.match(sent[0].text, /digitally signed by Dilip Desing, Chief Executive Officer/); assert.match(sent[0].subject, /^Zero-Cost VTU Internship Hiring Partnership with Cloud Institution – Acme$/); assert.match(sent[0].text, /^Shweta Kanaki$/m)
     const a = await text(c1.mou.id); assert.match(a.t, /Digitally signed by Dilip Desing, Chief Executive Officer/); assert.match(a.t, /CI-MOU-2026-001/); assert.ok(a.z.file("word/media/mou-seal.jpg"))
     // GenAI Labs MOU: its own name, signer, letterhead
     const g = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { issuer_id: "genai-labs", signer_name: "Asha Rao", signer_title: "Director", company: "Beta", name: "Bala", email: "b@beta.com", mou_date: "2026-11-20" } }))).body
