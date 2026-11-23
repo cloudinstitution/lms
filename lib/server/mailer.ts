@@ -33,7 +33,11 @@ export function describeMailError(e: unknown): string {
   const x = e as { code?: string; responseCode?: number; response?: string; message?: string }
   const via = smtpSet() ? `${process.env.SMTP_HOST}:${process.env.SMTP_PORT || "587"} as ${process.env.SMTP_USER}` : gmailSet() ? `Gmail as ${process.env.GMAIL_USER}` : "no mail settings"
   const detail = String(x?.response || x?.message || "").replace(/\s+/g, " ").slice(0, 160)
-  if (x?.code === "EAUTH" || x?.responseCode === 535) return `The mail server rejected the login (${via}). Check the mailbox password in the email settings. ${detail}`.trim()
+  if (x?.code === "EAUTH" || x?.responseCode === 535) {
+    const pw = (smtpSet() ? process.env.SMTP_PASSWORD : process.env.GMAIL_APP_PASSWORD) || ""
+    const odd = [pw !== pw.trim() ? "it has a space or line break at the start or end" : "", /^["'].*["']$/.test(pw) ? "it is wrapped in quotation marks" : ""].filter(Boolean)
+    return `The mail server rejected the login (${via}). The password saved on the server is ${pw.length} characters${odd.length ? ` and ${odd.join(" and ")}` : ""}. Check it matches the mailbox's password exactly. ${detail}`.trim()
+  }
   if (x?.code === "ECONNECTION" || x?.code === "ETIMEDOUT" || x?.code === "ESOCKET" || x?.code === "EDNS") return `Couldn't connect to the mail server (${via}). Check SMTP_HOST, SMTP_PORT (465 with SMTP_SECURE=true, or 587 with false). ${detail}`.trim()
   if (x?.responseCode && x.responseCode >= 500) return `The mail server refused the message (${via}): ${detail}`
   return `The email could not be sent (${via}). ${detail}`.trim()

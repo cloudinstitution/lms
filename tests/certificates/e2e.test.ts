@@ -1979,7 +1979,7 @@ test("Mail: failure reasons are explained without leaking secrets", async () => 
   const M = await import("../../lib/server/mailer"); const keys = ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_PORT"]; const old = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
   try {
     Object.assign(process.env, { SMTP_HOST: "smtp.titan.email", SMTP_USER: "info@cloudinstitution.com", SMTP_PASSWORD: "TOPSECRET", SMTP_PORT: "465" })
-    const a = M.describeMailError({ code: "EAUTH", responseCode: 535, response: "535 Authentication failed" }); assert.match(a, /rejected the login/); assert.match(a, /smtp\.titan\.email:465 as info@cloudinstitution\.com/); assert.ok(!a.includes("TOPSECRET"))
+    const a = M.describeMailError({ code: "EAUTH", responseCode: 535, response: "535 Authentication failed" }); assert.match(a, /rejected the login/); assert.match(a, /is 9 characters/); assert.match(a, /smtp\.titan\.email:465 as info@cloudinstitution\.com/); assert.ok(!a.includes("TOPSECRET"))
     assert.match(M.describeMailError({ code: "ETIMEDOUT", message: "timeout" }), /Couldn't connect/)
   } finally { for (const k of keys) old[k] === undefined ? delete process.env[k] : (process.env[k] = old[k]) }
 })
