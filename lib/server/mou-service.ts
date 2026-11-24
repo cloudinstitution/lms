@@ -135,6 +135,20 @@ export async function getMou(id: string) {
   if (!snap.exists) throw new ApiError(404, "MOU not found")
   return { id, ...(snap.data() as any) }
 }
+/** Fix a company's details after the MOU was created (address, contact, email…). The Word/PDF and emails use the new values. */
+export async function updateMou(id: string, input: any) {
+  const ref = getDb().collection("mou_agreements").doc(id)
+  if (!(await ref.get()).exists) throw new ApiError(404, "MOU not found")
+  const patch: Record<string, string> = {}
+  const take = (k: string, max: number) => { if (input?.[k] !== undefined) patch[k] = str(input[k], max) }
+  take("company", 150); take("address", 400); take("name", 80); take("designation", 80); take("phone", 30); take("business", 150)
+  if (input?.email !== undefined) { const e = str(input.email, 120).toLowerCase(); if (e && !EMAIL_RE.test(e)) throw new ApiError(400, "That email address isn't valid"); patch.email = e }
+  if (patch.company !== undefined && patch.company.length < 2) throw new ApiError(400, "Enter the company name")
+  if (input?.mou_date !== undefined) { const d = str(input.mou_date, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(d))) throw new ApiError(400, "The MOU date is not valid"); patch.mou_date = d }
+  if (Object.keys(patch).length === 0) throw new ApiError(400, "Nothing to change")
+  await ref.update(patch)
+  return getMou(id)
+}
 export async function deleteMou(id: string) {
   const ref = getDb().collection("mou_agreements").doc(id)
   if (!(await ref.get()).exists) throw new ApiError(404, "MOU not found")

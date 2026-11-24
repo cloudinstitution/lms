@@ -94,6 +94,12 @@ export default function MouTab() {
   const view = async (m: any) => { try { setViewing(await api(`/api/admin/hr/mou/${m.id}/preview`)) } catch (e) { toast.error(err(e)) } }
   const remove = async (m: any) => { if (!confirm(`Delete MOU ${m.mou_id} for ${m.company}?`)) return; try { await api(`/api/admin/hr/mou/${m.id}`, { method: "DELETE" }); loadList() } catch (e) { toast.error(err(e)) } }
 
+  const [edit, setEdit] = useState<{ id: string; mou_id: string; company: string; address: string; name: string; designation: string; email: string; phone: string } | null>(null)
+  const saveEdit = async () => {
+    if (!edit) return
+    if (edit.email.trim() && !EMAIL_OK.test(edit.email.trim())) return toast.error("That email address isn't valid")
+    try { const { id, mou_id, ...body } = edit; void mou_id; await api(`/api/admin/hr/mou/${id}`, { method: "PATCH", body }); toast.success("Company details updated — the Word/PDF and emails use them now"); setEdit(null); loadList() } catch (e) { toast.error(err(e)) }
+  }
   const [dl, setDl] = useState({ from: "", to: "", format: "pdf" as "docx" | "pdf" | "both" })
   const inRange = (m: any) => (!dl.from || m.mou_date >= dl.from) && (!dl.to || m.mou_date <= dl.to)
   const downloadAll = async () => {
@@ -316,7 +322,7 @@ export default function MouTab() {
               <Fragment key={m.id}>
                 <tr className="border-t">
                   <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{m.mou_id}</td>
-                  <td className="px-3 py-2"><div className="font-medium">{m.company}</div><div className="text-xs text-muted-foreground">{m.address}</div></td>
+                  <td className="px-3 py-2"><div className="font-medium">{m.company}</div>{m.address ? <div className="max-w-xs text-xs text-muted-foreground">{m.address}</div> : <button className="text-xs text-amber-600 underline" onClick={() => setEdit({ id: m.id, mou_id: m.mou_id, company: m.company, address: "", name: m.name ?? "", designation: m.designation ?? "", email: m.email ?? "", phone: m.phone ?? "" })}>No address — add it</button>}</td>
                   <td className="px-3 py-2 text-xs">{[m.name, m.designation].filter(Boolean).join(" · ")}<div className="text-muted-foreground">{m.email}</div></td>
                   <td className="px-3 py-2 text-xs">{issuerById(m.issuer_id).name}<div className="text-muted-foreground">{m.digital_signature === false ? "Unsigned" : `Signed: ${m.signer_name || issuerById(m.issuer_id).signer_name}`}</div></td>
                   <td className="px-3 py-2 whitespace-nowrap">{m.mou_date}</td>
@@ -326,6 +332,7 @@ export default function MouTab() {
                     <Button size="sm" variant="outline" onClick={() => downloadBlob(`/api/admin/hr/mou/${m.id}/pdf`, `MOU-${m.mou_id}.pdf`).catch((e) => toast.error(err(e)))}><Download className="mr-1 h-4 w-4" />PDF</Button>{" "}
                     <Button size="sm" variant="outline" onClick={() => view(m)}><Eye className="mr-1 h-4 w-4" />Email</Button>{" "}
                     <Button size="sm" variant="outline" disabled={!m.email} onClick={() => resend(m)}><Mail className="mr-1 h-4 w-4" />{m.email_status === "sent" ? "Resend" : "Send"}</Button>{" "}
+                    <Button size="sm" variant="outline" onClick={() => setEdit({ id: m.id, mou_id: m.mou_id, company: m.company, address: m.address ?? "", name: m.name ?? "", designation: m.designation ?? "", email: m.email ?? "", phone: m.phone ?? "" })}>Edit</Button>{" "}
                     <Button size="icon" variant="ghost" onClick={() => remove(m)} aria-label={`Delete ${m.mou_id}`}><Trash2 className="h-4 w-4" /></Button>
                   </td>
                 </tr>
@@ -334,6 +341,22 @@ export default function MouTab() {
           </tbody>
         </table>
       </div>
+      {edit && (
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0"><CardTitle className="text-base">Edit {edit.mou_id}</CardTitle><Button size="sm" variant="ghost" onClick={() => setEdit(null)}>Cancel</Button></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="text-xs text-muted-foreground sm:col-span-3">Company name<Input value={edit.company} onChange={(e) => setEdit({ ...edit, company: e.target.value })} /></label>
+              <label className="text-xs text-muted-foreground sm:col-span-3">Company address<Input autoFocus value={edit.address} placeholder="Office address" onChange={(e) => setEdit({ ...edit, address: e.target.value })} /></label>
+              <label className="text-xs text-muted-foreground">Representative<Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></label>
+              <label className="text-xs text-muted-foreground">Designation<Input value={edit.designation} onChange={(e) => setEdit({ ...edit, designation: e.target.value })} /></label>
+              <label className="text-xs text-muted-foreground">Phone<Input value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></label>
+              <label className="text-xs text-muted-foreground sm:col-span-3">Email<Input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></label>
+            </div>
+            <Button onClick={saveEdit}>Save changes</Button>
+          </CardContent>
+        </Card>
+      )}
       {viewing && (
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0"><CardTitle className="text-base">Email for this company</CardTitle><Button size="sm" variant="ghost" onClick={() => setViewing(null)}>Close</Button></CardHeader>

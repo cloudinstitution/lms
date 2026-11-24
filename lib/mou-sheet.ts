@@ -5,7 +5,7 @@ const EMAIL_IN_TEXT = /[^\s@<>,;:()"']+@[^\s@<>,;:()"']+\.[^\s@<>,;:()"']{2,}/
 const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
 const HEADS: Record<keyof Omit<SheetCompany, "row">, string[]> = {
   company: ["company", "company name", "name of the company", "organisation", "organization", "organisation name", "organization name", "firm", "firm name", "client", "employer"],
-  address: ["address", "company address", "office address", "registered address", "location", "office"],
+  address: ["address", "company address", "office address", "registered address", "full address", "postal address", "communication address", "mailing address", "location", "company location", "office location", "office", "registered office", "head office", "adress", "addr"],
   designation: ["designation", "title", "role", "position", "job title", "contact designation", "signatory designation"],
   name: ["name", "contact", "contact name", "contact person", "person", "representative", "authorised signatory", "authorized signatory", "signatory", "hr name", "hr", "spoc", "poc", "name of the representative", "represented by"],
   email: ["email", "email id", "emailid", "e mail", "e mail id", "email address", "mail", "mail id", "contact email", "hr email", "official email"],
@@ -32,13 +32,16 @@ export function parseCompanySheet(grid: unknown[][]): { companies: SheetCompany[
     const head = rows[headRow].map(norm)
     for (const k of keys) { const i = head.findIndex((h, idx) => HEADS[k].includes(h) && !Object.values(cols).includes(idx)); if (i >= 0) { cols[k] = i; found.push(k) } }
     // looser: any heading that merely contains the word
-    const loose: [keyof typeof HEADS, RegExp][] = [["company", /compan|organi[sz]ation|firm/], ["email", /e ?mail|gmail/], ["address", /address/], ["designation", /designation|title/], ["phone", /phone|mobile|contact n/]]
+    const loose: [keyof typeof HEADS, RegExp][] = [["company", /compan|organi[sz]ation|firm/], ["email", /e ?mail|gmail/], ["address", /addr|adress|registered office|location/], ["designation", /designation|title/], ["phone", /phone|mobile|contact n/]]
     for (const [k, re] of loose) if (cols[k] === undefined) { const i = head.findIndex((h, idx) => re.test(h) && !Object.values(cols).includes(idx)); if (i >= 0) { cols[k] = i; found.push(k) } }
   }
   if (cols.company === undefined) {
     return { companies: [], problems: [{ row: headRow + 1, reason: "Couldn't find a Company column. Add a heading called \"Company\" (and \"Address\", \"Designation\", \"Name\", \"Email\").", text: "" }], headerFound, found }
   }
   const companies: SheetCompany[] = [], problems: MouSheetProblem[] = [], seen = new Set<string>()
+  // City / State / Pincode columns next to the address are added to it, so a short address still comes out whole
+  const PLACE = /^(city|town|district|state|pin|pincode|pin code|postal code|zip|zip code|country)$/
+  const placeCols = rows[headRow].map(norm).map((h, i) => (PLACE.test(h) && !Object.values(cols).includes(i) ? i : -1)).filter((i) => i >= 0)
   const get = (r: unknown[], k: keyof typeof HEADS) => (cols[k] === undefined ? "" : String(r[cols[k]] ?? "").replace(/\s+/g, " ").trim())
   rows.slice(headRow + 1).forEach((r, idx) => {
     const rowNo = idx + headRow + 2
@@ -51,7 +54,9 @@ export function parseCompanySheet(grid: unknown[][]): { companies: SheetCompany[
     const key = `${company.toLowerCase()}|${email}`
     if (seen.has(key)) return problems.push({ row: rowNo, reason: "Repeated company/email in the file", text })
     seen.add(key)
-    companies.push({ company, address: get(r, "address"), designation: get(r, "designation"), name: get(r, "name"), email, phone: get(r, "phone"), business: get(r, "business"), row: rowNo })
+    const addrParts = [get(r, "address"), ...placeCols.map((i) => String(r[i] ?? "").replace(/\s+/g, " ").trim())].filter(Boolean)
+    const address = addrParts.filter((part, i) => !addrParts.slice(0, i).some((q) => q.toLowerCase().includes(part.toLowerCase()))).join(", ")
+    companies.push({ company, address, designation: get(r, "designation"), name: get(r, "name"), email, phone: get(r, "phone"), business: get(r, "business"), row: rowNo })
   })
   return { companies, problems, headerFound, found }
 }

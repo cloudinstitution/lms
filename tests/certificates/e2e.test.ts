@@ -1993,3 +1993,19 @@ test("Mail: failure reasons are explained without leaking secrets", async () => 
     assert.match(M.describeMailError({ code: "ETIMEDOUT", message: "timeout" }), /Couldn't connect/)
   } finally { for (const k of keys) old[k] === undefined ? delete process.env[k] : (process.env[k] = old[k]) }
 })
+
+test("MOU: address is read from many sheet layouts and can be corrected afterwards", async () => {
+  const { parseCompanySheet } = await import("../../lib/mou-sheet")
+  const a = parseCompanySheet([["Company Name", "Registered Office", "Email"], ["Acme", "12 MG Road", "a@acme.com"]]); assert.equal(a.companies[0].address, "12 MG Road")
+  const b = parseCompanySheet([["Company", "Adress", "City", "State", "Pincode", "Email"], ["Beta", "5 Brigade Rd", "Bengaluru", "Karnataka", "560001", "b@beta.com"]]); assert.equal(b.companies[0].address, "5 Brigade Rd, Bengaluru, Karnataka, 560001")
+  const c = parseCompanySheet([["Company", "Address", "City"], ["Gamma", "9 Park St, Pune", "Pune"]]); assert.equal(c.companies[0].address, "9 Park St, Pune", "no repeat of a city already in the address")
+  const JSZip = (await import("jszip")).default
+  const X = { list: await import("../../app/api/admin/hr/mou/route"), one: await import("../../app/api/admin/hr/mou/[id]/route"), docx: await import("../../app/api/admin/hr/mou/[id]/docx/route") }
+  const ad = await admin(), jn = await john()
+  const m = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "NoAddr Co", send_email: false, mou_date: "2026-11-20" } }))).body.mou
+  assert.equal((await call(X.one, "PATCH", "/x", { cookie: jn, body: { address: "x" } }, { id: m.id })).status, 403)
+  for (const bad of [{}, { email: "nope" }, { company: "A" }, { mou_date: "bad" }]) assert.equal((await call(X.one, "PATCH", "/x", { cookie: ad, body: bad }, { id: m.id })).status, 400, JSON.stringify(bad))
+  assert.equal((await call(X.one, "PATCH", "/x", { cookie: ad, body: { address: "x" } }, { id: "nope" })).status, 404)
+  const u = await json(await call(X.one, "PATCH", "/x", { cookie: ad, body: { address: "77 Residency Rd, Bengaluru 560025", name: "Ravi", email: "R@NoAddr.com" } }, { id: m.id })); assert.equal(u.status, 200); assert.equal(u.body.mou.email, "r@noaddr.com")
+  const z = await JSZip.loadAsync(Buffer.from(await (await call(X.docx, "GET", "/x", { cookie: ad }, { id: m.id })).arrayBuffer())); assert.ok((await z.file("word/document.xml")!.async("string")).includes("having its office at 77 Residency Rd, Bengaluru 560025"))
+})
