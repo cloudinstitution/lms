@@ -32,7 +32,7 @@ export default function MouTab() {
   const [busy, setBusy] = useState(false)
   const [q, setQ] = useState("")
   const [viewing, setViewing] = useState<{ subject: string; text: string } | null>(null)
-  const [sheet, setSheet] = useState<{ file: string; companies: SheetCompany[]; problems: MouSheetProblem[]; picked: Set<string>; headerFound: boolean; found: string[] } | null>(null)
+  const [sheet, setSheet] = useState<{ file: string; grid: unknown[][]; pick: Record<string, number>; headers: string[]; missing: string[]; companies: SheetCompany[]; problems: MouSheetProblem[]; picked: Set<string>; headerFound: boolean; found: string[] } | null>(null)
   const [progress, setProgress] = useState<{ done: number; total: number; failed: { name: string; error: string }[]; emailFailed: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -127,12 +127,21 @@ export default function MouTab() {
   const readSheet = async (file: File) => {
     try {
       const XLSX = await import("xlsx")
-      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" })
+      // CSV files are UTF-8 text: decode them ourselves so characters like – and é don't turn into â▯▯
+      const isCsv = /\.(csv|txt)$/i.test(file.name)
+      const wb = isCsv ? XLSX.read(new TextDecoder("utf-8").decode(await file.arrayBuffer()).replace(/^\uFEFF/, ""), { type: "string" }) : XLSX.read(await file.arrayBuffer(), { type: "array" })
       const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: "" }) as unknown[][]
       const r = parseCompanySheet(grid)
       if (r.companies.length === 0 && r.problems.length === 0) return toast.error("That file looks empty")
-      setSheet({ file: file.name, ...r, picked: new Set(r.companies.filter((c) => !existing.has(key(c))).map(key)) }); setProgress(null)
+      setSheet({ file: file.name, grid, pick: {}, ...r, picked: new Set(r.companies.filter((c) => !existing.has(key(c))).map(key)) }); setProgress(null)
     } catch { toast.error("Couldn't read that file. Use an .xlsx, .xls or .csv with Company, Address, Designation, Name and Email columns.") }
+  }
+  /** The admin tells us which column holds a field whose heading we didn't recognise. */
+  const pickColumn = (field: string, col: number) => {
+    if (!sheet) return
+    const pick = { ...sheet.pick }; if (col < 0) delete pick[field]; else pick[field] = col
+    const r = parseCompanySheet(sheet.grid, pick)
+    setSheet({ ...sheet, pick, ...r, picked: new Set(r.companies.filter((c) => !existing.has(key(c))).map(key)) })
   }
   const downloadSample = async () => {
     const XLSX = await import("xlsx")
@@ -251,6 +260,22 @@ export default function MouTab() {
           {sheet && (
             <div className="space-y-3">
               <div className="text-sm"><b>{sheet.file}</b>: {sheet.companies.length} compan{sheet.companies.length === 1 ? "y" : "ies"} found{sheet.problems.length ? `, ${sheet.problems.length} row${sheet.problems.length === 1 ? "" : "s"} skipped` : ""}.{sheet.found.length > 0 && <span className="text-muted-foreground"> Columns read: {sheet.found.join(", ")}.</span>}{!sheet.headerFound && " (No headings found — add a heading row.)"}</div>
+              {sheet.missing.filter((k) => ["address", "designation", "name", "email"].includes(k)).length > 0 && sheet.headers.length > 0 && (
+                <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-950/20">
+                  <div className="font-medium text-amber-700">Some columns weren't recognised — pick which column holds each one</div>
+                  <div className="flex flex-wrap gap-3">
+                    {sheet.missing.filter((k) => ["address", "designation", "name", "email"].includes(k)).map((k) => (
+                      <label key={k} className="text-xs text-muted-foreground capitalize">{k}
+                        <select className="mt-1 block h-9 rounded-md border bg-background px-2 text-sm text-foreground" value={sheet.pick[k] ?? -1} onChange={(e) => pickColumn(k, Number(e.target.value))}>
+                          <option value={-1}>— none / leave blank —</option>
+                          {sheet.headers.map((h, i) => h && !Object.values(sheet.pick).includes(i) || sheet.pick[k] === i ? <option key={i} value={i}>{h}</option> : null)}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Columns in your file: {sheet.headers.filter(Boolean).join(" · ")}</div>
+                </div>
+              )}
               {sheet.companies.length > 0 && (
                 <div className="max-h-80 overflow-auto rounded-md border">
                   <table className="w-full text-left text-sm">

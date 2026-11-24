@@ -18,9 +18,9 @@ const HEADS: Record<keyof Omit<SheetCompany, "row">, string[]> = {
  * (Company, Address, Designation, Name, Email, Phone, Business — any order, several spellings). Only the company name is required;
  * a row with no email can still get its MOU file but can't be emailed. The heading row may sit under a title.
  */
-export function parseCompanySheet(grid: unknown[][]): { companies: SheetCompany[]; problems: MouSheetProblem[]; headerFound: boolean; found: string[] } {
+export function parseCompanySheet(grid: unknown[][], pick: Partial<Record<keyof Omit<SheetCompany, "row">, number>> = {}): { companies: SheetCompany[]; problems: MouSheetProblem[]; headerFound: boolean; found: string[]; headers: string[]; missing: string[] } {
   const rows = grid.map((r) => (Array.isArray(r) ? r : [])).filter((r) => r.some((c) => String(c ?? "").trim() !== ""))
-  if (rows.length === 0) return { companies: [], problems: [], headerFound: false, found: [] }
+  if (rows.length === 0) return { companies: [], problems: [], headerFound: false, found: [], headers: [], missing: [] }
   const cols = {} as Record<keyof typeof HEADS, number>
   const keys = Object.keys(HEADS) as (keyof typeof HEADS)[]
   const score = (r: unknown[]) => r.filter((c) => keys.some((k) => HEADS[k].includes(norm(c)))).length
@@ -35,8 +35,12 @@ export function parseCompanySheet(grid: unknown[][]): { companies: SheetCompany[
     const loose: [keyof typeof HEADS, RegExp][] = [["company", /compan|organi[sz]ation|firm/], ["email", /e ?mail|gmail/], ["address", /addr|adress|registered office|location/], ["designation", /designation|title/], ["phone", /phone|mobile|contact n/]]
     for (const [k, re] of loose) if (cols[k] === undefined) { const i = head.findIndex((h, idx) => re.test(h) && !Object.values(cols).includes(idx)); if (i >= 0) { cols[k] = i; found.push(k) } }
   }
+  // columns the admin chose by hand (when a heading wasn't recognised)
+  for (const k of keys) { const i = pick[k]; if (typeof i === "number" && i >= 0 && i < rows[headRow].length) { cols[k] = i; if (!found.includes(k)) found.push(k) } }
+  const headers = rows[headRow].map((c) => String(c ?? "").replace(/\s+/g, " ").trim())
+  const missing = keys.filter((k) => cols[k] === undefined)
   if (cols.company === undefined) {
-    return { companies: [], problems: [{ row: headRow + 1, reason: "Couldn't find a Company column. Add a heading called \"Company\" (and \"Address\", \"Designation\", \"Name\", \"Email\").", text: "" }], headerFound, found }
+    return { companies: [], problems: [{ row: headRow + 1, reason: "Couldn't find a Company column. Add a heading called \"Company\" (and \"Address\", \"Designation\", \"Name\", \"Email\").", text: "" }], headerFound, found, headers, missing }
   }
   const companies: SheetCompany[] = [], problems: MouSheetProblem[] = [], seen = new Set<string>()
   // City / State / Pincode columns next to the address are added to it, so a short address still comes out whole
@@ -58,5 +62,5 @@ export function parseCompanySheet(grid: unknown[][]): { companies: SheetCompany[
     const address = addrParts.filter((part, i) => !addrParts.slice(0, i).some((q) => q.toLowerCase().includes(part.toLowerCase()))).join(", ")
     companies.push({ company, address, designation: get(r, "designation"), name: get(r, "name"), email, phone: get(r, "phone"), business: get(r, "business"), row: rowNo })
   })
-  return { companies, problems, headerFound, found }
+  return { companies, problems, headerFound, found, headers, missing }
 }

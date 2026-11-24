@@ -2009,3 +2009,11 @@ test("MOU: address is read from many sheet layouts and can be corrected afterwar
   const u = await json(await call(X.one, "PATCH", "/x", { cookie: ad, body: { address: "77 Residency Rd, Bengaluru 560025", name: "Ravi", email: "R@NoAddr.com" } }, { id: m.id })); assert.equal(u.status, 200); assert.equal(u.body.mou.email, "r@noaddr.com")
   const z = await JSZip.loadAsync(Buffer.from(await (await call(X.docx, "GET", "/x", { cookie: ad }, { id: m.id })).arrayBuffer())); assert.ok((await z.file("word/document.xml")!.async("string")).includes("having its office at 77 Residency Rd, Bengaluru 560025"))
 })
+
+test("MOU sheet: columns with unrecognised headings can be picked by hand", async () => {
+  const { parseCompanySheet } = await import("../../lib/mou-sheet")
+  const grid = [["Company", "Stall Location", "Name", "Email"], ["Acme", "Hall 2, Bengaluru", "Ravi", "r@acme.com"]]
+  const a = parseCompanySheet(grid); assert.ok(a.missing.includes("address") || a.companies[0].address !== undefined)
+  const none = parseCompanySheet([["Company", "Stall", "Name", "Email"], ["Acme", "Hall 2, Bengaluru", "Ravi", "r@acme.com"]]); assert.ok(none.missing.includes("address")); assert.equal(none.companies[0].address, ""); assert.deepEqual(none.headers, ["Company", "Stall", "Name", "Email"])
+  const picked = parseCompanySheet([["Company", "Stall", "Name", "Email"], ["Acme", "Hall 2, Bengaluru", "Ravi", "r@acme.com"]], { address: 1 }); assert.equal(picked.companies[0].address, "Hall 2, Bengaluru"); assert.ok(!picked.missing.includes("address"))
+})
