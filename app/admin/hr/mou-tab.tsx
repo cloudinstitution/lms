@@ -94,16 +94,26 @@ export default function MouTab() {
   const view = async (m: any) => { try { setViewing(await api(`/api/admin/hr/mou/${m.id}/preview`)) } catch (e) { toast.error(err(e)) } }
   const remove = async (m: any) => { if (!confirm(`Delete MOU ${m.mou_id} for ${m.company}?`)) return; try { await api(`/api/admin/hr/mou/${m.id}`, { method: "DELETE" }); loadList() } catch (e) { toast.error(err(e)) } }
 
+  const [dl, setDl] = useState({ from: "", to: "", format: "pdf" as "docx" | "pdf" | "both" })
+  const inRange = (m: any) => (!dl.from || m.mou_date >= dl.from) && (!dl.to || m.mou_date <= dl.to)
   const downloadAll = async () => {
-    const ids = shown.map((m) => m.id)
-    if (ids.length === 0) return toast.error("No MOUs to download")
+    const ids = shown.filter(inRange).map((m) => m.id)
+    if (ids.length === 0) return toast.error("No MOUs for that date range")
+    if (dl.from && dl.to && dl.from > dl.to) return toast.error("The start date is after the end date")
     setBusy(true)
     try {
-      const res = await fetch("/api/admin/hr/mou/download", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) })
+      const res = await fetch("/api/admin/hr/mou/download", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, format: dl.format }) })
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Could not create the zip")
-      const u = URL.createObjectURL(await res.blob()); const a = document.createElement("a"); a.href = u; a.download = `MOUs-${todayIst()}.zip`; a.click(); URL.revokeObjectURL(u)
+      const u = URL.createObjectURL(await res.blob()); const a = document.createElement("a"); a.href = u; a.download = `MOUs-${dl.from || "all"}${dl.to ? `_to_${dl.to}` : ""}-${dl.format}.zip`; a.click(); URL.revokeObjectURL(u)
       toast.success(`Downloaded ${ids.length} MOU${ids.length === 1 ? "" : "s"} as a zip`)
     } catch (e) { toast.error(err(e)) } finally { setBusy(false) }
+  }
+  const dayPick = (kind: "today" | "week" | "month" | "all") => {
+    const t = todayIst(), d = new Date(`${t}T00:00:00Z`)
+    if (kind === "today") setDl({ ...dl, from: t, to: t })
+    else if (kind === "week") { const w = new Date(d); w.setUTCDate(d.getUTCDate() - 6); setDl({ ...dl, from: w.toISOString().slice(0, 10), to: t }) }
+    else if (kind === "month") setDl({ ...dl, from: `${t.slice(0, 7)}-01`, to: t })
+    else setDl({ ...dl, from: "", to: "" })
   }
 
   // sheet
@@ -279,7 +289,23 @@ export default function MouTab() {
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <Input className="w-80" placeholder="Search by ID, company, name, email…" value={q} onChange={(e) => setQ(e.target.value)} />
         {q && <span className="text-xs text-muted-foreground">{shown.length} of {mous.length}</span>}
-        <Button size="sm" variant="outline" disabled={busy || shown.length === 0} onClick={downloadAll}><Download className="mr-1 h-4 w-4" />{q ? `Download these ${shown.length} (zip)` : `Download all ${mous.length} (zip)`}</Button>
+      </div>
+      <div className="space-y-2 rounded-md border p-3">
+        <div className="text-sm font-medium">Download many MOUs at once</div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-xs text-muted-foreground">MOU date from<Input type="date" className="w-40" value={dl.from} onChange={(e) => setDl({ ...dl, from: e.target.value })} /></label>
+          <label className="text-xs text-muted-foreground">to<Input type="date" className="w-40" value={dl.to} onChange={(e) => setDl({ ...dl, to: e.target.value })} /></label>
+          <label className="text-xs text-muted-foreground">Format
+            <select className="block h-9 rounded-md border bg-background px-2 text-sm" value={dl.format} onChange={(e) => setDl({ ...dl, format: e.target.value as "docx" | "pdf" | "both" })}>
+              <option value="pdf">PDF</option><option value="docx">Word (.docx)</option><option value="both">PDF + Word</option>
+            </select>
+          </label>
+          <Button disabled={busy || shown.filter(inRange).length === 0} onClick={downloadAll}><Download className="mr-1 h-4 w-4" />{busy ? "Preparing…" : `Download ${shown.filter(inRange).length} (zip)`}</Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">Quick pick:
+          {([["today", "Today"], ["week", "Last 7 days"], ["month", "This month"], ["all", "All dates"]] as const).map(([k, l]) => <Button key={k} size="sm" variant="ghost" className="h-7 px-2" onClick={() => dayPick(k)}>{l}</Button>)}
+          <span>Uses the search above too. With several dates, the zip has one folder per date. PDFs take longer to prepare.</span>
+        </div>
       </div>
       <div className="overflow-x-auto rounded-md border">
         <table className="w-full text-left text-sm">
@@ -297,6 +323,7 @@ export default function MouTab() {
                   <td className="px-3 py-2 text-xs">{m.email_status === "sent" ? <span className="text-green-600">Sent</span> : m.email_status === "failed" ? <span className="text-red-600" title={m.email_error}>Failed</span> : <span className="text-muted-foreground">{m.email ? "Not sent" : "No email"}</span>}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-right">
                     <Button size="sm" variant="outline" onClick={() => downloadBlob(`/api/admin/hr/mou/${m.id}/docx`, `MOU-${m.mou_id}.docx`).catch((e) => toast.error(err(e)))}><Download className="mr-1 h-4 w-4" />Word</Button>{" "}
+                    <Button size="sm" variant="outline" onClick={() => downloadBlob(`/api/admin/hr/mou/${m.id}/pdf`, `MOU-${m.mou_id}.pdf`).catch((e) => toast.error(err(e)))}><Download className="mr-1 h-4 w-4" />PDF</Button>{" "}
                     <Button size="sm" variant="outline" onClick={() => view(m)}><Eye className="mr-1 h-4 w-4" />Email</Button>{" "}
                     <Button size="sm" variant="outline" disabled={!m.email} onClick={() => resend(m)}><Mail className="mr-1 h-4 w-4" />{m.email_status === "sent" ? "Resend" : "Send"}</Button>{" "}
                     <Button size="icon" variant="ghost" onClick={() => remove(m)} aria-label={`Delete ${m.mou_id}`}><Trash2 className="h-4 w-4" /></Button>

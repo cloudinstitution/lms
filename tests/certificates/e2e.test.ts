@@ -1950,6 +1950,16 @@ test("MOU issuers: digital signature + stamp for Cloud Institution and GenAI Lab
     const zz = await JSZip.loadAsync(Buffer.from(await zr.arrayBuffer())); const names = Object.keys(zz.files); assert.ok(names.length === 4 && names.every((n) => n.endsWith(".docx")), names.join())
     const one = await call(dz, "POST", "/x", { cookie: ad, body: { ids: [c1.mou.id] } }); assert.equal(Object.keys((await JSZip.loadAsync(Buffer.from(await one.arrayBuffer()))).files).length, 1)
     assert.equal((await call(dz, "POST", "/x", { cookie: ad, body: { ids: ["nope"] } })).status, 404); assert.equal((await call(dz, "POST", "/x", { cookie: jn, body: {} })).status, 403)
+    // PDF: single file + zip by format and date range
+    const pd = await import("../../app/api/admin/hr/mou/[id]/pdf/route")
+    const pr = await call(pd, "GET", "/x", { cookie: ad }, { id: c1.mou.id }); assert.equal(pr.status, 200); assert.equal(pr.headers.get("content-type"), "application/pdf"); assert.match(pr.headers.get("content-disposition")!, /MOU-Acme-CI-MOU-2026-001\.pdf/)
+    const pb = Buffer.from(await pr.arrayBuffer()); assert.equal(pb.subarray(0, 5).toString(), "%PDF-"); assert.ok(pb.length > 20_000, "has letterhead images")
+    assert.equal((await call(pd, "GET", "/x", { cookie: jn }, { id: c1.mou.id })).status, 403); assert.equal((await call(pd, "GET", "/x", { cookie: ad }, { id: "nope" })).status, 404)
+    const late = (await json(await call(X.list, "POST", "/x", { cookie: ad, body: { company: "Late Co", send_email: false, mou_date: "2026-12-05" } }))).body
+    const zf = async (body: any) => Object.keys((await JSZip.loadAsync(Buffer.from(await (await call(dz, "POST", "/x", { cookie: ad, body })).arrayBuffer()))).files).filter((n) => !n.endsWith("/"))
+    const pf = await zf({ format: "pdf" }); assert.ok(pf.length >= 5 && pf.every((n) => n.endsWith(".pdf")), pf.join()); assert.ok(pf.some((n) => n.startsWith("2026-12-05/")) && pf.some((n) => n.startsWith("2026-11-20/")), "folders per date")
+    const bf = await zf({ format: "both", from: "2026-12-01", to: "2026-12-31" }); assert.deepEqual(bf.sort(), [`MOU-Late-Co-${late.mou.mou_id}.docx`, `MOU-Late-Co-${late.mou.mou_id}.pdf`].sort(), "one date means no folder")
+    assert.equal((await call(dz, "POST", "/x", { cookie: ad, body: { from: "2030-01-01" } })).status, 404); assert.equal((await call(dz, "POST", "/x", { cookie: ad, body: { from: "2026-12-31", to: "2026-12-01" } })).status, 400); assert.equal((await call(dz, "POST", "/x", { cookie: ad, body: { from: "bad" } })).status, 400)
     // drafts are separate per issuer
     await call(X.draft, "PUT", "/x", { cookie: ad, body: { issuer: "genai-labs", subject: "GL {company}", body: "From {org}" } })
     assert.equal((await json(await call(X.iss, "GET", "/x?issuer=genai-labs", { cookie: ad }))).body.draft.subject, "GL {company}")

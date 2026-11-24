@@ -3,6 +3,7 @@ import { ApiError } from "./http"
 import { LETTER_IMAGES } from "./letter-assets"
 import { describeMailError, sendMail } from "./mailer"
 import { DEFAULT_ISSUER, isIssuerId, issuerById, type MouIssuer } from "../mou-issuers"
+import { docxToPdf } from "./mou-pdf"
 import { builtinMouTemplate, checkMouTemplate, fillMouDocx, imageInfo, type MouVars, type SigImage } from "./mou-docx"
 import { CLOUD_MOU_MAIL, DEFAULT_MOU_MAIL, mouEmail, type MouMailVars } from "./mou-email"
 
@@ -154,6 +155,12 @@ export async function mouDocx(id: string) {
     digital: m.digital_signature !== false, seal: libImage(I.seal), signature: sigImage(d.signature_b64), signedOn: longDate(m.mou_date), ref: m.mou_id,
   })
   return { bytes, filename: `MOU-${safeFile(m.company)}-${m.mou_id}.docx`, mou: m }
+}
+
+/** The same MOU as a PDF. */
+export async function mouPdf(id: string) {
+  const d = await mouDocx(id)
+  return { bytes: await docxToPdf(d.bytes), filename: d.filename.replace(/\.docx$/, ".pdf"), mou: d.mou }
 }
 
 const mailVars = (m: any): MouMailVars => {
