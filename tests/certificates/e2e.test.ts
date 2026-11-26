@@ -2017,3 +2017,21 @@ test("MOU sheet: columns with unrecognised headings can be picked by hand", asyn
   const none = parseCompanySheet([["Company", "Stall", "Name", "Email"], ["Acme", "Hall 2, Bengaluru", "Ravi", "r@acme.com"]]); assert.ok(none.missing.includes("address")); assert.equal(none.companies[0].address, ""); assert.deepEqual(none.headers, ["Company", "Stall", "Name", "Email"])
   const picked = parseCompanySheet([["Company", "Stall", "Name", "Email"], ["Acme", "Hall 2, Bengaluru", "Ravi", "r@acme.com"]], { address: 1 }); assert.equal(picked.companies[0].address, "Hall 2, Bengaluru"); assert.ok(!picked.missing.includes("address"))
 })
+
+test("Public internship verification: by ID, case-insensitive, public details only, VTU too, unknown IDs 404", async () => {
+  const V = await import("../../app/api/verify/internship/[id]/route")
+  const IN = await import("../../app/api/admin/hr/internships/route"), VT = await import("../../app/api/admin/hr/vtu/route")
+  const M = await import("../../lib/server/mailer"); M.setMailSender(async () => {})
+  const ad = await admin()
+  try {
+    const co = (await json(await call(IN, "GET", "/x", { cookie: ad }))).body.companies?.[0]?.id ?? "genai-labs"
+    const a = (await json(await call(IN, "POST", "/x", { cookie: ad, body: { company_id: co, candidate_name: "Verify Me", candidate_email: "vm@example.com", position: "Cloud Intern", start_date: "2026-01-05", end_date: "2026-03-05", duration_value: 2, duration_unit: "Months", paid: true, stipend_amount: 9000, send_email: false } }))).body
+    const id = a.internship.internship_id
+    const r = await json(await call(V, "GET", "/x", {}, { id: id.toLowerCase() })); assert.equal(r.status, 200)
+    assert.equal(r.body.status, "VALID"); assert.equal(r.body.candidate_name, "Verify Me"); assert.equal(r.body.role, "Cloud Intern"); assert.equal(r.body.progress, "Completed"); assert.equal(r.body.duration, "2 months")
+    const flat = JSON.stringify(r.body); for (const secret of ["vm@example.com", "9000", "stipend", "email"]) assert.ok(!flat.includes(secret), `leaks ${secret}`)
+    const v = (await json(await call(VT, "POST", "/x", { cookie: ad, body: { candidate_name: "Vtu Kid", candidate_email: "vk@example.com", program: "Python Full Stack", weeks: 8, send_email: false } }))).body
+    const vr = await json(await call(V, "GET", "/x", {}, { id: v.offer.vtu_id })); assert.equal(vr.body.kind, "vtu"); assert.equal(vr.body.duration, "8 weeks"); assert.ok(!JSON.stringify(vr.body).includes("vk@example.com"))
+    for (const bad of ["CI-INT-1999-999", "nope", "a b", "<script>"]) assert.equal((await call(V, "GET", "/x", {}, { id: bad })).status, 404, bad)
+  } finally { M.setMailSender(null) }
+})

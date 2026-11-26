@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { ApiFailure, api } from "@/lib/certificate-client"
 import { VTU_PLACEHOLDERS, fillVtuTemplate } from "@/lib/server/vtu-email"
 import { parseStudentSheet, type SheetProblem, type SheetStudent } from "@/lib/vtu-sheet"
-import { Download, Eye, FileSpreadsheet, Mail, Trash2 } from "lucide-react"
+import { Download, Eye, FileSpreadsheet, Link2, Mail, Trash2 } from "lucide-react"
+import { copyVerifyLink } from "@/lib/verify-link"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -232,6 +233,7 @@ export default function VtuTab() {
                   <Button size="sm" variant="outline" onClick={() => download(o)}><Download className="mr-1 h-4 w-4" />PDF</Button>{" "}
                   <Button size="sm" variant="outline" onClick={() => view(o)}><Eye className="mr-1 h-4 w-4" />Email</Button>{" "}
                   <Button size="sm" variant="outline" onClick={() => resend(o)}><Mail className="mr-1 h-4 w-4" />{o.email_status === "sent" ? "Resend" : "Send"}</Button>{" "}
+                  <Button size="sm" variant="outline" onClick={() => copyVerifyLink(o.vtu_id)}><Link2 className="mr-1 h-4 w-4" />Verify link</Button>{" "}
                   <Button size="icon" variant="ghost" onClick={() => remove(o)} aria-label={`Delete ${o.vtu_id}`}><Trash2 className="h-4 w-4" /></Button>
                 </td>
               </tr>

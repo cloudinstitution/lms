@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ApiFailure, api } from "@/lib/certificate-client"
-import { Download, Trash2 } from "lucide-react"
+import { Download, Link2, Trash2 } from "lucide-react"
+import { copyVerifyLink } from "@/lib/verify-link"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import VtuTab from "./vtu-tab"
@@ -534,7 +535,7 @@ export default function HrPage() {
                     <td className="px-3 py-2 whitespace-nowrap">{o.start_date}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{o.duration_value} {o.duration_unit}</td>
                     <td className="px-3 py-2 text-xs">{o.email_status === "sent" ? <span className="text-emerald-700">Sent {o.email_sent_at ? new Date(o.email_sent_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : ""}</span> : o.email_status === "failed" ? <span className="text-red-600" title={o.email_error}>Failed</span> : <span className="text-muted-foreground">Not sent</span>}</td>
-                    <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" variant="outline" onClick={() => downloadIntern(o)}><Download className="mr-1 h-4 w-4" />PDF</Button> <Button size="sm" variant="outline" onClick={() => resendIntern(o)}>{o.email_status === "sent" ? "Resend" : "Send email"}</Button> <Button size="sm" variant="ghost" onClick={() => removeIntern(o)}><Trash2 className="h-4 w-4" /></Button></td>
+                    <td className="px-3 py-2 whitespace-nowrap"><Button size="sm" variant="outline" onClick={() => downloadIntern(o)}><Download className="mr-1 h-4 w-4" />PDF</Button> <Button size="sm" variant="outline" onClick={() => copyVerifyLink(o.internship_id)}><Link2 className="mr-1 h-4 w-4" />Verify link</Button> <Button size="sm" variant="outline" onClick={() => resendIntern(o)}>{o.email_status === "sent" ? "Resend" : "Send email"}</Button> <Button size="sm" variant="ghost" onClick={() => removeIntern(o)}><Trash2 className="h-4 w-4" /></Button></td>
                   </tr>
                 ))}
               </tbody>
