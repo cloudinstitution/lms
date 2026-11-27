@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ApiFailure, api } from "@/lib/certificate-client"
 import { Download, Link2, Trash2 } from "lucide-react"
 import { copyVerifyLink } from "@/lib/verify-link"
+import { parseLatLng } from "@/lib/geo"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import VtuTab from "./vtu-tab"
@@ -39,6 +40,27 @@ function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: st
   const [lat, setLat] = useState(c.office_lat != null ? String(c.office_lat) : "")
   const [lng, setLng] = useState(c.office_lng != null ? String(c.office_lng) : "")
   const [radius, setRadius] = useState(String(c.office_radius_m ?? 150))
+  // find the office on the map from its address (OpenStreetMap search, run from the browser), or paste coordinates / a Google Maps link
+  const [findQ, setFindQ] = useState("")
+  const [found, setFound] = useState<{ name: string; lat: number; lng: number }[] | null>(null)
+  const [finding, setFinding] = useState(false)
+  const [paste, setPaste] = useState("")
+  const findAddress = async () => {
+    const q = (findQ.trim() || addr.replace(/\s*\n\s*/g, ", ").trim() || name).trim()
+    if (q.length < 4) return toast.error("Type the office address first")
+    setFinding(true); setFound(null)
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=in&q=${encodeURIComponent(q)}`, { headers: { Accept: "application/json" } })
+      if (!res.ok) throw new Error("search failed")
+      const list = ((await res.json()) as any[]).map((r) => ({ name: String(r.display_name), lat: Number(r.lat), lng: Number(r.lon) })).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng))
+      setFound(list); if (list.length === 0) toast.error("No match for that address. Try a shorter one (area, city, pincode) or paste a Google Maps link below.")
+    } catch { toast.error("Couldn't search the map right now. Paste a Google Maps link or the coordinates below instead.") } finally { setFinding(false) }
+  }
+  const pickFound = (r: { lat: number; lng: number }) => { setLat(r.lat.toFixed(6)); setLng(r.lng.toFixed(6)); setFound(null); toast.success("Location taken. Check it on the map, then click Save.") }
+  const applyPaste = (v: string) => {
+    setPaste(v); const p = parseLatLng(v)
+    if (p) { setLat(p.lat.toFixed(6)); setLng(p.lng.toFixed(6)); toast.success("Location read. Click Save to keep it.") }
+  }
   const useMyLocation = () => {
     if (!navigator.geolocation) return toast.error("This browser can't share its location")
     navigator.geolocation.getCurrentPosition((p) => { setLat(p.coords.latitude.toFixed(6)); setLng(p.coords.longitude.toFixed(6)); toast.success(`Location taken (±${Math.round(p.coords.accuracy)} m). Click Save to keep it.`) }, () => toast.error("Couldn't get your location. Allow location access for this site, or type the latitude and longitude."), { enableHighAccuracy: true, timeout: 20000 })
@@ -66,7 +88,18 @@ function CompanyRow({ c, onSaved }: { c: { id: string; name: string; address: st
             <label className="text-xs text-muted-foreground">Allowed distance (metres)<Input type="number" min={20} max={5000} value={radius} onChange={(e) => setRadius(e.target.value)} /></label>
             <Button type="button" variant="outline" className="self-end" onClick={useMyLocation}>Use my current location</Button>
           </div>
-          <p className="text-xs text-muted-foreground">{lat && lng ? "Employees of this company are marked Present only within the allowed distance of this point, and Absent when they check in from further away." : "Not set yet — employees can't mark their own attendance until you set it. Stand in the office and click “Use my current location”, then Save."}</p>
+          <div className="grid gap-2 sm:grid-cols-[2fr_auto]">
+            <Input placeholder="Find from address (defaults to the company address above)" value={findQ} onChange={(e) => setFindQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); findAddress() } }} />
+            <Button type="button" variant="outline" disabled={finding} onClick={findAddress}>{finding ? "Searching…" : "Find on map"}</Button>
+          </div>
+          {found && found.length > 0 && (
+            <ul className="divide-y rounded-md border bg-background text-sm">
+              {found.map((r, i) => <li key={i}><button type="button" className="w-full px-3 py-2 text-left hover:bg-muted" onClick={() => pickFound(r)}>{r.name}<span className="ml-2 text-xs text-muted-foreground">{r.lat.toFixed(5)}, {r.lng.toFixed(5)}</span></button></li>)}
+            </ul>
+          )}
+          <Input placeholder="…or paste a Google Maps link, or “latitude, longitude”" value={paste} onChange={(e) => applyPaste(e.target.value)} />
+          {lat && lng && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && <a className="inline-block text-xs text-blue-600 underline" href={`https://www.google.com/maps?q=${Number(lat)},${Number(lng)}`} target="_blank" rel="noreferrer">Check this spot on Google Maps ↗</a>}
+          <p className="text-xs text-muted-foreground">{lat && lng ? "Employees of this company are marked Present only within the allowed distance of this point, and Absent when they check in from further away." : "Not set yet — employees can't mark their own attendance until you set it. Search the office address, paste a Google Maps link, or stand in the office and click “Use my current location”, then Save."}</p>
         </div>
       )}
     </div>

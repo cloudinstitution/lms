@@ -2035,3 +2035,13 @@ test("Public internship verification: by ID, case-insensitive, public details on
     for (const bad of ["CI-INT-1999-999", "nope", "a b", "<script>"]) assert.equal((await call(V, "GET", "/x", {}, { id: bad })).status, 404, bad)
   } finally { M.setMailSender(null) }
 })
+
+test("Office location: coordinates are read from pasted text and Google Maps links", async () => {
+  const { parseLatLng } = await import("../../lib/geo")
+  assert.deepEqual(parseLatLng("12.9175, 77.6238"), { lat: 12.9175, lng: 77.6238 })
+  assert.deepEqual(parseLatLng("12.9175 77.6238"), { lat: 12.9175, lng: 77.6238 })
+  assert.deepEqual(parseLatLng("(12.9175,77.6238)"), { lat: 12.9175, lng: 77.6238 })
+  assert.deepEqual(parseLatLng("https://www.google.com/maps/place/BTM/@12.9166,77.6101,17z/data=!3m1"), { lat: 12.9166, lng: 77.6101 })
+  assert.deepEqual(parseLatLng("https://www.google.com/maps/place/X/data=!3d12.9101!4d77.5999"), { lat: 12.9101, lng: 77.5999 })
+  for (const bad of ["", "hello", "91.5, 77", "12.9, 181", "12"]) assert.equal(parseLatLng(bad), null, bad)
+})
